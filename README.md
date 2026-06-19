@@ -1,2 +1,5 @@
-# grimoire-and-steel
-Fantasy Role-Playing Game
+# Grimoire & Steel
+
+A fantasy role-playing game.
+
+In production — **COMING SOON!**
