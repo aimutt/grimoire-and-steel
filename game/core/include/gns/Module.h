@@ -50,13 +50,25 @@ struct MapObject {
     float rotationDeg = 0.0f;  // clockwise rotation about the centre
 };
 
-// A plot marker placed at an area. Referenced by id from Area prerequisites.
+// A free text label placed on a map at a sub-grid position, any colour/size.
+struct MapText {
+    int id = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    std::string text;
+    std::uint32_t color = 0xFFFFFFFFu;  // RGBA
+    float sizePx = 18.0f;
+};
+
+// A plot marker placed on a map. Referenced by id from Area prerequisites.
 struct ControlPoint {
     int id = 0;
     std::string name;
     std::string description;
     int mapId = 0;     // where the control point lives
-    int areaId = 0;
+    int areaId = 0;    // area under the marker (0 = none), for prerequisite linkage
+    float x = -1.0f;   // sub-grid position; <0 means "legacy: use area centroid"
+    float y = -1.0f;
 };
 
 // A described region of a map (a set of fine cells sharing an id).
@@ -97,6 +109,7 @@ struct Map {
     std::vector<int> cellArea;    // owning area id per fine cell (0 = none)
     std::vector<Area> areas;
     std::vector<MapObject> objects;   // sub-grid props
+    std::vector<MapText> texts;       // free text labels
 };
 
 // A complete adventure module.
@@ -116,14 +129,16 @@ struct Module {
     int nextAreaId() const;     // unique across all maps
     int nextControlPointId() const;
     int nextObjectId() const;   // unique across all maps
+    int nextTextId() const;     // unique across all maps
 
     Map* mapById(int id);
     Area* areaById(int id);     // searches every map
 };
 
 // On-disk format version, written to PRAGMA user_version.
-// v2 added the map_objects table (sub-grid props); v3 added object rotation.
-constexpr int kModuleFormatVersion = 3;
+// v2 added the map_objects table (sub-grid props); v3 added object rotation;
+// v4 added control-point position (x,y) and the map_texts table.
+constexpr int kModuleFormatVersion = 4;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

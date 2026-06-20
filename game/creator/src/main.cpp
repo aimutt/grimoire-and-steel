@@ -20,6 +20,7 @@
 #include "gns/Repository.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -283,7 +284,7 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float 
 // ---------------------------------------------------------------------------
 // Editor state
 // ---------------------------------------------------------------------------
-enum class Tool { Select, PaintTerrain, AssignArea, Erase, PlaceControlPoint, PlaceObject };
+enum class Tool { Select, PaintTerrain, AssignArea, Erase, PlaceControlPoint, PlaceObject, PlaceText };
 
 // Fixed three-pane layout: each panel is pinned to a dedicated region every frame
 // (this build of ImGui has no docking branch), so panels never float or stack.
@@ -311,8 +312,35 @@ struct App {
     int selectedObjectId = 0;  // currently selected placed object (0 = none)
     bool draggingObject = false;
 
+    // Text tool.
+    std::string paintTextBuf = "Label";
+    std::uint32_t paintTextColor = 0xFFFF66FFu;
+    float paintTextSize = 20.0f;
+    int selectedTextId = 0;
+    bool draggingText = false;
+
+    // Control point tool.
+    int selectedControlPointId = 0;
+    bool draggingCp = false;
+
+    // One undo snapshot per drag (set when a move actually starts).
+    bool dragSnapshotTaken = false;
+    bool strokeOpen = false;   // a paint stroke is in progress (one snapshot/stroke)
+
+    // Hand-tool (Select) panning vs click.
+    bool handDragging = false;
+    ImVec2 handPressPos{0, 0};
+
     float cellPx = 22.0f;      // zoom (pixels per cell)
     bool fitRequested = false;  // canvas fits whole map next frame
+
+    // Undo history (whole-module snapshots).
+    std::vector<gns::Module> undo;
+
+    // Pending modal dialogs.
+    int confirmRemoveMapId = 0;   // map awaiting delete confirmation (0 = none)
+    bool wantClose = false;       // close requested; confirm if dirty
+    int renameMapId = 0;          // map whose name is being edited inline (0 = none)
 
     // gns.db reference pickers (optional).
     bool haveRepo = false;
@@ -343,6 +371,70 @@ static void areaCentroid(const gns::Map& m, int areaId, int& outX, int& outY) {
     outY = (int)(sy / n);
 }
 
+// Filename portion of a path (after the last / or \), for compact display.
+static std::string baseName(const std::string& path) {
+    size_t p = path.find_last_of("/\\");
+    return p == std::string::npos ? path : path.substr(p + 1);
+}
+
+// Re-derive every area's coordinate label (e.g. "A1") from its centroid + overlay grid.
+static void relabelAreas(gns::Map& m) {
+    for (auto& a : m.areas) {
+        int ax, ay; areaCentroid(m, a.id, ax, ay);
+        if (ax >= 0) a.label = coarseLabel(m, ax, ay);
+    }
+}
+
+// Does the cell at (cx,cy) have a 4-neighbour already belonging to areaId?
+static bool hasAdjacentSameArea(const gns::Map& m, int cx, int cy, int areaId) {
+    const int dx[] = {1, -1, 0, 0}, dy[] = {0, 0, 1, -1};
+    for (int k = 0; k < 4; ++k) {
+        int x = cx + dx[k], y = cy + dy[k];
+        if (x >= 0 && y >= 0 && x < m.gridW && y < m.gridH &&
+            m.cellArea[(size_t)y * m.gridW + x] == areaId)
+            return true;
+    }
+    return false;
+}
+
+static bool areaHasCells(const gns::Map& m, int areaId) {
+    for (int v : m.cellArea) if (v == areaId) return true;
+    return false;
+}
+
+// Keep only the largest 4-connected component of areaId; un-assign the rest (terrain
+// is left untouched). Maintains the "an area is one connected blob" invariant.
+static void pruneAreaConnectivity(gns::Map& m, int areaId) {
+    int W = m.gridW, H = m.gridH;
+    std::vector<int> comp((size_t)W * H, -1);
+    std::vector<int> sizes;
+    std::vector<int> stack;
+    for (int i = 0; i < W * H; ++i) {
+        if (m.cellArea[i] != areaId || comp[i] != -1) continue;
+        int id = (int)sizes.size(), count = 0;
+        stack.push_back(i);
+        comp[i] = id;
+        while (!stack.empty()) {
+            int c = stack.back(); stack.pop_back();
+            ++count;
+            int cx = c % W, cy = c / W;
+            const int dx[] = {1, -1, 0, 0}, dy[] = {0, 0, 1, -1};
+            for (int k = 0; k < 4; ++k) {
+                int x = cx + dx[k], y = cy + dy[k];
+                if (x < 0 || y < 0 || x >= W || y >= H) continue;
+                int n = y * W + x;
+                if (m.cellArea[n] == areaId && comp[n] == -1) { comp[n] = id; stack.push_back(n); }
+            }
+        }
+        sizes.push_back(count);
+    }
+    if (sizes.size() <= 1) return;   // already connected (or empty)
+    int best = 0;
+    for (int i = 1; i < (int)sizes.size(); ++i) if (sizes[i] > sizes[best]) best = i;
+    for (int i = 0; i < W * H; ++i)
+        if (m.cellArea[i] == areaId && comp[i] != best) m.cellArea[i] = 0;
+}
+
 static gns::Map makeBlankMap(int id, const std::string& name, int w, int h) {
     gns::Map m;
     m.id = id;
@@ -366,6 +458,28 @@ static void newModule(App& app) {
     app.currentMapId = 1;
     app.selectedAreaId = 0;
     app.selectedObjectId = 0;
+    app.selectedTextId = 0;
+    app.selectedControlPointId = 0;
+    app.undo.clear();
+}
+
+// ---- Undo (whole-module snapshots) ----------------------------------------
+static void pushUndo(App& app) {
+    app.undo.push_back(app.mod);
+    if (app.undo.size() > 64) app.undo.erase(app.undo.begin());
+}
+static void doUndo(App& app) {
+    if (app.undo.empty()) return;
+    app.mod = std::move(app.undo.back());
+    app.undo.pop_back();
+    app.dirty = true;
+    // Clamp selections that may no longer exist.
+    if (!app.mod.mapById(app.currentMapId))
+        app.currentMapId = app.mod.maps.empty() ? 0 : app.mod.maps.front().id;
+    if (!app.mod.areaById(app.selectedAreaId)) app.selectedAreaId = 0;
+    app.selectedObjectId = 0;
+    app.selectedTextId = 0;
+    app.selectedControlPointId = 0;
 }
 
 static void resizeMapGrid(gns::Map& m, int w, int h) {
@@ -381,6 +495,7 @@ static void resizeMapGrid(gns::Map& m, int w, int h) {
     m.gridW = w; m.gridH = h;
     m.cells = std::move(cells);
     m.cellArea = std::move(cellArea);
+    relabelAreas(m);   // grid coordinates shift when the map is resized (#8)
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +545,7 @@ static void doSave(App& app) {
     try {
         gns::saveModule(app.mod, app.path);
         app.dirty = false;
-        gStatus = "Saved " + app.path;
+        gStatus = "Saved " + baseName(app.path);
     } catch (const std::exception& e) {
         gStatus = std::string("Save failed: ") + e.what();
     }
@@ -451,7 +566,10 @@ static void doOpen(App& app) {
         app.currentMapId = app.mod.maps.empty() ? 0 : app.mod.maps.front().id;
         app.selectedAreaId = 0;
         app.selectedObjectId = 0;
-        gStatus = "Opened " + p;
+        app.selectedTextId = 0;
+        app.selectedControlPointId = 0;
+        app.undo.clear();
+        gStatus = "Opened " + baseName(p);
     } catch (const std::exception& e) {
         gStatus = std::string("Open failed: ") + e.what();
     }
@@ -460,7 +578,7 @@ static void doOpen(App& app) {
 // ---------------------------------------------------------------------------
 // UI: menu bar
 // ---------------------------------------------------------------------------
-static void drawMenuBar(App& app, bool& running) {
+static void drawMenuBar(App& app) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New")) newModule(app);
@@ -468,10 +586,11 @@ static void drawMenuBar(App& app, bool& running) {
             if (ImGui::MenuItem("Save", "Ctrl+S")) doSave(app);
             if (ImGui::MenuItem("Save As…")) doSaveAs(app);
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) running = false;
+            if (ImGui::MenuItem("Exit")) app.wantClose = true;
             ImGui::EndMenu();
         }
-        std::string title = (app.path.empty() ? "untitled" : app.path) + (app.dirty ? " *" : "");
+        std::string title = (app.path.empty() ? "untitled" : baseName(app.path)) +
+                            (app.dirty ? " *" : "");
         ImGui::Separator();
         ImGui::TextUnformatted(title.c_str());
         if (!gStatus.empty()) {
@@ -496,7 +615,7 @@ static void drawToolsWindow(App& app) {
     ImGui::SeparatorText("Tool");
     int t = static_cast<int>(app.tool);
     const char* tools[] = {"Hand (select)", "Paint Terrain", "Assign Area", "Erase",
-                           "Control Point", "Object"};
+                           "Control Point", "Object", "Text"};
     for (int i = 0; i < IM_ARRAYSIZE(tools); ++i) {
         // Assign Area needs an active area. Paint Terrain stays clickable so it
         // doubles as "leave the active area and go back to painting terrain".
@@ -584,6 +703,85 @@ static void drawToolsWindow(App& app) {
         }
     }
 
+    if (app.tool == Tool::PlaceText) {
+        ImGui::SeparatorText("Text");
+        ImGui::TextDisabled("Click to place. Drag to move. Del deletes.");
+        ImGui::TextUnformatted("New text");
+        ImGui::SetNextItemWidth(-1);
+        InputStr("##newtext", &app.paintTextBuf);
+        float tc[4]; rgbaToFloat4(app.paintTextColor, tc);
+        if (ImGui::ColorEdit3("Color##new", tc)) { tc[3] = 1.0f; app.paintTextColor = float4ToRgba(tc); }
+        ImGui::SetNextItemWidth(160);
+        ImGui::SliderFloat("Size##new", &app.paintTextSize, 8.0f, 96.0f, "%.0f px");
+
+        ImGui::SeparatorText("Placed text");
+        gns::MapText* selT = nullptr;
+        if (gns::Map* m = currentMap(app)) {
+            if (m->texts.empty()) ImGui::TextDisabled("None yet — click the map.");
+            for (auto& tx : m->texts) {
+                ImGui::PushID(tx.id);
+                std::string lbl = "#" + std::to_string(tx.id) + "  " +
+                                  (tx.text.empty() ? "(empty)" : tx.text);
+                if (ImGui::Selectable(lbl.c_str(), tx.id == app.selectedTextId)) app.selectedTextId = tx.id;
+                ImGui::PopID();
+            }
+            for (auto& tx : m->texts) if (tx.id == app.selectedTextId) { selT = &tx; break; }
+        }
+        if (selT) {
+            ImGui::SeparatorText("Selected text");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##edittext", &selT->text)) app.dirty = true;
+            float sc[4]; rgbaToFloat4(selT->color, sc);
+            if (ImGui::ColorEdit3("Color", sc)) { sc[3] = 1.0f; selT->color = float4ToRgba(sc); app.dirty = true; }
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::SliderFloat("Size", &selT->sizePx, 8.0f, 96.0f, "%.0f px")) app.dirty = true;
+            if (ImGui::Button("Delete##text")) {
+                pushUndo(app);
+                gns::Map* m = currentMap(app);
+                auto& v = m->texts;
+                v.erase(std::remove_if(v.begin(), v.end(),
+                    [&](const gns::MapText& t) { return t.id == app.selectedTextId; }), v.end());
+                app.selectedTextId = 0; app.dirty = true;
+            }
+        }
+    }
+
+    if (app.tool == Tool::PlaceControlPoint) {
+        ImGui::SeparatorText("Control Point");
+        ImGui::TextDisabled("Click to place. Drag to move. Del deletes.");
+        ImGui::SeparatorText("Placed on this map");
+        gns::ControlPoint* selCp = nullptr;
+        bool any = false;
+        for (auto& cp : app.mod.controlPoints) {
+            if (cp.mapId != app.currentMapId) continue;
+            any = true;
+            ImGui::PushID(cp.id);
+            std::string lbl = "#" + std::to_string(cp.id) + "  " + cp.name;
+            if (ImGui::Selectable(lbl.c_str(), cp.id == app.selectedControlPointId)) app.selectedControlPointId = cp.id;
+            ImGui::PopID();
+        }
+        if (!any) ImGui::TextDisabled("None yet — click the map.");
+        for (auto& cp : app.mod.controlPoints) if (cp.id == app.selectedControlPointId) { selCp = &cp; break; }
+        if (selCp) {
+            ImGui::SeparatorText("Selected control point");
+            if (InputStr("Name##cp", &selCp->name)) app.dirty = true;
+            if (InputStrMultiline("##cpdesc2", &selCp->description, ImVec2(-1, 40))) app.dirty = true;
+            if (ImGui::Button("Delete##cp")) {
+                pushUndo(app);
+                int del = app.selectedControlPointId;
+                auto& v = app.mod.controlPoints;
+                v.erase(std::remove_if(v.begin(), v.end(),
+                    [&](const gns::ControlPoint& c) { return c.id == del; }), v.end());
+                for (auto& mm : app.mod.maps)
+                    for (auto& a : mm.areas) {
+                        auto& pre = a.prerequisiteControlPointIds;
+                        pre.erase(std::remove(pre.begin(), pre.end(), del), pre.end());
+                    }
+                app.selectedControlPointId = 0; app.dirty = true;
+            }
+        }
+    }
+
     bool paintTool = app.tool == Tool::PaintTerrain || app.tool == Tool::AssignArea ||
                      app.tool == Tool::Erase;
     if (paintTool) {
@@ -594,41 +792,61 @@ static void drawToolsWindow(App& app) {
     }
 
     ImGui::SeparatorText("Maps");
-    for (auto& m : app.mod.maps) {
-        bool sel = (m.id == app.currentMapId);
-        std::string lbl = m.name + "##map" + std::to_string(m.id);
-        if (ImGui::Selectable(lbl.c_str(), sel)) app.currentMapId = m.id;
+    // Rename field for the current map (prominent, top of section).
+    if (gns::Map* m = currentMap(app)) {
+        ImGui::TextUnformatted("Map name");
+        ImGui::SetNextItemWidth(-1);
+        if (InputStr("##mapname", &m->name)) app.dirty = true;
+    }
+    for (auto& mm : app.mod.maps) {
+        bool sel = (mm.id == app.currentMapId);
+        std::string lbl = (mm.name.empty() ? "(unnamed)" : mm.name) + "##map" + std::to_string(mm.id);
+        if (ImGui::Selectable(lbl.c_str(), sel)) app.currentMapId = mm.id;
     }
     if (ImGui::Button("Add Map")) {
+        pushUndo(app);
         int id = app.mod.nextMapId();
         app.mod.maps.push_back(makeBlankMap(id, "Level " + std::to_string(id), 32, 24));
         app.currentMapId = id;
         app.dirty = true;
     }
-    if (gns::Map* m = currentMap(app)) {
+    if (app.mod.maps.size() > 1) {
         ImGui::SameLine();
-        if (ImGui::Button("Remove Map") && app.mod.maps.size() > 1) {
-            auto& v = app.mod.maps;
-            v.erase(std::remove_if(v.begin(), v.end(),
-                       [&](const gns::Map& x) { return x.id == m->id; }), v.end());
-            app.currentMapId = v.front().id;
-            app.selectedAreaId = 0;
-            app.dirty = true;
-            m = currentMap(app);
-        }
+        if (ImGui::Button("Remove Map")) app.confirmRemoveMapId = app.currentMapId;
     }
     if (gns::Map* m = currentMap(app)) {
-        if (InputStr("Map name", &m->name)) app.dirty = true;
-        // Resize immediately on +/- or text entry; resizeMapGrid clamps to 4..256
-        // and preserves existing cells.
+        // Resize immediately on +/- or text entry; resizeMapGrid clamps to 4..256,
+        // preserves cells, and re-labels areas with their new grid coordinates.
         int w = m->gridW;
         ImGui::SetNextItemWidth(100);
-        if (ImGui::InputInt("Cols", &w)) { resizeMapGrid(*m, w, m->gridH); app.dirty = true; }
+        if (ImGui::InputInt("Cols", &w)) { pushUndo(app); resizeMapGrid(*m, w, m->gridH); app.dirty = true; }
         int h = m->gridH;
         ImGui::SetNextItemWidth(100);
-        if (ImGui::InputInt("Rows", &h)) { resizeMapGrid(*m, m->gridW, h); app.dirty = true; }
-        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay cols", &m->overlayW)) { m->overlayW = std::max(1, m->overlayW); app.dirty = true; }
-        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay rows", &m->overlayH)) { m->overlayH = std::max(1, m->overlayH); app.dirty = true; }
+        if (ImGui::InputInt("Rows", &h)) { pushUndo(app); resizeMapGrid(*m, m->gridW, h); app.dirty = true; }
+        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay cols", &m->overlayW)) { m->overlayW = std::max(1, m->overlayW); relabelAreas(*m); app.dirty = true; }
+        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay rows", &m->overlayH)) { m->overlayH = std::max(1, m->overlayH); relabelAreas(*m); app.dirty = true; }
+    }
+
+    // Remove-map confirmation modal (#2).
+    if (app.confirmRemoveMapId != 0) ImGui::OpenPopup("Remove map?");
+    if (ImGui::BeginPopupModal("Remove map?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        gns::Map* dm = app.mod.mapById(app.confirmRemoveMapId);
+        ImGui::Text("Are you sure you want to delete map '%s'?", dm ? dm->name.c_str() : "?");
+        if (ImGui::Button("Delete") && dm) {
+            pushUndo(app);
+            int delId = app.confirmRemoveMapId;
+            auto& v = app.mod.maps;
+            v.erase(std::remove_if(v.begin(), v.end(),
+                       [&](const gns::Map& x) { return x.id == delId; }), v.end());
+            app.currentMapId = v.empty() ? 0 : v.front().id;
+            app.selectedAreaId = 0;
+            app.dirty = true;
+            app.confirmRemoveMapId = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { app.confirmRemoveMapId = 0; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
     }
 
     ImGui::SeparatorText("Areas");
@@ -650,6 +868,7 @@ static void drawToolsWindow(App& app) {
             ImGui::PopID();
         }
         if (ImGui::Button("Add Area")) {
+            pushUndo(app);
             gns::Area a;
             a.id = app.mod.nextAreaId();
             a.color = kAreaPalette[(a.id - 1) % IM_ARRAYSIZE(kAreaPalette)];
@@ -674,7 +893,9 @@ static void drawToolsWindow(App& app) {
 // ---------------------------------------------------------------------------
 // UI: map canvas
 // ---------------------------------------------------------------------------
-static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy, bool click) {
+// Paint-tool action on one cell (PaintTerrain / AssignArea / Erase). Hand-select,
+// objects, text, and control points are handled directly in the canvas interaction.
+static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy) {
     size_t idx = (size_t)cy * m.gridW + cx;
     switch (app.tool) {
         case Tool::PaintTerrain:
@@ -684,7 +905,11 @@ static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy, bool click) {
             }
             break;
         case Tool::AssignArea:
-            if (app.selectedAreaId != 0 && m.cellArea[idx] != app.selectedAreaId) {
+            // Connectivity (#6): only the seed cell, or a cell 4-adjacent to the area's
+            // existing cells, may be assigned — disconnected blobs can't start.
+            if (app.selectedAreaId != 0 && m.cellArea[idx] != app.selectedAreaId &&
+                (!areaHasCells(m, app.selectedAreaId) ||
+                 hasAdjacentSameArea(m, cx, cy, app.selectedAreaId))) {
                 m.cellArea[idx] = app.selectedAreaId;
                 if (m.cells[idx] == static_cast<int>(gns::Terrain::Empty))
                     m.cells[idx] = static_cast<int>(gns::Terrain::Floor);
@@ -698,20 +923,7 @@ static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy, bool click) {
                 app.dirty = true;
             }
             break;
-        case Tool::Select:
-            if (click) app.selectedAreaId = m.cellArea[idx];
-            break;
-        case Tool::PlaceControlPoint:
-            if (click && m.cellArea[idx] != 0) {
-                gns::ControlPoint cp;
-                cp.id = app.mod.nextControlPointId();
-                cp.name = "CP " + std::to_string(cp.id);
-                cp.mapId = m.id;
-                cp.areaId = m.cellArea[idx];
-                app.mod.controlPoints.push_back(cp);
-                app.dirty = true;
-            }
-            break;
+        default: break;
     }
 }
 
@@ -722,7 +934,7 @@ static void applyBrush(App& app, gns::Map& m, int cx, int cy) {
         for (int dx = -r; dx <= r; ++dx) {
             int x = cx + dx, y = cy + dy;
             if (x >= 0 && y >= 0 && x < m.gridW && y < m.gridH)
-                applyToolAtCell(app, m, x, y, false);
+                applyToolAtCell(app, m, x, y);
         }
 }
 
@@ -792,31 +1004,56 @@ static void drawCanvasWindow(App& app) {
     bool inBounds = mxf >= 0 && myf >= 0 && mxf <= m.gridW && myf <= m.gridH;
     bool paintTool = app.tool == Tool::PaintTerrain || app.tool == Tool::AssignArea ||
                      app.tool == Tool::Erase;
+    bool typingGuard = io.WantTextInput;
+    bool leftDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    bool leftClick = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    bool leftRelease = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+    bool moved = io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f;
+    auto cellAreaAt = [&](float fx, float fy) -> int {
+        int x = (int)std::floor(fx), y = (int)std::floor(fy);
+        if (x < 0 || y < 0 || x >= m.gridW || y >= m.gridH) return 0;
+        return m.cellArea[(size_t)y * m.gridW + x];
+    };
 
-    if (app.tool == Tool::PlaceObject) {
+    if (paintTool && cellValid) {
+        if (leftClick) { pushUndo(app); app.strokeOpen = true; }   // one undo entry per stroke
+        if (active && leftDown) applyBrush(app, m, cx, cy);
+        if (leftRelease && app.strokeOpen) {
+            app.strokeOpen = false;
+            if (app.tool == Tool::Erase)                       // erasing may split an area (#6)
+                for (auto& a : m.areas) pruneAreaConnectivity(m, a.id);
+        }
+        if (!typingGuard && ImGui::IsKeyPressed(ImGuiKey_Delete)) doUndo(app);   // DELETE undoes (#4)
+    } else if (app.tool == Tool::Select) {
+        // Hand: left-drag pans the map; a click without drag selects an area (#10).
+        if (leftClick) { app.handDragging = false; app.handPressPos = io.MousePos; }
+        if (active && leftDown) {
+            ImGui::SetScrollX(ImGui::GetScrollX() - io.MouseDelta.x);
+            ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+            float dx = io.MousePos.x - app.handPressPos.x, dy = io.MousePos.y - app.handPressPos.y;
+            if (dx * dx + dy * dy > 16.0f) app.handDragging = true;
+        }
+        if (leftRelease && !app.handDragging && cellValid)
+            app.selectedAreaId = m.cellArea[(size_t)cy * m.gridW + cx];
+    } else if (app.tool == Tool::PlaceObject) {
         if (hovered && inBounds && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            // Click on/near an existing object to select it, else place a new one.
-            int hit = -1; float best = 0.36f;   // ~0.6 cell radius
+            int hit = -1; float best = 0.36f;
             for (size_t i = 0; i < m.objects.size(); ++i) {
                 float dx = m.objects[i].x - mxf, dy = m.objects[i].y - myf;
-                float d = dx * dx + dy * dy;
-                if (d < best) { best = d; hit = (int)i; }
+                if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hit = (int)i; }
             }
-            if (hit >= 0) {
-                app.selectedObjectId = m.objects[hit].id;
-            } else {
-                gns::MapObject o;
-                o.id = app.mod.nextObjectId();
-                o.type = app.paintObjectType;
+            if (hit >= 0) { app.selectedObjectId = m.objects[hit].id; app.dragSnapshotTaken = false; }
+            else {
+                pushUndo(app);
+                gns::MapObject o; o.id = app.mod.nextObjectId(); o.type = app.paintObjectType;
                 o.x = mxf; o.y = myf;
-                m.objects.push_back(o);
-                app.selectedObjectId = o.id;
-                app.dirty = true;
+                m.objects.push_back(o); app.selectedObjectId = o.id; app.dirty = true;
+                app.dragSnapshotTaken = true;
             }
             app.draggingObject = true;
         }
-        if (app.draggingObject && active && ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
-            app.selectedObjectId != 0) {
+        if (app.draggingObject && active && leftDown && app.selectedObjectId != 0) {
+            if (!app.dragSnapshotTaken && moved) { pushUndo(app); app.dragSnapshotTaken = true; }
             for (auto& o : m.objects)
                 if (o.id == app.selectedObjectId) {
                     o.x = std::clamp(mxf, 0.0f, (float)m.gridW);
@@ -824,24 +1061,105 @@ static void drawCanvasWindow(App& app) {
                     app.dirty = true;
                 }
         }
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) app.draggingObject = false;
-        if (app.selectedObjectId != 0 && !io.WantTextInput) {
+        if (!leftDown) { app.draggingObject = false; app.dragSnapshotTaken = false; }
+        if (app.selectedObjectId != 0 && !typingGuard) {
             if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                pushUndo(app);
                 auto& v = m.objects;
                 v.erase(std::remove_if(v.begin(), v.end(),
                     [&](const gns::MapObject& o) { return o.id == app.selectedObjectId; }), v.end());
                 app.selectedObjectId = 0; app.dirty = true;
             } else if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+                pushUndo(app);
                 for (auto& o : m.objects)
                     if (o.id == app.selectedObjectId) { o.rotationDeg += 90.0f; app.dirty = true; }
             }
         }
-    } else if (cellValid) {
-        if (paintTool) {
-            if (active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-                applyBrush(app, m, cx, cy);   // covers the initial click and drag
-        } else if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            applyToolAtCell(app, m, cx, cy, true);   // Hand select / control point
+    } else if (app.tool == Tool::PlaceText) {
+        if (hovered && inBounds && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            int hit = -1; float best = 0.6f;
+            for (size_t i = 0; i < m.texts.size(); ++i) {
+                float dx = m.texts[i].x - mxf, dy = m.texts[i].y - myf;
+                if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hit = (int)i; }
+            }
+            if (hit >= 0) { app.selectedTextId = m.texts[hit].id; app.dragSnapshotTaken = false; }
+            else {
+                pushUndo(app);
+                gns::MapText tx; tx.id = app.mod.nextTextId(); tx.x = mxf; tx.y = myf;
+                tx.text = app.paintTextBuf.empty() ? "text" : app.paintTextBuf;
+                tx.color = app.paintTextColor; tx.sizePx = app.paintTextSize;
+                m.texts.push_back(tx); app.selectedTextId = tx.id; app.dirty = true;
+                app.dragSnapshotTaken = true;
+            }
+            app.draggingText = true;
+        }
+        if (app.draggingText && active && leftDown && app.selectedTextId != 0) {
+            if (!app.dragSnapshotTaken && moved) { pushUndo(app); app.dragSnapshotTaken = true; }
+            for (auto& tx : m.texts)
+                if (tx.id == app.selectedTextId) {
+                    tx.x = std::clamp(mxf, 0.0f, (float)m.gridW);
+                    tx.y = std::clamp(myf, 0.0f, (float)m.gridH);
+                    app.dirty = true;
+                }
+        }
+        if (!leftDown) { app.draggingText = false; app.dragSnapshotTaken = false; }
+        if (app.selectedTextId != 0 && !typingGuard && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+            pushUndo(app);
+            auto& v = m.texts;
+            v.erase(std::remove_if(v.begin(), v.end(),
+                [&](const gns::MapText& t) { return t.id == app.selectedTextId; }), v.end());
+            app.selectedTextId = 0; app.dirty = true;
+        }
+    } else if (app.tool == Tool::PlaceControlPoint) {
+        auto cpPos = [&](const gns::ControlPoint& cp, float& px, float& py) -> bool {
+            if (cp.x >= 0) { px = cp.x; py = cp.y; return true; }
+            int ax, ay; areaCentroid(m, cp.areaId, ax, ay);
+            if (ax < 0) return false;
+            px = ax + 0.5f; py = ay + 0.5f; return true;
+        };
+        if (hovered && inBounds && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            int hit = -1; float best = 0.36f;
+            for (size_t i = 0; i < app.mod.controlPoints.size(); ++i) {
+                if (app.mod.controlPoints[i].mapId != m.id) continue;
+                float px, py;
+                if (!cpPos(app.mod.controlPoints[i], px, py)) continue;
+                float dx = px - mxf, dy = py - myf;
+                if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hit = (int)i; }
+            }
+            if (hit >= 0) { app.selectedControlPointId = app.mod.controlPoints[hit].id; app.dragSnapshotTaken = false; }
+            else {
+                pushUndo(app);
+                gns::ControlPoint cp; cp.id = app.mod.nextControlPointId();
+                cp.name = "CP " + std::to_string(cp.id); cp.mapId = m.id;
+                cp.x = mxf; cp.y = myf; cp.areaId = cellAreaAt(mxf, myf);
+                app.mod.controlPoints.push_back(cp); app.selectedControlPointId = cp.id;
+                app.dirty = true; app.dragSnapshotTaken = true;
+            }
+            app.draggingCp = true;
+        }
+        if (app.draggingCp && active && leftDown && app.selectedControlPointId != 0) {
+            if (!app.dragSnapshotTaken && moved) { pushUndo(app); app.dragSnapshotTaken = true; }
+            for (auto& cp : app.mod.controlPoints)
+                if (cp.id == app.selectedControlPointId) {
+                    cp.x = std::clamp(mxf, 0.0f, (float)m.gridW);
+                    cp.y = std::clamp(myf, 0.0f, (float)m.gridH);
+                    cp.areaId = cellAreaAt(cp.x, cp.y);
+                    app.dirty = true;
+                }
+        }
+        if (!leftDown) { app.draggingCp = false; app.dragSnapshotTaken = false; }
+        if (app.selectedControlPointId != 0 && !typingGuard && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+            pushUndo(app);
+            int del = app.selectedControlPointId;
+            auto& v = app.mod.controlPoints;
+            v.erase(std::remove_if(v.begin(), v.end(),
+                [&](const gns::ControlPoint& c) { return c.id == del; }), v.end());
+            for (auto& mm : app.mod.maps)
+                for (auto& a : mm.areas) {
+                    auto& pre = a.prerequisiteControlPointIds;
+                    pre.erase(std::remove(pre.begin(), pre.end(), del), pre.end());
+                }
+            app.selectedControlPointId = 0; app.dirty = true;
         }
     }
 
@@ -903,14 +1221,33 @@ static void drawCanvasWindow(App& app) {
         drawObjectIcon(dl, ctr, cs * 0.9f, o.type, o.rotationDeg, showSel);
     }
 
-    // Control-point markers at their area centroids.
+    // Free text labels (any colour/size), drawn above objects.
+    for (const auto& tx : m.texts) {
+        ImVec2 pos(origin.x + tx.x * cs, origin.y + tx.y * cs);
+        dl->AddText(ImGui::GetFont(), tx.sizePx, pos, rgbaToImU32(tx.color),
+                    tx.text.c_str());
+        if (app.tool == Tool::PlaceText && tx.id == app.selectedTextId) {
+            ImVec2 sz = ImGui::GetFont()->CalcTextSizeA(tx.sizePx, FLT_MAX, 0.0f, tx.text.c_str());
+            dl->AddRect(ImVec2(pos.x - 2, pos.y - 2), ImVec2(pos.x + sz.x + 2, pos.y + sz.y + 2),
+                        IM_COL32(255, 230, 0, 255), 0, 0, 1.5f);
+        }
+    }
+
+    // Control-point markers at their placed position (legacy files: area centroid).
     for (const auto& cp : app.mod.controlPoints) {
         if (cp.mapId != m.id) continue;
-        int ax, ay; areaCentroid(m, cp.areaId, ax, ay);
-        if (ax < 0) continue;
-        ImVec2 cc = cellTL(ax, ay);
-        ImVec2 center(cc.x + cs * 0.5f, cc.y + cs * 0.5f);
-        dl->AddCircleFilled(center, std::max(4.0f, cs * 0.3f), IM_COL32(255, 60, 60, 230));
+        ImVec2 center;
+        if (cp.x >= 0) {
+            center = ImVec2(origin.x + cp.x * cs, origin.y + cp.y * cs);
+        } else {
+            int ax, ay; areaCentroid(m, cp.areaId, ax, ay);
+            if (ax < 0) continue;
+            center = ImVec2(origin.x + (ax + 0.5f) * cs, origin.y + (ay + 0.5f) * cs);
+        }
+        float rad = std::max(4.0f, cs * 0.3f);
+        dl->AddCircleFilled(center, rad, IM_COL32(255, 60, 60, 230));
+        if (app.tool == Tool::PlaceControlPoint && cp.id == app.selectedControlPointId)
+            dl->AddCircle(center, rad + 3.0f, IM_COL32(255, 230, 0, 255), 0, 2.0f);
         dl->AddText(ImVec2(center.x + 5, center.y - 6), IM_COL32(255, 255, 255, 255),
                     std::to_string(cp.id).c_str());
     }
@@ -1013,6 +1350,7 @@ static void drawAreaInspector(App& app, gns::Area& a) {
 
     if (ImGui::Button("Delete Area")) {
         if (gns::Map* m = currentMap(app)) {
+            pushUndo(app);
             for (auto& cell : m->cellArea) if (cell == a.id) cell = 0;
             int delId = a.id;
             m->areas.erase(std::remove_if(m->areas.begin(), m->areas.end(),
@@ -1101,6 +1439,28 @@ static void drawInspectorWindow(App& app) {
     ImGui::End();
 }
 
+// Unsaved-changes confirmation when closing (#3).
+static void drawExitModal(App& app, bool& running) {
+    if (!app.wantClose) return;
+    if (!app.dirty) { running = false; return; }   // nothing to lose
+    ImGui::OpenPopup("Close Module Creator?");
+    if (ImGui::BeginPopupModal("Close Module Creator?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Are you sure you want to close the Module Creator?\n"
+                               "You have unsaved changes.");
+        if (ImGui::Button("Save & Exit")) {
+            doSave(app);
+            if (!app.dirty) running = false;   // saved (not cancelled)
+            app.wantClose = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard & Exit")) { running = false; app.wantClose = false; ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { app.wantClose = false; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+}
+
 // ---------------------------------------------------------------------------
 int main(int, char**) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -1134,7 +1494,7 @@ int main(int, char**) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             ImGui_ImplSDL2_ProcessEvent(&ev);
-            if (ev.type == SDL_QUIT) running = false;
+            if (ev.type == SDL_QUIT) app.wantClose = true;   // confirm if dirty (#3)
         }
 
         ImGui_ImplSDLRenderer2_NewFrame();
@@ -1143,13 +1503,21 @@ int main(int, char**) {
 
         // Keyboard shortcuts.
         ImGuiIO& io = ImGui::GetIO();
+        bool typing = io.WantTextInput;
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) doSave(app);
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) doOpen(app);
+        if (io.KeyCtrl && !typing && ImGui::IsKeyPressed(ImGuiKey_Z)) doUndo(app);             // #4
+        if (io.KeyCtrl && !typing && ImGui::IsKeyPressed(ImGuiKey_H)) app.tool = Tool::Select; // #11
+        if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)))
+            app.cellPx = std::clamp(app.cellPx * 1.1f, 2.0f, 64.0f);                            // #9
+        if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)))
+            app.cellPx = std::clamp(app.cellPx * 0.9f, 2.0f, 64.0f);                            // #9
 
-        drawMenuBar(app, running);
+        drawMenuBar(app);
         drawToolsWindow(app);
         drawCanvasWindow(app);
         drawInspectorWindow(app);
+        drawExitModal(app, running);
 
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 20, 24, 32, 255);
