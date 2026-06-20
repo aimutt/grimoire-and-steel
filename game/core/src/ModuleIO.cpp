@@ -40,6 +40,13 @@ int Module::nextObjectId() const {
     return n + 1;
 }
 
+int Module::nextTextId() const {
+    int n = 0;
+    for (const auto& m : maps)
+        for (const auto& t : m.texts) n = std::max(n, t.id);
+    return n + 1;
+}
+
 Map* Module::mapById(int id) {
     for (auto& m : maps)
         if (m.id == id) return &m;
@@ -150,7 +157,8 @@ CREATE TABLE areas (
 CREATE TABLE control_points (
     id INTEGER PRIMARY KEY,
     name TEXT, description TEXT,
-    map_id INTEGER, area_id INTEGER
+    map_id INTEGER, area_id INTEGER,
+    x REAL, y REAL
 );
 CREATE TABLE area_prerequisites (
     area_id          INTEGER,
@@ -162,6 +170,14 @@ CREATE TABLE map_objects (
     type   INTEGER,
     x      REAL, y REAL,
     rot    REAL
+);
+CREATE TABLE map_texts (
+    id     INTEGER PRIMARY KEY,
+    map_id INTEGER,
+    x      REAL, y REAL,
+    text   TEXT,
+    color  INTEGER,
+    size   REAL
 );
 )sql";
 
@@ -178,6 +194,7 @@ void saveModule(const Module& mod, const std::string& path) {
     // Start clean: drop any prior content so save is a full overwrite.
     exec(c.db, "PRAGMA foreign_keys=OFF;");
     exec(c.db,
+         "DROP TABLE IF EXISTS map_texts;"
          "DROP TABLE IF EXISTS map_objects;"
          "DROP TABLE IF EXISTS area_prerequisites;"
          "DROP TABLE IF EXISTS control_points;"
@@ -208,6 +225,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt objStmt(c.db,
             "INSERT INTO map_objects(id,map_id,type,x,y,rot) VALUES(?,?,?,?,?,?);");
+        Stmt textStmt(c.db,
+            "INSERT INTO map_texts(id,map_id,x,y,text,color,size) VALUES(?,?,?,?,?,?,?);");
 
         for (const auto& m : mod.maps) {
             mapStmt.bind(m.id).bind(m.name).bind(m.gridW).bind(m.gridH)
@@ -218,6 +237,12 @@ void saveModule(const Module& mod, const std::string& path) {
                 objStmt.bind(o.id).bind(m.id).bind(o.type)
                        .bind((double)o.x).bind((double)o.y).bind((double)o.rotationDeg);
                 objStmt.run();
+            }
+
+            for (const auto& tx : m.texts) {
+                textStmt.bind(tx.id).bind(m.id).bind((double)tx.x).bind((double)tx.y)
+                        .bind(tx.text).bind(static_cast<int>(tx.color)).bind((double)tx.sizePx);
+                textStmt.run();
             }
 
             for (const auto& a : m.areas) {
@@ -241,10 +266,11 @@ void saveModule(const Module& mod, const std::string& path) {
     }
 
     {
-        Stmt s(c.db, "INSERT INTO control_points(id,name,description,map_id,area_id) "
-                     "VALUES(?,?,?,?,?);");
+        Stmt s(c.db, "INSERT INTO control_points(id,name,description,map_id,area_id,x,y) "
+                     "VALUES(?,?,?,?,?,?,?);");
         for (const auto& cp : mod.controlPoints) {
-            s.bind(cp.id).bind(cp.name).bind(cp.description).bind(cp.mapId).bind(cp.areaId);
+            s.bind(cp.id).bind(cp.name).bind(cp.description).bind(cp.mapId).bind(cp.areaId)
+             .bind((double)cp.x).bind((double)cp.y);
             s.run();
         }
     }
@@ -327,9 +353,12 @@ Module loadModule(const std::string& path) {
         }
     }
 
-    {
-        Stmt s(c.db, "SELECT id,name,description,map_id,area_id "
-                     "FROM control_points ORDER BY id;");
+    // control_points gained x,y in v4. Try with the columns, fall back without them
+    // (legacy files keep the -1 sentinel so the editor renders them at area centroids).
+    auto loadControlPoints = [&](bool withXy) {
+        Stmt s(c.db, withXy
+            ? "SELECT id,name,description,map_id,area_id,x,y FROM control_points ORDER BY id;"
+            : "SELECT id,name,description,map_id,area_id FROM control_points ORDER BY id;");
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             ControlPoint cp;
             cp.id          = colInt(s.s, 0);
@@ -337,8 +366,15 @@ Module loadModule(const std::string& path) {
             cp.description = colText(s.s, 2);
             cp.mapId       = colInt(s.s, 3);
             cp.areaId      = colInt(s.s, 4);
+            if (withXy) { cp.x = (float)colDouble(s.s, 5); cp.y = (float)colDouble(s.s, 6); }
             mod.controlPoints.push_back(std::move(cp));
         }
+    };
+    try {
+        loadControlPoints(true);
+    } catch (const DbError&) {
+        mod.controlPoints.clear();   // partial read from the failed attempt
+        loadControlPoints(false);
     }
 
     // map_objects was added in v2 and gained the rot column in v3. Tolerate older
@@ -363,6 +399,24 @@ Module loadModule(const std::string& path) {
     } catch (const DbError&) {
         try { loadObjects(false); }   // v2 file: map_objects without rot
         catch (const DbError&) {}      // v1 file: no map_objects table
+    }
+
+    // map_texts was added in v4; tolerate older files that lack it.
+    try {
+        Stmt s(c.db, "SELECT id,map_id,x,y,text,color,size FROM map_texts ORDER BY id;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            MapText tx;
+            tx.id    = colInt(s.s, 0);
+            int mapId = colInt(s.s, 1);
+            tx.x     = (float)colDouble(s.s, 2);
+            tx.y     = (float)colDouble(s.s, 3);
+            tx.text  = colText(s.s, 4);
+            tx.color = static_cast<std::uint32_t>(colInt(s.s, 5));
+            tx.sizePx = (float)colDouble(s.s, 6);
+            if (Map* m = mod.mapById(mapId)) m->texts.push_back(std::move(tx));
+        }
+    } catch (const DbError&) {
+        // no map_texts table — leave texts empty
     }
 
     return mod;

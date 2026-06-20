@@ -24,7 +24,7 @@ A map is drawn on a grid. A much larger grid is overlayed on the map that define
 A map should contain letters or symbols that correspond to important information that is described in the module description. 
 A map should contain a key that describes the symbols on the map.
 Module's maps can be marked by the module creator with control points. These control points guide the game engine as to the plot specific progress the party has completed so far.
-If a module has no control points defined, the party can travel anywhere within the area defined by the module.
+If a module has no control points defined, then plot specific progress is not tracked.
 
 Module Creator:
 The user should be able to draw maps using the mouse.

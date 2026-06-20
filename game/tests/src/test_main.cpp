@@ -188,10 +188,16 @@ int main() {
             ob2.x = 2.25f; ob2.y = 1.75f; ob2.rotationDeg = 45.0f;
             map.objects.push_back(ob1);
             map.objects.push_back(ob2);
+
+            MapText tx; tx.id = 1; tx.x = 0.5f; tx.y = 2.5f; tx.text = "Hall of Echoes";
+            tx.color = 0x33CCFFFFu; tx.sizePx = 24.0f;
+            map.texts.push_back(tx);
+
             m.maps.push_back(map);
 
             ControlPoint cp; cp.id = 1; cp.name = "Sealed gate";
             cp.description = "Opens the crypt."; cp.mapId = 1; cp.areaId = 11;
+            cp.x = 2.5f; cp.y = 1.25f;
             m.controlPoints.push_back(cp);
             m.startMapId = 1; m.startAreaId = 10; m.endAreaId = 11;
 
@@ -223,6 +229,12 @@ int main() {
             check("control point preserved", r.controlPoints.size() == 1 &&
                   r.controlPoints[0].id == 1 && r.controlPoints[0].name == "Sealed gate" &&
                   r.controlPoints[0].areaId == 11);
+            check("control point position preserved", r.controlPoints.size() == 1 &&
+                  r.controlPoints[0].x == 2.5f && r.controlPoints[0].y == 1.25f);
+            check("map text preserved", r.maps[0].texts.size() == 1 &&
+                  r.maps[0].texts[0].id == 1 && r.maps[0].texts[0].x == 0.5f &&
+                  r.maps[0].texts[0].y == 2.5f && r.maps[0].texts[0].text == "Hall of Echoes" &&
+                  r.maps[0].texts[0].color == 0x33CCFFFFu && r.maps[0].texts[0].sizePx == 24.0f);
             check("two objects preserved", r.maps[0].objects.size() == 2);
             check("object fields preserved", r.maps[0].objects.size() == 2 &&
                   r.maps[0].objects[0].id == 1 &&
