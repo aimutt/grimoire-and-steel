@@ -199,25 +199,37 @@ static void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
 static const char* kObjectNames[] = {
     "Door", "Table", "Chair", "Chest", "Fireplace", "Cabinet", "Box", "Bar", "Barrel", "Bed"};
 
-// Draw a placed prop centred at `ctr`, fitting roughly in an `s`-sized box.
-static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, bool selected) {
+// Draw a placed prop centred at `ctr`, fitting roughly in an `s`-sized box, rotated
+// `rotDeg` degrees clockwise. All geometry is expressed in local fraction-of-s coords
+// and passed through P() so the whole icon rotates about its centre.
+static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float rotDeg, bool selected) {
     const ImU32 wood  = IM_COL32(150, 102, 58, 255);
     const ImU32 wood2 = IM_COL32(108, 72, 40, 255);
     const ImU32 line  = IM_COL32(54, 36, 22, 255);
     const ImU32 stone = IM_COL32(122, 122, 128, 255);
     const ImU32 metal = IM_COL32(186, 188, 196, 255);
+    float ang = rotDeg * 3.14159265f / 180.0f;
+    float ca = std::cos(ang), sa = std::sin(ang);
+    auto P = [&](float lx, float ly) {
+        float wx = lx * s, wy = ly * s;
+        return ImVec2(ctr.x + wx * ca - wy * sa, ctr.y + wx * sa + wy * ca);
+    };
     auto R = [&](float ax, float ay, float bx, float by, ImU32 col) {
-        dl->AddRectFilled(ImVec2(ctr.x + ax * s, ctr.y + ay * s),
-                          ImVec2(ctr.x + bx * s, ctr.y + by * s), col, 1.5f);
+        dl->AddQuadFilled(P(ax, ay), P(bx, ay), P(bx, by), P(ax, by), col);
     };
     auto Ro = [&](float ax, float ay, float bx, float by, ImU32 col) {
-        dl->AddRect(ImVec2(ctr.x + ax * s, ctr.y + ay * s),
-                    ImVec2(ctr.x + bx * s, ctr.y + by * s), col, 1.5f, 0, 1.5f);
+        dl->AddQuad(P(ax, ay), P(bx, ay), P(bx, by), P(ax, by), col, 1.5f);
+    };
+    auto L = [&](float x1, float y1, float x2, float y2, ImU32 col, float th) {
+        dl->AddLine(P(x1, y1), P(x2, y2), col, th);
+    };
+    auto C = [&](float cx, float cy, float r, ImU32 col) {
+        dl->AddCircleFilled(P(cx, cy), r * s, col);
     };
     switch (static_cast<gns::ObjectType>(type)) {
         case gns::ObjectType::Door:
             R(-0.16f, -0.46f, 0.16f, 0.46f, wood); Ro(-0.16f, -0.46f, 0.16f, 0.46f, line);
-            dl->AddCircleFilled(ImVec2(ctr.x + 0.08f * s, ctr.y), 0.045f * s, metal);
+            C(0.08f, 0.0f, 0.045f, metal);
             break;
         case gns::ObjectType::Table:
             R(-0.40f, -0.22f, 0.40f, 0.22f, wood); Ro(-0.40f, -0.22f, 0.40f, 0.22f, line);
@@ -233,34 +245,27 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, bool s
             break;
         case gns::ObjectType::Fireplace:
             R(-0.40f, -0.40f, 0.40f, 0.42f, stone); R(-0.24f, -0.10f, 0.24f, 0.42f, IM_COL32(30, 24, 22, 255));
-            dl->AddTriangleFilled(ImVec2(ctr.x, ctr.y + 0.02f * s),
-                                  ImVec2(ctr.x - 0.12f * s, ctr.y + 0.40f * s),
-                                  ImVec2(ctr.x + 0.12f * s, ctr.y + 0.40f * s), IM_COL32(240, 150, 40, 255));
+            dl->AddTriangleFilled(P(0.0f, 0.02f), P(-0.12f, 0.40f), P(0.12f, 0.40f), IM_COL32(240, 150, 40, 255));
             break;
         case gns::ObjectType::Cabinet:
             R(-0.28f, -0.46f, 0.28f, 0.46f, wood); Ro(-0.28f, -0.46f, 0.28f, 0.46f, line);
-            dl->AddLine(ImVec2(ctr.x, ctr.y - 0.46f * s), ImVec2(ctr.x, ctr.y + 0.46f * s), line, 1.5f);
-            dl->AddCircleFilled(ImVec2(ctr.x - 0.06f * s, ctr.y), 0.035f * s, metal);
-            dl->AddCircleFilled(ImVec2(ctr.x + 0.06f * s, ctr.y), 0.035f * s, metal);
+            L(0.0f, -0.46f, 0.0f, 0.46f, line, 1.5f);
+            C(-0.06f, 0.0f, 0.035f, metal); C(0.06f, 0.0f, 0.035f, metal);
             break;
         case gns::ObjectType::Box:
             R(-0.30f, -0.30f, 0.30f, 0.30f, wood); Ro(-0.30f, -0.30f, 0.30f, 0.30f, line);
-            dl->AddLine(ImVec2(ctr.x - 0.30f * s, ctr.y - 0.30f * s),
-                        ImVec2(ctr.x + 0.30f * s, ctr.y + 0.30f * s), line, 1.2f);
-            dl->AddLine(ImVec2(ctr.x + 0.30f * s, ctr.y - 0.30f * s),
-                        ImVec2(ctr.x - 0.30f * s, ctr.y + 0.30f * s), line, 1.2f);
+            L(-0.30f, -0.30f, 0.30f, 0.30f, line, 1.2f);
+            L(0.30f, -0.30f, -0.30f, 0.30f, line, 1.2f);
             break;
         case gns::ObjectType::Bar:
             R(-0.46f, -0.16f, 0.46f, 0.20f, wood); R(-0.46f, -0.16f, 0.46f, -0.06f, wood2);
             Ro(-0.46f, -0.16f, 0.46f, 0.20f, line);
             break;
         case gns::ObjectType::Barrel:
-            dl->AddEllipseFilled(ctr, ImVec2(0.24f * s, 0.40f * s), wood);
-            dl->AddEllipse(ctr, ImVec2(0.24f * s, 0.40f * s), line, 0, 0, 1.5f);
-            dl->AddLine(ImVec2(ctr.x - 0.24f * s, ctr.y - 0.12f * s),
-                        ImVec2(ctr.x + 0.24f * s, ctr.y - 0.12f * s), line, 1.2f);
-            dl->AddLine(ImVec2(ctr.x - 0.24f * s, ctr.y + 0.12f * s),
-                        ImVec2(ctr.x + 0.24f * s, ctr.y + 0.12f * s), line, 1.2f);
+            dl->AddEllipseFilled(ctr, ImVec2(0.24f * s, 0.40f * s), wood, ang);
+            dl->AddEllipse(ctr, ImVec2(0.24f * s, 0.40f * s), line, ang, 0, 1.5f);
+            L(-0.24f, -0.12f, 0.24f, -0.12f, line, 1.2f);
+            L(-0.24f, 0.12f, 0.24f, 0.12f, line, 1.2f);
             break;
         case gns::ObjectType::Bed:
             R(-0.40f, -0.30f, 0.40f, 0.34f, wood); R(-0.40f, -0.30f, -0.16f, 0.34f, IM_COL32(220, 220, 230, 255));
@@ -526,15 +531,56 @@ static void drawToolsWindow(App& app) {
         ImGui::SeparatorText("Object");
         for (int i = 0; i < IM_ARRAYSIZE(kObjectNames); ++i)
             if (ImGui::Selectable(kObjectNames[i], app.paintObjectType == i)) app.paintObjectType = i;
-        ImGui::TextDisabled("Click to place. Drag to move.\nDel removes the selected object.");
-        if (app.selectedObjectId != 0 && ImGui::Button("Delete Selected Object")) {
-            if (gns::Map* m = currentMap(app)) {
+        ImGui::TextDisabled("Click to place. Drag to move.\nR rotates 90\xc2\xb0. Del deletes.");
+
+        // Placed-objects list — click to (re)select one, on the map or after a tool switch.
+        ImGui::SeparatorText("Placed objects");
+        if (gns::Map* m = currentMap(app)) {
+            if (m->objects.empty()) {
+                ImGui::TextDisabled("None yet — click the map to place.");
+            } else {
+                for (auto& o : m->objects) {
+                    ImGui::PushID(o.id);
+                    std::string lbl = "#" + std::to_string(o.id) + "  " + kObjectNames[o.type];
+                    if (ImGui::Selectable(lbl.c_str(), o.id == app.selectedObjectId))
+                        app.selectedObjectId = o.id;
+                    ImGui::PopID();
+                }
+            }
+        }
+
+        // Find the selected object on the current map to edit its rotation.
+        gns::MapObject* sel = nullptr;
+        if (gns::Map* m = currentMap(app))
+            for (auto& o : m->objects) if (o.id == app.selectedObjectId) { sel = &o; break; }
+
+        if (sel) {
+            ImGui::SeparatorText("Selected");
+            ImGui::Text("%s", kObjectNames[sel->type]);
+            if (ImGui::SliderFloat("Rotation", &sel->rotationDeg, 0.0f, 360.0f, "%.0f\xc2\xb0"))
+                app.dirty = true;
+            if (ImGui::Button("-90")) { sel->rotationDeg -= 90.0f; app.dirty = true; }
+            ImGui::SameLine();
+            if (ImGui::Button("+90")) { sel->rotationDeg += 90.0f; app.dirty = true; }
+            ImGui::SameLine();
+            if (ImGui::Button("0")) { sel->rotationDeg = 0.0f; app.dirty = true; }
+            ImGui::SameLine();
+            if (ImGui::Button("Delete")) {
+                gns::Map* m = currentMap(app);
                 auto& v = m->objects;
                 v.erase(std::remove_if(v.begin(), v.end(),
                     [&](const gns::MapObject& o) { return o.id == app.selectedObjectId; }), v.end());
                 app.selectedObjectId = 0;
                 app.dirty = true;
+                sel = nullptr;   // erased — don't touch it below
             }
+            // Normalise so the slider stays in range.
+            if (sel) {
+                while (sel->rotationDeg < 0.0f) sel->rotationDeg += 360.0f;
+                while (sel->rotationDeg >= 360.0f) sel->rotationDeg -= 360.0f;
+            }
+        } else {
+            ImGui::TextDisabled("Select an object to rotate it.");
         }
     }
 
@@ -749,8 +795,8 @@ static void drawCanvasWindow(App& app) {
 
     if (app.tool == Tool::PlaceObject) {
         if (hovered && inBounds && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            // Click an existing object (within ~0.5 cell) to select it, else place a new one.
-            int hit = -1; float best = 0.25f;
+            // Click on/near an existing object to select it, else place a new one.
+            int hit = -1; float best = 0.36f;   // ~0.6 cell radius
             for (size_t i = 0; i < m.objects.size(); ++i) {
                 float dx = m.objects[i].x - mxf, dy = m.objects[i].y - myf;
                 float d = dx * dx + dy * dy;
@@ -779,11 +825,16 @@ static void drawCanvasWindow(App& app) {
                 }
         }
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) app.draggingObject = false;
-        if (app.selectedObjectId != 0 && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-            auto& v = m.objects;
-            v.erase(std::remove_if(v.begin(), v.end(),
-                [&](const gns::MapObject& o) { return o.id == app.selectedObjectId; }), v.end());
-            app.selectedObjectId = 0; app.dirty = true;
+        if (app.selectedObjectId != 0 && !io.WantTextInput) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+                auto& v = m.objects;
+                v.erase(std::remove_if(v.begin(), v.end(),
+                    [&](const gns::MapObject& o) { return o.id == app.selectedObjectId; }), v.end());
+                app.selectedObjectId = 0; app.dirty = true;
+            } else if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+                for (auto& o : m.objects)
+                    if (o.id == app.selectedObjectId) { o.rotationDeg += 90.0f; app.dirty = true; }
+            }
         }
     } else if (cellValid) {
         if (paintTool) {
@@ -848,7 +899,8 @@ static void drawCanvasWindow(App& app) {
         ImVec2 ctr(origin.x + o.x * cs, origin.y + o.y * cs);
         if (ctr.x + cs < visMin.x || ctr.y + cs < visMin.y ||
             ctr.x - cs > visMax.x || ctr.y - cs > visMax.y) continue;
-        drawObjectIcon(dl, ctr, cs * 0.9f, o.type, o.id == app.selectedObjectId);
+        bool showSel = app.tool == Tool::PlaceObject && o.id == app.selectedObjectId;
+        drawObjectIcon(dl, ctr, cs * 0.9f, o.type, o.rotationDeg, showSel);
     }
 
     // Control-point markers at their area centroids.

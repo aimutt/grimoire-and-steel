@@ -44,9 +44,10 @@ enum class ObjectType : int {
 // A single placed prop. Position is in cell units (sub-grid), at the object centre.
 struct MapObject {
     int id = 0;
-    int type = 0;       // ObjectType
+    int type = 0;            // ObjectType
     float x = 0.0f;
     float y = 0.0f;
+    float rotationDeg = 0.0f;  // clockwise rotation about the centre
 };
 
 // A plot marker placed at an area. Referenced by id from Area prerequisites.
@@ -121,8 +122,8 @@ struct Module {
 };
 
 // On-disk format version, written to PRAGMA user_version.
-// v2 added the map_objects table (sub-grid props).
-constexpr int kModuleFormatVersion = 2;
+// v2 added the map_objects table (sub-grid props); v3 added object rotation.
+constexpr int kModuleFormatVersion = 3;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);
