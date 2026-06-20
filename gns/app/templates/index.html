@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Spells</h1>
+  <p class="muted">{{ counts['magic-user'] }} magic-user &middot; {{ counts['cleric'] }} cleric</p>
+
+  <form class="filters" method="get" action="{{ url_for('browse') }}">
+    <div>
+      <label for="q">Search name or text</label>
+      <input type="text" id="q" name="q" value="{{ q }}" placeholder="e.g. light, charm, fire" autofocus>
+    </div>
+    <div>
+      <label for="class">Class</label>
+      <select id="class" name="class">
+        <option value="" {{ 'selected' if not cls }}>All</option>
+        <option value="magic-user" {{ 'selected' if cls=='magic-user' }}>Magic-User</option>
+        <option value="cleric" {{ 'selected' if cls=='cleric' }}>Cleric</option>
+      </select>
+    </div>
+    <div>
+      <label for="level">Level</label>
+      <select id="level" name="level">
+        <option value="" {{ 'selected' if not level }}>All</option>
+        <option value="1" {{ 'selected' if level=='1' }}>1</option>
+        <option value="2" {{ 'selected' if level=='2' }}>2</option>
+        <option value="3" {{ 'selected' if level=='3' }}>3</option>
+      </select>
+    </div>
+    <button type="submit">Apply</button>
+  </form>
+
+  <p class="muted">{{ spells|length }} spell(s).</p>
+  <table class="spells">
+    <thead>
+      <tr><th>Name</th><th>Class</th><th>Lvl</th><th>Range</th><th>Duration</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      {% for s in spells %}
+        <tr>
+          <td>
+            <a href="{{ url_for('spell', spell_class=s['spell_class'], spell_id=s['id']) }}">{{ s['name'] }}</a>
+            {% if s['is_reversible'] %}<span class="badge rev" title="Reversible: {{ s['reversed_name'] }}">rev</span>{% endif %}
+          </td>
+          <td><span class="badge {{ 'mu' if s['spell_class']=='magic-user' else 'cleric' }}">{{ s['spell_class'] }}</span></td>
+          <td>{{ s['spell_level'] }}</td>
+          <td>{{ s['range_text'] or '—' }}</td>
+          <td>{{ s['duration_text'] or '—' }}</td>
+          <td class="desc">
+            {% if s['is_described'] %}
+              {{ (s['description']|truncate(120, True)) if s['description'] else '' }}
+            {% else %}
+              <span class="badge stub">listed only</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No spells match those filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

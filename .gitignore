@@ -1,7 +1,3 @@
-# This repository is private concept work for personal use.
-# Ignore everything at the root...
-/*
-
-# ...except the two files meant to be public:
-!/.gitignore
-!/README.md
+concept/*
+CLAUDE.md
+screehshots/*

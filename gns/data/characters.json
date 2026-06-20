@@ -1,0 +1,226 @@
+{
+  "_note": "Grimoire & Steel character rules. This is the game's OWN design (not verbatim 1978): classes and races are kept separate. Restriction / special / prime-requisite text is authored for this game (adapted from classic rules) and is meant to be edited freely.",
+
+  "abilities": [
+    {"name": "Strength", "abbreviation": "STR", "description": "Physical power; affects melee attack/damage and feats of force. Prime requisite of Fighters."},
+    {"name": "Intelligence", "abbreviation": "INT", "description": "Reasoning and memory; governs known languages and arcane spellcasting. Prime requisite of Magic-Users."},
+    {"name": "Wisdom", "abbreviation": "WIS", "description": "Willpower and intuition; governs divine spellcasting and resistance to mind effects. Prime requisite of Clerics."},
+    {"name": "Dexterity", "abbreviation": "DEX", "description": "Agility and reflexes; affects armor class, missile attacks and initiative. Prime requisite of Thieves."},
+    {"name": "Constitution", "abbreviation": "CON", "description": "Health and stamina; affects hit points per hit die."},
+    {"name": "Charisma", "abbreviation": "CHA", "description": "Force of personality; affects reactions and the number/loyalty of hirelings."}
+  ],
+
+  "alignments": [
+    {"name": "Lawful Good", "abbreviation": "LG", "description": "Acts with honor and compassion, upholding order for the benefit of all."},
+    {"name": "Chaotic Good", "abbreviation": "CG", "description": "Values freedom and kindness, doing good in its own unconstrained way."},
+    {"name": "Lawful Evil", "abbreviation": "LE", "description": "Pursues selfish ends through order, hierarchy and rules."},
+    {"name": "Chaotic Evil", "abbreviation": "CE", "description": "Driven by destruction and self-interest with no regard for order or others."},
+    {"name": "Neutral", "abbreviation": "N", "description": "Avoids extremes, acting from self-interest, balance or indifference to grand causes."}
+  ],
+
+  "races": [
+    {
+      "name": "Human",
+      "restrictions": "None — humans may take any class and advance without level limits.",
+      "special_ability": "Versatile and ambitious; may earn a prime-requisite experience bonus in any class and adapt to any culture.",
+      "description": "The most numerous and adaptable of the playable peoples.",
+      "carry_capacity_modifier": 1.0,
+      "base_movement_ft": 120
+    },
+    {
+      "name": "Elf",
+      "restrictions": "Cannot use the very largest weapons comfortably; favors finesse over brute force.",
+      "special_ability": "Infravision 60 ft; detects secret/hidden doors more readily; immune to ghoul paralysis; resistant to charm and sleep magic.",
+      "description": "Long-lived, graceful folk at home in forests and twilight.",
+      "carry_capacity_modifier": 0.9,
+      "base_movement_ft": 120
+    },
+    {
+      "name": "Half-elf",
+      "restrictions": "Belongs fully to neither human nor elven society.",
+      "special_ability": "Infravision 60 ft; improved chance to detect secret doors; partial elven resistance to charm and sleep.",
+      "description": "Born of human and elf, balancing ambition with elven grace.",
+      "carry_capacity_modifier": 0.95,
+      "base_movement_ft": 120
+    },
+    {
+      "name": "Halfling",
+      "restrictions": "Small size; must use weapons cut down to size and cannot use the largest arms.",
+      "special_ability": "+1 to all missile attacks; very hard to see in natural surroundings (hide outdoors); bonus to saving throws vs. magic; infravision 30 ft.",
+      "description": "Small, nimble homebodies, braver than their size suggests.",
+      "carry_capacity_modifier": 0.5,
+      "base_movement_ft": 90
+    },
+    {
+      "name": "Orc",
+      "restrictions": "Suffers -1 to attack rolls in full daylight; distrusted by most civilized folk.",
+      "special_ability": "Infravision 60 ft; strong and aggressive; functions well underground and at night.",
+      "description": "Brutal, war-like cave-dwellers organized into raiding tribes.",
+      "carry_capacity_modifier": 1.1,
+      "base_movement_ft": 120
+    },
+    {
+      "name": "Half-Orc",
+      "restrictions": "Mistrusted by humans and orcs alike.",
+      "special_ability": "Infravision 60 ft; hardy and strong, blending human adaptability with orcish toughness.",
+      "description": "Born of human and orc, tough survivors caught between two worlds.",
+      "carry_capacity_modifier": 1.05,
+      "base_movement_ft": 120
+    },
+    {
+      "name": "Dwarf",
+      "restrictions": "Cannot use the largest weapons; must use arms suited to their stature.",
+      "special_ability": "Infravision 60 ft; detects slanting passages, traps, shifting walls and new construction underground; bonus to saving throws vs. magic; resists poison.",
+      "description": "Stout, stubborn mountain folk and master miners and smiths.",
+      "carry_capacity_modifier": 1.0,
+      "base_movement_ft": 90
+    }
+  ],
+
+  "class_levels": [
+    {"class": "Fighter", "level": 1, "title": "Veteran", "experience_points": 0, "hit_dice": "1d8", "spells": "None"},
+    {"class": "Fighter", "level": 2, "title": "Warrior", "experience_points": 2000, "hit_dice": "2d8", "spells": "None"},
+    {"class": "Fighter", "level": 3, "title": "Swordsman", "experience_points": 4000, "hit_dice": "3d8", "spells": "None"},
+
+    {"class": "Magic-User", "level": 1, "title": "Medium", "experience_points": 0, "hit_dice": "1d4", "spells": "1 first level"},
+    {"class": "Magic-User", "level": 2, "title": "Seer", "experience_points": 2500, "hit_dice": "2d4", "spells": "2 first level"},
+    {"class": "Magic-User", "level": 3, "title": "Conjurer", "experience_points": 5000, "hit_dice": "3d4", "spells": "2 first level, 1 second level"},
+
+    {"class": "Cleric", "level": 1, "title": "Acolyte", "experience_points": 0, "hit_dice": "1d6", "spells": "None"},
+    {"class": "Cleric", "level": 2, "title": "Adept", "experience_points": 1500, "hit_dice": "2d6", "spells": "1 first level"},
+    {"class": "Cleric", "level": 3, "title": "Priest", "experience_points": 3000, "hit_dice": "3d6", "spells": "2 first level"},
+
+    {"class": "Thief", "level": 1, "title": "Apprentice", "experience_points": 0, "hit_dice": "1d4", "spells": "None (thief abilities tier A)"},
+    {"class": "Thief", "level": 2, "title": "Footpad", "experience_points": 1200, "hit_dice": "2d4", "spells": "None (thief abilities tier B)"},
+    {"class": "Thief", "level": 3, "title": "Robber", "experience_points": 2400, "hit_dice": "3d4", "spells": "None (thief abilities tier C)"}
+  ],
+
+  "classes": [
+    {
+      "name": "Fighter", "parent": null, "prime_requisite": "Strength",
+      "restrictions": "None notable — may use any weapon and any armor, including shields. Cannot cast spells.",
+      "special_abilities": "Best attack progression and hit dice of any class; gains multiple attacks against weak foes at higher level; may use any magical weapon or armor.",
+      "description": "A trained warrior whose strength of arms is unmatched."
+    },
+    {
+      "name": "Magic-User", "parent": null, "prime_requisite": "Intelligence",
+      "restrictions": "May not wear any armor or use shields, and may carry only a dagger as a weapon. Must memorize spells from a spellbook.",
+      "special_abilities": "Casts arcane spells of great power; may use most magic items such as wands, staves and scrolls.",
+      "description": "A studious wizard wielding memorized arcane magic."
+    },
+    {
+      "name": "Cleric", "parent": null, "prime_requisite": "Wisdom",
+      "restrictions": "May use only blunt (non-edged) weapons such as the mace or staff; may not use swords or bows.",
+      "special_abilities": "Casts divine spells granted by faith; can turn (and at high level destroy) undead; may wear any armor.",
+      "description": "A holy warrior-priest channeling divine power."
+    },
+    {
+      "name": "Thief", "parent": null, "prime_requisite": "Dexterity",
+      "restrictions": "May wear only leather armor and may not use shields.",
+      "special_abilities": "Backstab for extra damage from surprise; pick locks, find and remove traps, move silently, hide in shadows, climb sheer surfaces, pick pockets and hear noise.",
+      "description": "A stealthy rogue who relies on skill, cunning and surprise."
+    },
+
+    {
+      "name": "Ranger", "parent": "Fighter", "prime_requisite": "Strength",
+      "restrictions": "As Fighter; traditionally keeps few possessions and works alone or in small bands.",
+      "special_abilities": "All Fighter abilities, plus expert tracking, wilderness survival and bonus damage against giant-class and evil humanoid foes.",
+      "description": "A wilderness warrior and hunter of monstrous foes."
+    },
+    {
+      "name": "Paladin", "parent": "Fighter", "prime_requisite": "Strength",
+      "restrictions": "As Fighter; must be Lawful Good and uphold a strict code of honor or lose paladin powers.",
+      "special_abilities": "All Fighter abilities, plus detect evil, lay on hands to heal, immunity to disease and an aura that protects against evil.",
+      "description": "A holy knight sworn to righteousness and the protection of the innocent."
+    },
+
+    {
+      "name": "Illusionist", "parent": "Magic-User", "prime_requisite": "Intelligence",
+      "restrictions": "As Magic-User: no armor or shields, dagger only.",
+      "special_abilities": "Specializes in illusion and phantasm magic — deceiving the senses and the mind.",
+      "description": "A magic-user devoted to the arts of illusion."
+    },
+    {
+      "name": "Witch", "parent": "Magic-User", "prime_requisite": "Intelligence",
+      "restrictions": "As Magic-User: no armor or shields, dagger only.",
+      "special_abilities": "Wields curses and charms and brews magical potions; draws power from pacts and old lore.",
+      "description": "A practitioner of curses, charms and potion-craft."
+    },
+
+    {
+      "name": "Druid", "parent": "Cleric", "prime_requisite": "Wisdom",
+      "restrictions": "May use only natural or blunt weapons and only leather armor with a wooden shield; will not use metal armor.",
+      "special_abilities": "Casts nature spells; identifies plants, animals and pure water; at higher level can shapechange into animals.",
+      "description": "A priest of nature drawing power from the wild."
+    },
+    {
+      "name": "Monk", "parent": "Cleric", "prime_requisite": "Wisdom",
+      "restrictions": "May not wear armor and is limited to simple weapons.",
+      "special_abilities": "Martial-arts strikes that improve with level; an armor-class bonus while unarmored; a stunning blow and unusually fast movement.",
+      "description": "A disciplined ascetic who fights with body and will."
+    },
+
+    {
+      "name": "Assassin", "parent": "Thief", "prime_requisite": "Dexterity",
+      "restrictions": "As Thief (leather only, no shields); must be of an evil alignment.",
+      "special_abilities": "All Thief abilities, plus assassination (a deadly strike from surprise), disguise and the use of poisons.",
+      "description": "A killer-for-hire blending thievery with lethal precision."
+    }
+  ],
+
+  "character_sheets": [
+    {
+      "character_name": "Morgan Ironwolf",
+      "player_name": null,
+      "dungeon_master": null,
+      "race": "Human",
+      "class": "Fighter",
+      "alignment": "Lawful Good",
+      "level": 1,
+      "armor_class": 3,
+      "hit_points": 6,
+      "max_hit_points": 6,
+      "base_movement_ft": 120,
+      "experience_points": 0,
+      "experience_to_next_level": 2000,
+      "earned_xp_bonus_pct": 10,
+      "gold_pieces": 2,
+      "save_poison_death": 12,
+      "save_magic_wand": 13,
+      "save_stone_paralysis": 14,
+      "save_dragon_breath": 15,
+      "save_spells_staff": 16,
+      "special_abilities": "None",
+      "special_skills": null,
+      "magic_items": null,
+      "normal_items": "Chain mail armor; shield; sword; short bow; quiver of 20 arrows; 1 silver arrow; 50' rope; 10' pole; 12 iron spikes; 6 torches; 1 week's standard rations; large sack; 1 quart of wine; wine skin",
+      "treasure_notes": "2 G.P.",
+      "character_sketch": null,
+      "other_notes": "Sample character from the D&D Basic character record sheet (used as the design guide).",
+      "abilities": [
+        {"ability": "Strength", "score": 16, "adjustment_text": "+2"},
+        {"ability": "Intelligence", "score": 7, "adjustment_text": "—"},
+        {"ability": "Wisdom", "score": 9, "adjustment_text": "—"},
+        {"ability": "Dexterity", "score": 13, "adjustment_text": "-1 AC, +1 missile & initiative"},
+        {"ability": "Constitution", "score": 14, "adjustment_text": "+1/HD"},
+        {"ability": "Charisma", "score": 8, "adjustment_text": "-1 reaction"}
+      ],
+      "inventory": [
+        {"type": "armor", "name": "Chain Mail Armor", "quantity": 1},
+        {"type": "armor", "name": "Shield", "quantity": 1},
+        {"type": "weapon", "name": "Sword", "quantity": 1},
+        {"type": "weapon", "name": "Short Bow", "quantity": 1},
+        {"type": "weapon", "name": "Quiver with 20 Arrows", "quantity": 1},
+        {"type": "weapon", "name": "Silver-tipped Arrow", "quantity": 1},
+        {"type": "equipment", "name": "Rope (50' length)", "quantity": 1},
+        {"type": "equipment", "name": "Wooden Pole (10' long)", "quantity": 1},
+        {"type": "equipment", "name": "Iron Spikes (12)", "quantity": 1},
+        {"type": "equipment", "name": "Torches (6)", "quantity": 1},
+        {"type": "equipment", "name": "Standard Rations (1 person/1 week)", "quantity": 1},
+        {"type": "equipment", "name": "Large Sack", "quantity": 1},
+        {"type": "equipment", "name": "Wine (1 quart)", "quantity": 1},
+        {"type": "equipment", "name": "Water/Wine Skin", "quantity": 1}
+      ]
+    }
+  ]
+}

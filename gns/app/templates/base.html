@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Grimoire &amp; Steel — Spells{% endblock %}</title>
+  <style>
+    :root { --ink:#211a30; --paper:#f3eef7; --accent:#4a2a7a; --accent2:#7a1f12; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Georgia, "Times New Roman", serif;
+           background: var(--paper); color: var(--ink); line-height:1.5; }
+    header { background: var(--accent); color:#f3eef7; padding:.8rem 1.2rem; }
+    header a { color:#f3eef7; text-decoration:none; margin-right:1.2rem; }
+    header a:hover { text-decoration:underline; }
+    header .brand { font-weight:bold; font-size:1.15rem; }
+    main { max-width: 940px; margin: 1.4rem auto; padding: 0 1.2rem; }
+    h1,h2 { font-variant: small-caps; letter-spacing:.5px; color:var(--accent); }
+    form.filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:flex-end;
+                   margin-bottom:1rem; }
+    form.filters label { font-size:.8rem; color:#5b5070; display:block; }
+    form.filters input[type=text] { padding:.5rem .7rem; font-size:1rem; min-width:240px;
+                   border:1px solid #b7a9cf; border-radius:4px; }
+    form.filters select { padding:.5rem; font-size:1rem; border:1px solid #b7a9cf; border-radius:4px; }
+    form.filters button { padding:.55rem 1rem; font-size:1rem; cursor:pointer;
+                   background:var(--accent); color:#fff; border:none; border-radius:4px; }
+    table.spells { width:100%; border-collapse:collapse; }
+    table.spells th, table.spells td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #ddd3ea; vertical-align:top; }
+    table.spells th { font-variant:small-caps; color:#5b5070; }
+    table.spells a { color:var(--accent); text-decoration:none; font-weight:bold; }
+    table.spells a:hover { text-decoration:underline; }
+    .badge { display:inline-block; font-size:.72rem; padding:.1rem .45rem; border-radius:10px;
+             color:#fff; vertical-align:middle; }
+    .badge.mu { background:#4a2a7a; }
+    .badge.cleric { background:#7a1f12; }
+    .badge.stub { background:#8a7c9c; }
+    .badge.rev { background:#0f6b4f; }
+    .muted { color:#6b6080; }
+    .desc { color:#3a3350; }
+    dl.fields { display:grid; grid-template-columns:max-content 1fr; gap:.35rem 1rem; margin:1rem 0; }
+    dl.fields dt { font-variant:small-caps; color:#5b5070; }
+    dl.fields dd { margin:0; }
+    pre.book { white-space:pre-wrap; font-family: Consolas, monospace; font-size:.95rem;
+               background:#fbf9fe; border:1px solid #ddd0ee; padding:1rem; border-radius:6px; }
+    table.detail { border-collapse:collapse; margin:.6rem 0 1.2rem; min-width:60%; }
+    table.detail caption { text-align:left; font-variant:small-caps; color:var(--accent); padding-bottom:.3rem; }
+    table.detail th, table.detail td { border:1px solid #cdbfe6; padding:.35rem .6rem; text-align:left; }
+    table.detail th { background:#ece3f6; }
+    a.back { color:var(--accent); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="{{ url_for('browse') }}">Grimoire &amp; Steel</a>
+    <a href="{{ url_for('browse') }}">Spells</a>
+    <span style="opacity:.8">gns.db</span>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
