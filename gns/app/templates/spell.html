@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ spell['name'] }} — Grimoire &amp; Steel{% endblock %}
+{% block content %}
+  <p><a class="back" href="{{ url_for('browse') }}">&larr; back to spells</a></p>
+  <h1>
+    {{ spell['name'] }}
+    <span class="badge {{ 'mu' if spell_class=='magic-user' else 'cleric' }}">{{ spell_class }}</span>
+  </h1>
+
+  <dl class="fields">
+    <dt>Level</dt><dd>{{ spell['spell_level'] }}</dd>
+    <dt>Range</dt><dd>{{ spell['range_text'] or '—' }}{% if spell['range_feet'] is not none %} <span class="muted">({{ spell['range_feet'] }} ft)</span>{% endif %}</dd>
+    <dt>Duration</dt><dd>{{ spell['duration_text'] or '—' }}{% if spell['duration_turns'] is not none %} <span class="muted">({{ spell['duration_turns'] }} turns)</span>{% endif %}</dd>
+    {% if spell_class == 'cleric' and spell['is_reversible'] %}
+      <dt>Reversed form</dt><dd>{{ spell['reversed_name'] }} <span class="muted">(evil cleric)</span></dd>
+    {% endif %}
+    {% if spell['source_printed_page'] is not none %}
+      <dt>Source</dt><dd class="muted">printed page {{ spell['source_printed_page'] }} (PDF page {{ spell['source_pdf_index'] }})</dd>
+    {% endif %}
+  </dl>
+
+  {% if spell['description'] %}
+    <pre class="book">{{ spell['description'] }}</pre>
+  {% else %}
+    <p class="muted">This spell is listed by name in the Basic rules but not described
+      (it is 5th-level-and-above content). No range/duration/description recorded.</p>
+  {% endif %}
+
+  {% for dt in detail_tables %}
+    <table class="detail">
+      <caption>{{ dt.caption }}</caption>
+      <thead><tr><th>Key</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for r in dt.rows %}
+          <tr><td>{{ r['key_label'] }}</td><td>{{ r['value_text'] }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+{% endblock %}
