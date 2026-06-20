@@ -183,9 +183,9 @@ int main() {
             map.areas.push_back(a2);
 
             MapObject ob1; ob1.id = 1; ob1.type = static_cast<int>(ObjectType::Table);
-            ob1.x = 1.5f; ob1.y = 0.5f;
+            ob1.x = 1.5f; ob1.y = 0.5f; ob1.rotationDeg = 90.0f;
             MapObject ob2; ob2.id = 2; ob2.type = static_cast<int>(ObjectType::Chest);
-            ob2.x = 2.25f; ob2.y = 1.75f;
+            ob2.x = 2.25f; ob2.y = 1.75f; ob2.rotationDeg = 45.0f;
             map.objects.push_back(ob1);
             map.objects.push_back(ob2);
             m.maps.push_back(map);
@@ -230,6 +230,9 @@ int main() {
                   r.maps[0].objects[0].x == 1.5f && r.maps[0].objects[0].y == 0.5f &&
                   r.maps[0].objects[1].type == static_cast<int>(ObjectType::Chest) &&
                   r.maps[0].objects[1].x == 2.25f && r.maps[0].objects[1].y == 1.75f);
+            check("object rotation preserved", r.maps[0].objects.size() == 2 &&
+                  r.maps[0].objects[0].rotationDeg == 90.0f &&
+                  r.maps[0].objects[1].rotationDeg == 45.0f);
         }
 
     } catch (const std::exception& ex) {

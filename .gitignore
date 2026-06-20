@@ -1,3 +1,61 @@
-concept/*
+# Grimoire & Steel — private personal project.
+#
+# Keeps build output, IDE/editor state, caches, OS cruft, local secrets, and
+# private/copyrighted material out of the repository. Source code, CMake files,
+# vendored dependencies (game/third_party), and curated data are tracked normally.
+#
+# NOTE: .gitignore only affects UNtracked files. Anything already committed must be
+# removed with `git rm --cached <path>` before these rules take effect.
+
+# --- Build output (CMake / MSBuild) ---
+/game/build/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+
+# --- Visual Studio / IDE / editor state ---
+.vs/
+.vscode/
+*.user
+*.suo
+*.wsuo
+*.vsidx
+*.VC.db
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Local secrets / environment ---
+.env
+.env.*
+secrets.*
+*.key
+*.pem
+
+# --- Local app/editor state & saves ---
+imgui.ini
+*.gnssav
+*_roundtrip_test.gnsmod
+
+# --- Local notes (keep private) ---
 CLAUDE.md
-screehshots/*
+
+# --- Private / copyrighted material — never publish ---
+/concept/
+/screenshots/
+*.pdf

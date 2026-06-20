@@ -160,7 +160,8 @@ CREATE TABLE map_objects (
     id     INTEGER PRIMARY KEY,
     map_id INTEGER,
     type   INTEGER,
-    x      REAL, y REAL
+    x      REAL, y REAL,
+    rot    REAL
 );
 )sql";
 
@@ -206,7 +207,7 @@ void saveModule(const Module& mod, const std::string& path) {
         Stmt prereqStmt(c.db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt objStmt(c.db,
-            "INSERT INTO map_objects(id,map_id,type,x,y) VALUES(?,?,?,?,?);");
+            "INSERT INTO map_objects(id,map_id,type,x,y,rot) VALUES(?,?,?,?,?,?);");
 
         for (const auto& m : mod.maps) {
             mapStmt.bind(m.id).bind(m.name).bind(m.gridW).bind(m.gridH)
@@ -215,7 +216,7 @@ void saveModule(const Module& mod, const std::string& path) {
 
             for (const auto& o : m.objects) {
                 objStmt.bind(o.id).bind(m.id).bind(o.type)
-                       .bind((double)o.x).bind((double)o.y);
+                       .bind((double)o.x).bind((double)o.y).bind((double)o.rotationDeg);
                 objStmt.run();
             }
 
@@ -340,9 +341,12 @@ Module loadModule(const std::string& path) {
         }
     }
 
-    // map_objects was added in format v2; tolerate older files that lack it.
-    try {
-        Stmt s(c.db, "SELECT id,map_id,type,x,y FROM map_objects ORDER BY id;");
+    // map_objects was added in v2 and gained the rot column in v3. Tolerate older
+    // files: first try with rot, then without it, then assume no table at all.
+    auto loadObjects = [&](bool withRot) {
+        Stmt s(c.db, withRot
+            ? "SELECT id,map_id,type,x,y,rot FROM map_objects ORDER BY id;"
+            : "SELECT id,map_id,type,x,y FROM map_objects ORDER BY id;");
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             MapObject o;
             o.id   = colInt(s.s, 0);
@@ -350,10 +354,15 @@ Module loadModule(const std::string& path) {
             o.type = colInt(s.s, 2);
             o.x    = (float)colDouble(s.s, 3);
             o.y    = (float)colDouble(s.s, 4);
+            o.rotationDeg = withRot ? (float)colDouble(s.s, 5) : 0.0f;
             if (Map* m = mod.mapById(mapId)) m->objects.push_back(o);
         }
+    };
+    try {
+        loadObjects(true);
     } catch (const DbError&) {
-        // no map_objects table — leave objects empty
+        try { loadObjects(false); }   // v2 file: map_objects without rot
+        catch (const DbError&) {}      // v1 file: no map_objects table
     }
 
     return mod;
