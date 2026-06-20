@@ -28,7 +28,8 @@ If a module has no control points defined, the party can travel anywhere within 
 
 Module Creator:
 The user should be able to draw maps using the mouse.
-A map is a fine grid of squared with specific areas colored in defining areas on the map. 
+A map is a fine grid of squared with specific areas colored in defining areas on the map.
+User can draw sub-grid object items such as chests, chairs, table, ets.. 
 The user defines specific information for each area of the map - description of room, area, etc. Number of monsters present, treasure, etc.
 A user can add control points to defined areas. these control points mark plot specific areas complete or not-completed.
 An area can have a prerequisite that spefic control points must be completed first before a party may visit that area.
