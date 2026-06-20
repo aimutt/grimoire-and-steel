@@ -1,0 +1,712 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4
+					],
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						3,
+						6,
+						7
+					]
+				},
+				{
+					"build" : "core",
+					"jsonFile" : "directory-core-Debug-e3757ce4a321da3133c4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "core",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "engine",
+					"jsonFile" : "directory-engine-Debug-776e2b00c6520ab49d05.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "engine",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "creator",
+					"jsonFile" : "directory-creator-Debug-bd58ccf1d0dfbc6a0738.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "creator",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "tests",
+					"jsonFile" : "directory-tests-Debug-70e4927a02b591d5c1f8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "tests",
+					"targetIndexes" : 
+					[
+						5
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					],
+					"name" : "GrimoireAndSteel",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Debug-339d75c46e76e272bafe.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "GameEngine::@4088515cb4035b412499",
+					"jsonFile" : "target-GameEngine-Debug-98b92afc815ab2abfac1.json",
+					"name" : "GameEngine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ModuleCreator::@662ba5a1a1da0f1c70a9",
+					"jsonFile" : "target-ModuleCreator-Debug-ece777601fa1d5824d5c.json",
+					"name" : "ModuleCreator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Debug-f1647dc3d672afe972a7.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gns_core::@57760688d1f824db5d9c",
+					"jsonFile" : "target-gns_core-Debug-592883e13281b30fad1f.json",
+					"name" : "gns_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "gns_tests::@a44f0ac069e85531cdee",
+					"jsonFile" : "target-gns_tests-Debug-22a53fc40a8082be46a9.json",
+					"name" : "gns_tests",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "imgui::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-imgui-Debug-26b9792c17603fd3b019.json",
+					"name" : "imgui",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sqlite3::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sqlite3-Debug-618393eb7d694002932b.json",
+					"name" : "sqlite3",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4
+					],
+					"jsonFile" : "directory-.-Release-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						3,
+						6,
+						7
+					]
+				},
+				{
+					"build" : "core",
+					"jsonFile" : "directory-core-Release-e3757ce4a321da3133c4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "core",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "engine",
+					"jsonFile" : "directory-engine-Release-776e2b00c6520ab49d05.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "engine",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "creator",
+					"jsonFile" : "directory-creator-Release-bd58ccf1d0dfbc6a0738.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "creator",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "tests",
+					"jsonFile" : "directory-tests-Release-70e4927a02b591d5c1f8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "tests",
+					"targetIndexes" : 
+					[
+						5
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					],
+					"name" : "GrimoireAndSteel",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Release-339d75c46e76e272bafe.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "GameEngine::@4088515cb4035b412499",
+					"jsonFile" : "target-GameEngine-Release-14cf758fd51e72663762.json",
+					"name" : "GameEngine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ModuleCreator::@662ba5a1a1da0f1c70a9",
+					"jsonFile" : "target-ModuleCreator-Release-b32ebcefb4e1fd620c53.json",
+					"name" : "ModuleCreator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Release-f1647dc3d672afe972a7.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gns_core::@57760688d1f824db5d9c",
+					"jsonFile" : "target-gns_core-Release-b54987d0c776d5667b99.json",
+					"name" : "gns_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "gns_tests::@a44f0ac069e85531cdee",
+					"jsonFile" : "target-gns_tests-Release-03cd30c6f2d634415abe.json",
+					"name" : "gns_tests",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "imgui::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-imgui-Release-bc53c7f7716920728da2.json",
+					"name" : "imgui",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sqlite3::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sqlite3-Release-236f13f76431262051a6.json",
+					"name" : "sqlite3",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4
+					],
+					"jsonFile" : "directory-.-MinSizeRel-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						3,
+						6,
+						7
+					]
+				},
+				{
+					"build" : "core",
+					"jsonFile" : "directory-core-MinSizeRel-e3757ce4a321da3133c4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "core",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "engine",
+					"jsonFile" : "directory-engine-MinSizeRel-776e2b00c6520ab49d05.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "engine",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "creator",
+					"jsonFile" : "directory-creator-MinSizeRel-bd58ccf1d0dfbc6a0738.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "creator",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "tests",
+					"jsonFile" : "directory-tests-MinSizeRel-70e4927a02b591d5c1f8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "tests",
+					"targetIndexes" : 
+					[
+						5
+					]
+				}
+			],
+			"name" : "MinSizeRel",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					],
+					"name" : "GrimoireAndSteel",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-MinSizeRel-339d75c46e76e272bafe.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "GameEngine::@4088515cb4035b412499",
+					"jsonFile" : "target-GameEngine-MinSizeRel-0b54d2c9c37e940cacca.json",
+					"name" : "GameEngine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ModuleCreator::@662ba5a1a1da0f1c70a9",
+					"jsonFile" : "target-ModuleCreator-MinSizeRel-14d0b133afb3aef3b432.json",
+					"name" : "ModuleCreator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-MinSizeRel-f1647dc3d672afe972a7.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gns_core::@57760688d1f824db5d9c",
+					"jsonFile" : "target-gns_core-MinSizeRel-f1e9a1cd87d504cab616.json",
+					"name" : "gns_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "gns_tests::@a44f0ac069e85531cdee",
+					"jsonFile" : "target-gns_tests-MinSizeRel-32808ba7380e7ccd3816.json",
+					"name" : "gns_tests",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "imgui::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-imgui-MinSizeRel-59faebb72a554b8d52fe.json",
+					"name" : "imgui",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sqlite3::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sqlite3-MinSizeRel-d4be9affa96330a49e09.json",
+					"name" : "sqlite3",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4
+					],
+					"jsonFile" : "directory-.-RelWithDebInfo-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						3,
+						6,
+						7
+					]
+				},
+				{
+					"build" : "core",
+					"jsonFile" : "directory-core-RelWithDebInfo-e3757ce4a321da3133c4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "core",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "engine",
+					"jsonFile" : "directory-engine-RelWithDebInfo-776e2b00c6520ab49d05.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "engine",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "creator",
+					"jsonFile" : "directory-creator-RelWithDebInfo-bd58ccf1d0dfbc6a0738.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "creator",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "tests",
+					"jsonFile" : "directory-tests-RelWithDebInfo-70e4927a02b591d5c1f8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.0"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "tests",
+					"targetIndexes" : 
+					[
+						5
+					]
+				}
+			],
+			"name" : "RelWithDebInfo",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4
+					],
+					"name" : "GrimoireAndSteel",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-RelWithDebInfo-339d75c46e76e272bafe.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "GameEngine::@4088515cb4035b412499",
+					"jsonFile" : "target-GameEngine-RelWithDebInfo-db6f57a6d422369f4107.json",
+					"name" : "GameEngine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "ModuleCreator::@662ba5a1a1da0f1c70a9",
+					"jsonFile" : "target-ModuleCreator-RelWithDebInfo-f4135e60e2b167fe90b8.json",
+					"name" : "ModuleCreator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-RelWithDebInfo-f1647dc3d672afe972a7.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gns_core::@57760688d1f824db5d9c",
+					"jsonFile" : "target-gns_core-RelWithDebInfo-bc6ee12bc6c803cc870b.json",
+					"name" : "gns_core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "gns_tests::@a44f0ac069e85531cdee",
+					"jsonFile" : "target-gns_tests-RelWithDebInfo-76c4d70d49c420f5bb35.json",
+					"name" : "gns_tests",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "imgui::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-imgui-RelWithDebInfo-e0ce731714d4161ad1c1.json",
+					"name" : "imgui",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sqlite3::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sqlite3-RelWithDebInfo-984b4cb1e27b735c664f.json",
+					"name" : "sqlite3",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build",
+		"source" : "C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}

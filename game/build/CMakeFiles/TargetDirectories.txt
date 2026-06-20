@@ -1,0 +1,13 @@
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/CMakeFiles/sqlite3.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/CMakeFiles/imgui.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/CMakeFiles/RUN_TESTS.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/CMakeFiles/ZERO_CHECK.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/core/CMakeFiles/gns_core.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/core/CMakeFiles/RUN_TESTS.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/engine/CMakeFiles/GameEngine.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/engine/CMakeFiles/RUN_TESTS.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/creator/CMakeFiles/ModuleCreator.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/creator/CMakeFiles/RUN_TESTS.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/tests/CMakeFiles/gns_tests.dir
+C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/tests/CMakeFiles/RUN_TESTS.dir

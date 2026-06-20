@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\build\CMakeFiles\0f77d62f0d396d659ed78a0ae0c8a2bb\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\core\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\core</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\creator\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\creator</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\engine\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\engine</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\tests\CMakeLists.txt">
+      <Filter>Buildsystem Input Files\tests</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\third_party\SDL2\cmake\sdl2-config-version.cmake">
+      <Filter>Buildsystem Input Files\third_party\SDL2\cmake</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\third_party\SDL2\cmake\sdl2-config.cmake">
+      <Filter>Buildsystem Input Files\third_party\SDL2\cmake</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\third_party\SDL2_image\cmake\sdl2_image-config-version.cmake">
+      <Filter>Buildsystem Input Files\third_party\SDL2_image\cmake</Filter>
+    </None>
+    <None Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\third_party\SDL2_image\cmake\sdl2_image-config.cmake">
+      <Filter>Buildsystem Input Files\third_party\SDL2_image\cmake</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{2064989F-A8CC-3AC7-8EB9-2F799A5A340F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\core">
+      <UniqueIdentifier>{064A4DFB-2237-3EC3-A18B-1F6B33BD4664}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\creator">
+      <UniqueIdentifier>{E909EA22-B3CB-303B-A939-038B4766D61D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\engine">
+      <UniqueIdentifier>{1CA729FD-94AC-38FE-B22B-12C237C82912}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\tests">
+      <UniqueIdentifier>{99DF4CC1-6740-3078-B8CA-1D46A1FC01F1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\third_party\SDL2\cmake">
+      <UniqueIdentifier>{44E06B7E-6E8B-32BB-B2EB-183E9EC95521}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Buildsystem Input Files\third_party\SDL2_image\cmake">
+      <UniqueIdentifier>{AB482AAB-FB8A-362F-9AC9-C749F0DA6DBF}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,105 @@
+{
+	"backtrace" : 0,
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : 
+		[
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 0
+			}
+		]
+	},
+	"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+	"isGeneratorProvided" : true,
+	"name" : "ZERO_CHECK",
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				0,
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				9
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 0,
+			"path" : "CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "core/CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "creator/CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "engine/CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "tests/CMakeLists.txt",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "third_party/SDL2/cmake/sdl2-config-version.cmake",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "third_party/SDL2/cmake/sdl2-config.cmake",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "third_party/SDL2_image/cmake/sdl2_image-config-version.cmake",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"path" : "third_party/SDL2_image/cmake/sdl2_image-config.cmake",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/CMakeFiles/0f77d62f0d396d659ed78a0ae0c8a2bb/generate.stamp.rule",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "UTILITY"
+}

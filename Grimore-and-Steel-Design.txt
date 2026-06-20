@@ -1,0 +1,54 @@
+Grimoire & Steel Role-Playing Game Master Plan
+
+Three main parts to the game system:
+Module - A module defines an adventure, but can not be used on it's own.
+Game Engine - Loads modules and allows a user to play the adventure.
+Module Creator - Application that allows one to create modules.
+
+Module Details:
+A module contains one or more maps that describe the terrian, dungeon, environment the adventure takes place in.
+A module contains detailed description for each area of the map. There is two distinct descriptions and information for each area - Dungeon Master only info and Player Character info.
+Each area described should contain statistics that the game engine uses to drive the game. For example:
+percentage of and type of creatures for that area.
+percentage of and type of treasure for that area.
+Plot specific items and information.
+Hidden items and chance a party will discover them.
+Traps and the chance or possibility a party or character will fall victim to the trap.
+Locked items (Chests, Wordrobes, Doors) and the possibility a character will unlock it. 
+Each area may have artwork associated with it that the game engine will display when that area is visited.
+Plot specific areas or items that the party has visited or aquired need to be tracked somehow. I think the game engine should do the tracking since a module only provides information.
+There is a beginning and an end to each module.
+A module defines an adventure, but does not track the status and events of players that play the module (the game engine does that)
+A map is an overhead view of an area (town, dungeon level, level of a cave, etc.).
+A map is drawn on a grid. A much larger grid is overlayed on the map that defines the areas using letters and numbers. For example A1, or C4
+A map should contain letters or symbols that correspond to important information that is described in the module description. 
+A map should contain a key that describes the symbols on the map.
+Module's maps can be marked by the module creator with control points. These control points guide the game engine as to the plot specific progress the party has completed so far.
+If a module has no control points defined, the party can travel anywhere within the area defined by the module.
+
+Module Creator:
+The user should be able to draw maps using the mouse.
+A map is a fine grid of squared with specific areas colored in defining areas on the map. 
+The user defines specific information for each area of the map - description of room, area, etc. Number of monsters present, treasure, etc.
+A user can add control points to defined areas. these control points mark plot specific areas complete or not-completed.
+An area can have a prerequisite that spefic control points must be completed first before a party may visit that area.
+A finished module should be able to be loaded into the game engine.
+
+Game Engine:
+Allows a user to load a module and play it.
+When a user is playing a module:
+	Displays text for each area.
+	Displays map for an area and shows the parties position on the map.
+	Portions of a map the party has not visited yet are not revealed.
+	Allows the users to make choices to progress the plot.
+	Controls the game play using the rules in the dns database.
+	Allows a user to create characters based off the information in the dns database.
+	During game play each character has an avatar and key information displayed like Player name, hit points, and ability scores
+	There is an image area that displays game artwork if the current area has artwork defined for it. Otherwise a default image is displayed.
+	Game play is turn-based.
+	A player can view a characters complete information, Change currently armed weapon, Change Armor, helmet, sheild, rings worn, currently armed wand, staff, etc.
+The game engine should be able to save the status of a game so a player can continue playing the next time a module is loaded.
+The game engine can track plot events and information. The users may view key plot information summaries so that they can be reminded of their purpose, and focus so that when revisiting a game they are reminded of events done or finished thus far.
+Monster information should be displayed as the party encounters them.
+	
+

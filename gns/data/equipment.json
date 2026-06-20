@@ -1,0 +1,84 @@
+{
+  "_note": "Costs and armor classes are from the D&D Basic 'Cost of Weapons and Equipment' page. WEAPON DAMAGE and ALL WEIGHTS (lbs) are NOT in the Basic rules (Basic uses 1d6 for every weapon and a coin-based encumbrance system); they are reasonable invented values for Grimoire & Steel and may be edited freely. strength_capacity is likewise invented.",
+
+  "weapons": [
+    {"name": "Battle Axe (two-handed)", "category": "Axes", "cost_gp": 7, "weight_lbs": 15, "damage": "1d8 (1-8)", "damage_min": 1, "damage_max": 8, "two_handed": 1},
+    {"name": "Hand Axe", "category": "Axes", "cost_gp": 4, "weight_lbs": 5, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "range_short_ft": 10, "range_long_ft": 30, "notes": "May be hurled."},
+    {"name": "Crossbow", "category": "Bows", "cost_gp": 30, "weight_lbs": 8, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "two_handed": 1, "range_short_ft": 60, "range_medium_ft": 120, "range_long_ft": 180, "notes": "Fires quarrels."},
+    {"name": "Case with 30 Quarrels", "category": "Bows", "cost_gp": 10, "weight_lbs": 5, "notes": "Ammunition for a crossbow."},
+    {"name": "Long Bow", "category": "Bows", "cost_gp": 40, "weight_lbs": 5, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "two_handed": 1, "range_short_ft": 70, "range_medium_ft": 140, "range_long_ft": 210},
+    {"name": "Short Bow", "category": "Bows", "cost_gp": 25, "weight_lbs": 5, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "two_handed": 1, "range_short_ft": 50, "range_medium_ft": 100, "range_long_ft": 150},
+    {"name": "Quiver with 20 Arrows", "category": "Bows", "cost_gp": 10, "weight_lbs": 5, "notes": "Ammunition for a bow."},
+    {"name": "Silver-tipped Arrow", "category": "Bows", "cost_gp": 5, "weight_lbs": 0, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "notes": "Fired from a bow; harms creatures hit only by silver."},
+    {"name": "Dagger", "category": "Daggers", "cost_gp": 3, "weight_lbs": 1, "damage": "1d4 (1-4)", "damage_min": 1, "damage_max": 4, "range_short_ft": 10, "range_long_ft": 30, "notes": "May be hurled."},
+    {"name": "Silver Dagger", "category": "Daggers", "cost_gp": 30, "weight_lbs": 1, "damage": "1d4 (1-4)", "damage_min": 1, "damage_max": 4, "range_short_ft": 10, "range_long_ft": 30, "notes": "May be hurled. Harms creatures hit only by silver."},
+    {"name": "Short Sword", "category": "Swords", "cost_gp": 7, "weight_lbs": 3, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6},
+    {"name": "Sword", "category": "Swords", "cost_gp": 10, "weight_lbs": 6, "damage": "1d8 (1-8)", "damage_min": 1, "damage_max": 8, "notes": "Normal (long) sword."},
+    {"name": "Two-handed Sword", "category": "Swords", "cost_gp": 15, "weight_lbs": 15, "damage": "1d10 (1-10)", "damage_min": 1, "damage_max": 10, "two_handed": 1},
+    {"name": "Mace", "category": "Other", "cost_gp": 5, "weight_lbs": 10, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "cleric_usable": 1},
+    {"name": "Club", "category": "Other", "cost_gp": 3, "weight_lbs": 5, "damage": "1d4 (1-4)", "damage_min": 1, "damage_max": 4, "cleric_usable": 1},
+    {"name": "Pole Arm (two-handed)", "category": "Other", "cost_gp": 7, "weight_lbs": 15, "damage": "1d10 (1-10)", "damage_min": 1, "damage_max": 10, "two_handed": 1},
+    {"name": "Sling with 30 Sling Stones", "category": "Other", "cost_gp": 2, "weight_lbs": 1, "damage": "1d4 (1-4)", "damage_min": 1, "damage_max": 4, "cleric_usable": 1, "range_short_ft": 60, "range_medium_ft": 120, "range_long_ft": 180},
+    {"name": "Spear", "category": "Other", "cost_gp": 3, "weight_lbs": 5, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "range_short_ft": 10, "range_long_ft": 30, "notes": "May be hurled."},
+    {"name": "War Hammer", "category": "Other", "cost_gp": 5, "weight_lbs": 6, "damage": "1d6 (1-6)", "damage_min": 1, "damage_max": 6, "cleric_usable": 1}
+  ],
+
+  "armor": [
+    {"name": "Leather Armor", "armor_class": 7, "cost_gp": 20, "weight_lbs": 25},
+    {"name": "Chain Mail Armor", "armor_class": 5, "cost_gp": 40, "weight_lbs": 40},
+    {"name": "Plate Mail Armor", "armor_class": 3, "cost_gp": 60, "weight_lbs": 50},
+    {"name": "Shield", "armor_class": null, "ac_modifier": -1, "cost_gp": 10, "weight_lbs": 10, "is_shield": 1, "notes": "Deduct 1 from the Armor Class number if a shield is used."}
+  ],
+
+  "armor_classes": [
+    {"armor_class": 9, "armor_type": "Clothing only"},
+    {"armor_class": 8, "armor_type": "Shield only"},
+    {"armor_class": 7, "armor_type": "Leather Armor"},
+    {"armor_class": 6, "armor_type": "Leather Armor & Shield"},
+    {"armor_class": 5, "armor_type": "Chain Mail Armor"},
+    {"armor_class": 4, "armor_type": "Chain Mail Armor & Shield"},
+    {"armor_class": 3, "armor_type": "Plate Mail Armor"},
+    {"armor_class": 2, "armor_type": "Plate Mail Armor & Shield"}
+  ],
+
+  "equipment": [
+    {"name": "Backpack", "category": "Gear", "cost_gp": 5, "weight_lbs": 2},
+    {"name": "Flask of Oil", "category": "Gear", "cost_gp": 2, "weight_lbs": 1},
+    {"name": "Hammer (small)", "category": "Gear", "cost_gp": 2, "weight_lbs": 1},
+    {"name": "Holy Symbol", "category": "Gear", "cost_gp": 25, "weight_lbs": 1},
+    {"name": "Holy Water (1 vial)", "category": "Gear", "cost_gp": 25, "weight_lbs": 1},
+    {"name": "Iron Spikes (12)", "category": "Gear", "cost_gp": 1, "weight_lbs": 5},
+    {"name": "Lantern", "category": "Gear", "cost_gp": 10, "weight_lbs": 3, "light_radius_ft": 30, "light_duration_turns": 24, "notes": "Burns one flask of oil for 24 turns; the bearer sees 30 ft."},
+    {"name": "Mirror (hand-sized, steel)", "category": "Gear", "cost_gp": 5, "weight_lbs": 1},
+    {"name": "Iron Rations (1 person/1 week)", "category": "Rations", "cost_gp": 15, "weight_lbs": 7, "notes": "Preserved food."},
+    {"name": "Standard Rations (1 person/1 week)", "category": "Rations", "cost_gp": 5, "weight_lbs": 20, "notes": "Unpreserved food."},
+    {"name": "Rope (50' length)", "category": "Gear", "cost_gp": 1, "weight_lbs": 5},
+    {"name": "Small Sack", "category": "Sacks", "cost_gp": 1, "weight_lbs": 1},
+    {"name": "Large Sack", "category": "Sacks", "cost_gp": 2, "weight_lbs": 1},
+    {"name": "Thieves' Tools", "category": "Gear", "cost_gp": 25, "weight_lbs": 1},
+    {"name": "Torches (6)", "category": "Gear", "cost_gp": 1, "weight_lbs": 6, "light_radius_ft": 30, "light_duration_turns": 6, "notes": "Pack of 6; each torch burns 6 turns and the bearer sees 30 ft."},
+    {"name": "Water/Wine Skin", "category": "Gear", "cost_gp": 1, "weight_lbs": 5},
+    {"name": "Wine (1 quart)", "category": "Gear", "cost_gp": 1, "weight_lbs": 2},
+    {"name": "Wolfsbane (1 bunch)", "category": "Gear", "cost_gp": 10, "weight_lbs": 1},
+    {"name": "Wooden Pole (10' long)", "category": "Gear", "cost_gp": 1, "weight_lbs": 10}
+  ],
+
+  "strength_capacity": [
+    {"strength_score": 3, "base_capacity_lbs": 20, "max_capacity_lbs": 40},
+    {"strength_score": 4, "base_capacity_lbs": 25, "max_capacity_lbs": 50},
+    {"strength_score": 5, "base_capacity_lbs": 25, "max_capacity_lbs": 50},
+    {"strength_score": 6, "base_capacity_lbs": 35, "max_capacity_lbs": 70},
+    {"strength_score": 7, "base_capacity_lbs": 35, "max_capacity_lbs": 70},
+    {"strength_score": 8, "base_capacity_lbs": 40, "max_capacity_lbs": 80},
+    {"strength_score": 9, "base_capacity_lbs": 50, "max_capacity_lbs": 100},
+    {"strength_score": 10, "base_capacity_lbs": 55, "max_capacity_lbs": 110},
+    {"strength_score": 11, "base_capacity_lbs": 55, "max_capacity_lbs": 110},
+    {"strength_score": 12, "base_capacity_lbs": 60, "max_capacity_lbs": 120},
+    {"strength_score": 13, "base_capacity_lbs": 70, "max_capacity_lbs": 140},
+    {"strength_score": 14, "base_capacity_lbs": 75, "max_capacity_lbs": 150},
+    {"strength_score": 15, "base_capacity_lbs": 85, "max_capacity_lbs": 170},
+    {"strength_score": 16, "base_capacity_lbs": 100, "max_capacity_lbs": 200},
+    {"strength_score": 17, "base_capacity_lbs": 120, "max_capacity_lbs": 240},
+    {"strength_score": 18, "base_capacity_lbs": 150, "max_capacity_lbs": 300}
+  ]
+}

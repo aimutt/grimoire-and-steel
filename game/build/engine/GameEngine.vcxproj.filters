@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\engine\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\rockr\source\repos-aimutt\grimoire-and-steel\game\engine\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{45E37199-CFE8-3B91-B41C-7381591431F9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

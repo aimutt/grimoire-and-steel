@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="x-ua-compatible" content="ie=edge">
+<title>Grimoire &amp; Steel &mdash; Spells DB</title>
+<HTA:APPLICATION
+  ID="gns"
+  APPLICATIONNAME="GrimoireSteelSpells"
+  BORDER="thin"
+  INNERBORDER="no"
+  MAXIMIZEBUTTON="no"
+  SCROLL="no"
+  SINGLEINSTANCE="yes"
+  WINDOWSTATE="normal" />
+<style>
+  body { font-family: Segoe UI, Tahoma, sans-serif; background:#f3eef7; color:#211a30;
+         margin:0; padding:18px 22px; }
+  h1 { font-size:18px; margin:0 0 4px; color:#4a2a7a; }
+  .sub { font-size:12px; color:#5b5070; margin:0 0 16px; }
+  .statusbox { display:flex; align-items:center; gap:10px; padding:10px 12px;
+               border:1px solid #cdbfe6; border-radius:6px; background:#fbf9fe; margin-bottom:16px; }
+  .dot { width:14px; height:14px; border-radius:50%; background:#bbb; flex:0 0 auto; }
+  .dot.up { background:#2e8b3d; }
+  .dot.down { background:#b23b2e; }
+  .dot.wait { background:#d6a915; }
+  .statustext { font-size:14px; font-weight:bold; }
+  .btns { display:flex; gap:10px; flex-wrap:wrap; }
+  button { font-size:14px; padding:9px 14px; border:none; border-radius:5px;
+           cursor:pointer; color:#fff; background:#4a2a7a; }
+  button:hover { background:#371d5e; }
+  button[disabled] { background:#bcaed4; cursor:default; }
+  .open { background:#0f6b4f; }
+  .open:hover { background:#0b513c; }
+  .hint { font-size:11px; color:#6b6080; margin-top:16px; line-height:1.5; }
+</style>
+</head>
+<body onload="init()">
+  <h1>Grimoire &amp; Steel &mdash; Spells DB</h1>
+  <p class="sub">gns.db browser &mdash; local server control</p>
+
+  <div class="statusbox">
+    <span id="dot" class="dot"></span>
+    <span id="statustext" class="statustext">Checking&hellip;</span>
+  </div>
+
+  <div class="btns">
+    <button id="btnStart" onclick="startApp()">Start App</button>
+    <button id="btnOpen" class="open" onclick="openApp()">Open in Browser</button>
+    <button id="btnStop" onclick="stopApp()">Stop App</button>
+  </div>
+
+  <p class="hint">
+    Start runs the spells browser in the background. Open launches it in your default
+    browser at http://127.0.0.1:5001. Stop shuts the server down.<br>
+    Closing this window leaves the server running &mdash; reopen this launcher to stop it.
+  </p>
+
+<script language="javascript" type="text/javascript">
+var PORT = 5001;
+var BASE = "http://127.0.0.1:" + PORT;
+var FALLBACK_DIR = "C:\\Users\\rockr\\source\\repos-aimutt\\grimoire-and-steel\\gns";
+var pollTimer = null;
+
+function appPyPath() {
+  var dir = "";
+  try {
+    var href = String(location.href).replace(/^file:\/{0,3}/i, "");
+    href = decodeURIComponent(href).replace(/\//g, "\\");
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    dir = fso.GetParentFolderName(href);
+  } catch (e) { dir = ""; }
+  if (!dir) { dir = FALLBACK_DIR; }
+  return dir + "\\app\\app.py";
+}
+
+function httpGet(path) {
+  try {
+    var x = new ActiveXObject("MSXML2.ServerXMLHTTP.6.0");
+    x.setTimeouts(1200, 1200, 1200, 2500);
+    x.open("GET", BASE + path, false);
+    x.send();
+    return x.status;
+  } catch (e) { return 0; }
+}
+
+function isUp() { return httpGet("/health") == 200; }
+
+function setState(state) {
+  var dot = document.getElementById("dot");
+  var txt = document.getElementById("statustext");
+  document.getElementById("btnStart").disabled = (state == "up" || state == "wait");
+  document.getElementById("btnStop").disabled = (state != "up");
+  document.getElementById("btnOpen").disabled = (state != "up");
+  if (state == "up") { dot.className = "dot up"; txt.innerHTML = "Running"; }
+  else if (state == "wait") { dot.className = "dot wait"; txt.innerHTML = "Starting&hellip;"; }
+  else { dot.className = "dot down"; txt.innerHTML = "Not running"; }
+}
+
+function refresh() { setState(isUp() ? "up" : "down"); }
+
+function startApp() {
+  if (isUp()) { setState("up"); return; }
+  setState("wait");
+  try {
+    var shell = new ActiveXObject("WScript.Shell");
+    shell.Run('py "' + appPyPath() + '"', 0, false);   // 0 = hidden console
+  } catch (e) {
+    alert("Could not start the server:\n" + e.message +
+          "\n\nMake sure Python is installed (the 'py' launcher).");
+    setState("down");
+    return;
+  }
+  waitUp(0);
+}
+
+function waitUp(n) {
+  if (isUp()) { setState("up"); openApp(); return; }
+  if (n > 20) { setState("down"); alert("The server did not start within the expected time."); return; }
+  setTimeout(function () { waitUp(n + 1); }, 700);
+}
+
+function stopApp() {
+  httpGet("/shutdown");
+  setTimeout(refresh, 900);
+}
+
+function openApp() {
+  try {
+    var shell = new ActiveXObject("WScript.Shell");
+    shell.Run(BASE + "/", 1, false);   // opens default browser
+  } catch (e) { alert("Could not open the browser:\n" + e.message); }
+}
+
+function init() {
+  try { window.resizeTo(460, 380); } catch (e) {}
+  refresh();
+  pollTimer = setInterval(refresh, 3000);
+}
+</script>
+</body>
+</html>

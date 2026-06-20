@@ -1,0 +1,80 @@
+Start testing: Jun 20 12:53 Pacific Daylight Time
+----------------------------------------------------------
+1/1 Testing: gns_tests
+1/1 Test: gns_tests
+Command: "C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/tests/Debug/gns_tests.exe"
+Directory: C:/Users/rockr/source/repos-aimutt/grimoire-and-steel/game/build/tests
+"gns_tests" start time: Jun 20 12:53 Pacific Daylight Time
+Output:
+----------------------------------------------------------
+== data ==
+  [OK ] monsters == 97
+  [OK ] all_spells == 66
+== dice ==
+  [OK ] parse '1d8'
+  [OK ] parse '2d6+1'
+  [OK ] parse '2-13'
+  [OK ] 1d8 stays in [1,8] and hits both ends
+  [OK ] same seed -> same sequence
+== repository ==
+  [OK ] Fighter prime-req XP @ STR16 = +10%
+  [OK ] CON 14 hit-die mod = 0
+  [OK ] CON 18 hit-die mod = +3
+  [OK ] char L1-3 to-hit vs AC2 = 17
+  [OK ] monster '11 up' vs AC9 = 0
+  [OK ] STR 16 base capacity = 100
+  [OK ] Two-handed Sword dmg 1..10
+  [OK ] Orc XP = 10
+== character ==
+  [OK ] xp bonus 10%
+  [OK ] class group = Fighting Man
+  [OK ] save vs death/poison = 12
+  [OK ] save vs dragon breath = 15
+  [OK ] HP between 1 and 8
+  [OK ] base movement 120 (Human)
+  [OK ] Dwarf save group
+  [OK ] Dwarf movement 90
+== encumbrance ==
+  [OK ] light load: full movement
+  [OK ] encumbered: half movement
+  [OK ] overloaded: no movement
+== combat ==
+  [OK ] characterToHit AC9 = 10
+  [OK ] monster 1 HD vs AC9 needs 10
+  [OK ] Sword hit damage in 1..8
+  [OK ] save needed (poison) = 12
+== turn undead ==
+  [OK ] L1 cleric can attempt to turn Skeleton (needs 7)
+  [OK ] L3 cleric auto-turns Zombie
+  [OK ] L1 cleric cannot turn Vampire
+== wandering ==
+  [OK ] Dungeon L1 yields valid encounters
+  [OK ] Dungeon L1 can yield Skeleton
+  [OK ] Dungeon L1 never yields Elephant
+== treasure ==
+  [OK ] Type Q yields no coins
+  [OK ] Type Q can yield gems
+  [OK ] Type A can yield treasure
+== module io ==
+  [OK ] module name preserved
+  [OK ] module author/summary preserved
+  [OK ] start/end markers preserved
+  [OK ] one map preserved
+  [OK ] grid dims preserved
+  [OK ] overlay dims preserved
+  [OK ] cell arrays preserved
+  [OK ] two areas preserved
+  [OK ] area stats preserved
+  [OK ] area prerequisites preserved
+  [OK ] control point preserved
+
+ALL CHECKS PASSED
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"gns_tests" end time: Jun 20 12:53 Pacific Daylight Time
+"gns_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Jun 20 12:53 Pacific Daylight Time
