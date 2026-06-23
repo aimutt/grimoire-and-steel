@@ -210,10 +210,12 @@ Build the smallest end-to-end DM loop, then layer combat and saves:
 
 Keep every new piece in `gns_core` (UI-free) so it's covered by the `gns_tests` harness.
 
-> **Status:** step 1 (`Session`/`Party`/`PlayState`), the Storyteller `PlotTracker`, and the Narrator
-> (`Narrator` + `TemplateNarrationProvider` + the `INarrationProvider` seam) are implemented and green
-> under `gns_tests`. They were built before the engine-UI screen swap (step 2) so the whole DM core
-> stays UI-free and testable first.
+> **Status:** the DM core is being built UI-free and testable first, ahead of the engine-UI screen
+> swap (step 2). Done and green under `gns_tests`: step 1 (`Session`/`Party`/`PlayState`), the
+> Storyteller `PlotTracker`, the Narrator (`Narrator` + `TemplateNarrationProvider` + the
+> `INarrationProvider` seam), the Referee (`RulesAdjudicator`), and the Actor (`EncounterDirector`).
+> All five DM-role subsystems now exist; remaining M4 work is the combat loop, `MapVisibility` fog of
+> war, the engine play-view UI (step 2), and `.gnssav`.
 
 ---
 
@@ -243,6 +245,64 @@ a presentation service). The engine calls `narrator.describeAreaEntry(*session.c
 **Tests (`== narrator ==`):** template `narrate()` emits `playerText` and never leaks `dmText`; facts
 fold in order; `factFor(AttackResult)` renders hit/miss; `speakNpc()` is non-empty; and an injected
 test-double provider proves `Narrator` calls through the seam (so the local model drops in cleanly).
+
+---
+
+## Step 4 (done) — Referee / `RulesAdjudicator`
+
+A thin, session-facing façade over the existing M1 rules (`Rules.h`) — **no new rules**, pure
+routing plus two small result structs. UI-free, deterministic, in `gns_core`, covered by `gns_tests`.
+
+**Files:** `game/core/include/gns/RulesAdjudicator.h`, `game/core/src/RulesAdjudicator.cpp` (added to
+`game/core/CMakeLists.txt`).
+
+**Shape.** Binds a `const Repository&` (engine-owned, from `gns.db`) + the session's seeded `Dice&`
+(`Session::dice()`), then exposes methods that drop those args: `characterAttack` / `monsterAttack`
+(forward to the rich-result functions), `savingThrow` → `{needed, roll, success}`, a generic
+`check(pct)` over `Dice::percent`, `trapCheck` / `lockCheck` / `hiddenCheck` → `{occurred,
+description}` from the area's authored chance + text, and forwards for `wandering` / `treasure` /
+`turnUndead` / `monsterXp`. Members call the `gns::`-qualified free functions to avoid recursion.
+
+**Decoupling.** Not owned by `Session` — Session stays clean play-state with no `Repository`/
+`Database` dependency. The engine constructs `RulesAdjudicator adj(repo, session.dice());` so every
+roll runs on the one seeded stream (deterministic `.gnssav` replay).
+
+**Scope.** Monster *encounter assembly* stays in the future `EncounterDirector` (the adjudicator only
+gives it `check()`); `computeLoad`/movement is deferred until inventory carries weight.
+
+**Tests (`== adjudicator ==`):** seed-equivalence proves pure forwarding (same seed through the façade
+vs the free function → identical results, for attack/monsterAttack/wandering/treasure/turnUndead);
+value checks anchored to existing constants (`savingThrow` needed 12; `characterAttack` needed 10 vs
+AC9 with damage 1..8 on hit; `monsterXp(Orc)` 10); and the `100%`/`0%` authored-chance extremes.
+
+---
+
+## Step 5 (done) — Actor / `EncounterDirector`
+
+Turns an area's authored monster chance (or a wandering check) into a concrete, ready-to-fight
+encounter. UI-free, deterministic, in `gns_core`, covered by `gns_tests`.
+
+**Files:** `game/core/include/gns/EncounterDirector.h`, `game/core/src/EncounterDirector.cpp` (added to
+`game/core/CMakeLists.txt`).
+
+**Shape.** Binds a `const Repository&` + the session's seeded `Dice&` (same shape as the adjudicator;
+the presence roll is the same `Dice::percent` primitive). `checkArea(area)` rolls
+`monsterChancePct` then builds from `area.monsterType` (group size 1); `checkWandering(env, level)`
+forwards to `rollWandering` and uses its number-appearing as the count; `makeEncounter(type, count,
+fromWandering)` resolves the type to a `MonsterDef` (`Repository::monster`), rolls per-monster HP
+(`N d8 + mod` parsed from the hit-dice line, `1d4` for sub-1 HD), and a 2d6 reaction. Produces an
+`Encounter { occurred, monsterType, known, fromWandering, vector<Combatant>, reaction }` where each
+`Combatant` carries rolled `hp`/`maxHp`, AC, hit dice, and damage ready for the combat loop.
+
+**Notes / deviations.** The **reaction is computed in code** from the canonical Basic D&D 2d6 table
+(`reactionFor2d6`) — gns.db has no reaction accessor wired in; data-driving it later is an easy swap.
+Unknown / free-text monster types still yield usable combatants (`known = false` flags them) so play
+never dead-ends. Group size for an area encounter defaults to 1 (the module names a type, not a count).
+
+**Tests (`== encounter ==`):** the 2d6 reaction mapping; an area encounter at 100% resolving a known
+`Orc` with HP in a valid HD range and `hp == maxHp`; no encounter at 0%; a group of 3 with AC pulled
+from the stat block; an unknown type still built and flagged; and a wandering check yielding a valid
+encounter for a populated environment.
 
 ---
 
