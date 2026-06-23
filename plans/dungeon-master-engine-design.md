@@ -213,9 +213,9 @@ Keep every new piece in `gns_core` (UI-free) so it's covered by the `gns_tests` 
 > **Status:** the DM core is being built UI-free and testable first, ahead of the engine-UI screen
 > swap (step 2). Done and green under `gns_tests`: step 1 (`Session`/`Party`/`PlayState`), the
 > Storyteller `PlotTracker`, the Narrator (`Narrator` + `TemplateNarrationProvider` + the
-> `INarrationProvider` seam), the Referee (`RulesAdjudicator`), and the Actor (`EncounterDirector`).
-> All five DM-role subsystems now exist; remaining M4 work is the combat loop, `MapVisibility` fog of
-> war, the engine play-view UI (step 2), and `.gnssav`.
+> `INarrationProvider` seam), the Referee (`RulesAdjudicator`), the Actor (`EncounterDirector`), and
+> the turn-based **combat loop** (`CombatEngine`). All five DM-role subsystems plus combat now exist;
+> remaining M4 work is `MapVisibility` fog of war, the engine play-view UI (step 2), and `.gnssav`.
 
 ---
 
@@ -303,6 +303,38 @@ never dead-ends. Group size for an area encounter defaults to 1 (the module name
 `Orc` with HP in a valid HD range and `hp == maxHp`; no encounter at 0%; a group of 3 with AC pulled
 from the stat block; an unknown type still built and flagged; and a wandering check yielding a valid
 encounter for a populated environment.
+
+---
+
+## Step 6 (done) — Combat loop (`CombatEngine`)
+
+An auto-resolving turn-based fight that ties the Actor (`EncounterDirector` → `Encounter`/`Combatant`)
+to the Referee (`RulesAdjudicator`). No new rules — pure orchestration. UI-free, deterministic, in
+`gns_core`, covered by `gns_tests`.
+
+**Files:** `game/core/include/gns/CombatEngine.h`, `game/core/src/CombatEngine.cpp` (added to
+`game/core/CMakeLists.txt`). Plus a one-line `Character` extension: `std::string weaponName;`
+(`Character.h`) — empty falls back to the existing 1d6 default in `characterAttack`, so non-breaking.
+
+**Shape.** `CombatEngine(repo, dice)` owns an internal `RulesAdjudicator` over the same repo/dice, so
+every attack routes through the Referee on the one seeded stream. `run(Party&, Encounter&)` mutates
+party hp/xp and combatant hp; `encounterXp(Encounter)` sums monster XP (no RNG); the free
+`applyXpBonus(amount, pct)` applies the prime-requisite bonus. Returns a `CombatResult { outcome,
+rounds, xpAwarded, xpPerSurvivor, log }` whose log lines are built with the Narrator's `factFor`.
+
+**Mechanics.** Side initiative each round (party d6 vs monster d6, ties → party); each living attacker
+hits the first living enemy (PC → `characterAttack`, monster → `monsterAttack`); a combatant is out at
+hp ≤ 0; the fight ends on all-monsters-down (`PartyVictory`) or `party.isWiped()` (`PartyDefeat`), with
+a `maxRounds` safety cap. On victory, monster XP is split among survivors (bonus-adjusted).
+
+**Scope (each a noted future):** auto-resolve only — interactive target/action choice is a UI-layer
+addition reusing the same `adj_` calls; no morale/fleeing; no saving-throw special attacks yet (the
+adjudicator has `savingThrow` ready); side-based (not individual) initiative.
+
+**Tests (`== combat loop ==`):** pure XP math (3 Orcs = 30); termination + bookkeeping invariants
+across seeds (one side down; victory awards `encounterXp` split as bonus-adjusted shares to survivors,
+fallen PCs earn nothing; non-empty log); same-seed determinism (proves `.gnssav` replay); and the
+empty-encounter → immediate-victory edge case.
 
 ---
 

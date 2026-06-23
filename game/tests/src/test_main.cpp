@@ -11,6 +11,7 @@
 #include "gns/Narrator.h"
 #include "gns/RulesAdjudicator.h"
 #include "gns/EncounterDirector.h"
+#include "gns/CombatEngine.h"
 
 #include <cstdio>
 #include <exception>
@@ -535,6 +536,89 @@ int main() {
             Encounter w = dir.checkWandering("Dungeon", 1);
             check("wandering yields a valid encounter",
                   w.occurred && w.fromWandering && !w.monsters.empty() && w.monsters[0].hp >= 1);
+        }
+
+        // ---- CombatEngine: auto-resolve a fight (M4 combat loop) ----
+        std::printf("== combat loop ==\n");
+        {
+            Character bram = morgan; bram.name = "Bram";   // second fighter, same stats
+
+            // Pure XP math (no RNG): 3 Orcs at 10 XP each = 30.
+            {
+                EncounterDirector dir(repo, dice);
+                CombatEngine combat(repo, dice);
+                Encounter threeOrcs = dir.makeEncounter("Orc", 3, false);
+                check("encounterXp sums monster XP (3 Orcs = 30)",
+                      combat.encounterXp(threeOrcs) == 30);
+            }
+
+            // Termination + bookkeeping invariants (hold for any seed).
+            {
+                Party party;
+                party.members.push_back(morgan);
+                party.members.push_back(bram);
+                for (auto& pc : party.members) pc.weaponName = "Sword";
+                std::vector<int> xp0;
+                for (auto& pc : party.members) xp0.push_back(pc.experiencePoints);
+
+                EncounterDirector dir(repo, dice);
+                CombatEngine combat(repo, dice);
+                Encounter enc = dir.makeEncounter("Orc", 2, false);
+                const int preXp = combat.encounterXp(enc);
+
+                CombatResult r = combat.run(party, enc);
+                check("combat terminates within the cap", r.rounds >= 1 && r.rounds <= 100);
+                check("combat produced a log", !r.log.empty());
+
+                bool monstersDown = true;
+                for (auto& m : enc.monsters) if (m.hp > 0) monstersDown = false;
+                if (r.outcome == CombatOutcome::PartyVictory) {
+                    check("victory <=> all monsters down", monstersDown);
+                    check("xp awarded equals encounter xp", r.xpAwarded == preXp);
+                    bool xpOk = true; int survivors = 0;
+                    for (std::size_t i = 0; i < party.members.size(); ++i) {
+                        const Character& pc = party.members[i];
+                        if (pc.hp > 0) {
+                            ++survivors;
+                            if (pc.experiencePoints !=
+                                xp0[i] + applyXpBonus(r.xpPerSurvivor, pc.xpBonusPct)) xpOk = false;
+                        } else if (pc.experiencePoints != xp0[i]) {
+                            xpOk = false;   // a fallen PC earns nothing
+                        }
+                    }
+                    check("survivors gained bonus-adjusted xp share", xpOk && survivors >= 1);
+                } else {
+                    check("defeat <=> party wiped", party.isWiped());
+                }
+            }
+
+            // Determinism: identical seeds -> identical result (proves .gnssav replay).
+            {
+                Party pa; pa.members.push_back(morgan); pa.members.push_back(bram);
+                for (auto& pc : pa.members) pc.weaponName = "Sword";
+                Party pb = pa;
+                Dice d1(2025), d2(2025);
+                EncounterDirector da(repo, d1), db(repo, d2);
+                Encounter ea = da.makeEncounter("Orc", 2, false);
+                Encounter eb = db.makeEncounter("Orc", 2, false);
+                CombatEngine ca(repo, d1), cb(repo, d2);
+                CombatResult ra = ca.run(pa, ea);
+                CombatResult rb = cb.run(pb, eb);
+                check("combat is deterministic for a fixed seed",
+                      ra.outcome == rb.outcome && ra.rounds == rb.rounds &&
+                      ra.xpAwarded == rb.xpAwarded);
+            }
+
+            // Empty encounter -> immediate victory.
+            {
+                Party pe; pe.members.push_back(morgan);
+                Encounter none;   // occurred = false, no monsters
+                CombatEngine ce(repo, dice);
+                CombatResult rn = ce.run(pe, none);
+                check("empty encounter is immediate victory",
+                      rn.outcome == CombatOutcome::PartyVictory && rn.rounds == 0 &&
+                      rn.xpAwarded == 0);
+            }
         }
 
     } catch (const std::exception& ex) {
