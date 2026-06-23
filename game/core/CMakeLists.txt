@@ -10,6 +10,7 @@ add_library(gns_core STATIC
     src/PlotTracker.cpp
     src/Narrator.cpp
     src/RulesAdjudicator.cpp
-    src/EncounterDirector.cpp)
+    src/EncounterDirector.cpp
+    src/CombatEngine.cpp)
 target_include_directories(gns_core PUBLIC include)
 target_link_libraries(gns_core PUBLIC sqlite3)

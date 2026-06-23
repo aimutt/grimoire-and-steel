@@ -23,6 +23,7 @@ struct Character {
     int maxHp = 1;
     int hp = 1;
     int armorClass = 9;        // 9 = unarmored
+    std::string weaponName;    // equipped weapon (empty = 1d6 unarmed/default in combat)
     int baseMovementFt = 120;
     int xpBonusPct = 0;        // prime-requisite earned-XP modifier
     int experiencePoints = 0;
