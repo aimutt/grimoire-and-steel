@@ -7,6 +7,7 @@ add_library(gns_core STATIC
     src/Rules.cpp
     src/ModuleIO.cpp
     src/Session.cpp
-    src/PlotTracker.cpp)
+    src/PlotTracker.cpp
+    src/Narrator.cpp)
 target_include_directories(gns_core PUBLIC include)
 target_link_libraries(gns_core PUBLIC sqlite3)
