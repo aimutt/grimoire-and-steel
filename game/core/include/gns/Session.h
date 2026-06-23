@@ -2,6 +2,7 @@
 #include "gns/Module.h"
 #include "gns/Character.h"
 #include "gns/Dice.h"
+#include "gns/PlotTracker.h"
 
 #include <cstdint>
 #include <string>
@@ -63,6 +64,8 @@ public:
     PlayState& state() { return state_; }
     Dice& dice() { return dice_; }
     std::uint64_t seed() const { return seed_; }
+    const PlotTracker& plot() const { return plot_; }
+    PlotTracker& plot() { return plot_; }
 
     // Current map / area resolved against the owned module (nullptr if none).
     const Map* currentMap() const;
@@ -72,12 +75,28 @@ public:
     // than a fallback) -- a useful signal for the engine UI and for tests.
     bool seatedAtDeclaredStart() const { return seatedAtStart_; }
 
+    // Storyteller queries against the owned module + plot state.
+
+    // True when `areaId` exists in the module and all its prerequisite control
+    // points are complete. Unknown ids are not enterable.
+    bool isAreaEnterable(int areaId) const;
+
+    // Record a milestone / Control Item by control-point id. Returns true only
+    // when the id names a control point this module defines AND it was newly
+    // completed; unknown ids and repeats return false (and unknown ids are not
+    // recorded).
+    bool completeControlPoint(int controlPointId);
+
+    // True when the party is standing on the module's declared end area.
+    bool isAtEnd() const;
+
 private:
     Module module_;
     Party party_;
     PlayState state_;
     std::uint64_t seed_ = 0;
     Dice dice_;
+    PlotTracker plot_;
     bool seatedAtStart_ = false;
 };
 

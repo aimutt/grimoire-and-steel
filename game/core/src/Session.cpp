@@ -42,6 +42,12 @@ const Area* findArea(const Module& m, int id, const Map** outMap) {
     return nullptr;
 }
 
+const ControlPoint* findControlPoint(const Module& m, int id) {
+    for (const auto& cp : m.controlPoints)
+        if (cp.id == id) return &cp;
+    return nullptr;
+}
+
 } // namespace
 
 // ---- Session ----------------------------------------------------------------
@@ -83,6 +89,20 @@ const Map* Session::currentMap() const {
 
 const Area* Session::currentArea() const {
     return findArea(module_, state_.areaId, nullptr);
+}
+
+bool Session::isAreaEnterable(int areaId) const {
+    const Area* a = findArea(module_, areaId, nullptr);
+    return a && plot_.isAreaEnterable(*a);
+}
+
+bool Session::completeControlPoint(int controlPointId) {
+    if (!findControlPoint(module_, controlPointId)) return false;  // unknown id
+    return plot_.complete(controlPointId);
+}
+
+bool Session::isAtEnd() const {
+    return module_.endAreaId != 0 && state_.areaId == module_.endAreaId;
 }
 
 Session startSessionFromFile(const std::string& modulePath, Party party,
