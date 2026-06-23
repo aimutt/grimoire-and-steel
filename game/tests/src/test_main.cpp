@@ -9,6 +9,8 @@
 #include "gns/Session.h"
 #include "gns/PlotTracker.h"
 #include "gns/Narrator.h"
+#include "gns/RulesAdjudicator.h"
+#include "gns/EncounterDirector.h"
 
 #include <cstdio>
 #include <exception>
@@ -404,6 +406,135 @@ int main() {
                   custom.describeAreaEntry(area) == "STUB-NARRATE:Entry");
             check("injected provider drives speakNpc",
                   custom.speak("Old Hermit", area) == "STUB-SPEAK:Old Hermit");
+        }
+
+        // ---- RulesAdjudicator: thin façade over the rules engine (M4 Referee) ----
+        std::printf("== adjudicator ==\n");
+        {
+            // Seed-equivalence: the same seed through the façade vs the free
+            // function must produce identical results -- proves pure forwarding.
+            {
+                Dice da(2024), db(2024);
+                RulesAdjudicator adj(repo, da);
+                AttackResult fa = adj.characterAttack(1, 9, "Sword");
+                AttackResult fb = characterAttack(repo, db, 1, 9, "Sword");
+                check("characterAttack forwards (seed-equivalent)",
+                      fa.roll == fb.roll && fa.needed == fb.needed &&
+                      fa.hit == fb.hit && fa.damage == fb.damage);
+            }
+            {
+                Dice da(55), db(55);
+                RulesAdjudicator adj(repo, da);
+                AttackResult ma = adj.monsterAttack(1, 9, "1d6");
+                AttackResult mb = monsterAttack(repo, db, 1, 9, "1d6");
+                check("monsterAttack forwards (seed-equivalent)",
+                      ma.roll == mb.roll && ma.hit == mb.hit && ma.damage == mb.damage);
+            }
+            {
+                Dice da(7), db(7);
+                RulesAdjudicator adj(repo, da);
+                WanderingResult wa = adj.wandering("Dungeon", 1);
+                WanderingResult wb = rollWandering(repo, db, "Dungeon", 1);
+                check("wandering forwards (seed-equivalent)",
+                      wa.any == wb.any && wa.monster == wb.monster && wa.count == wb.count);
+            }
+            {
+                Dice da(3), db(3);
+                RulesAdjudicator adj(repo, da);
+                TreasureResult ta = adj.treasure("A");
+                TreasureResult tb = rollTreasure(repo, db, "A");
+                check("treasure forwards (seed-equivalent)",
+                      ta.totalGpValue() == tb.totalGpValue() && ta.gold == tb.gold &&
+                      ta.magicItems.size() == tb.magicItems.size());
+            }
+            {
+                Dice da(9), db(9);
+                RulesAdjudicator adj(repo, da);
+                TurnResult ua = adj.turnUndead(1, "Skeleton");
+                TurnResult ub = turnUndead(repo, db, 1, "Skeleton");
+                check("turnUndead forwards (seed-equivalent)",
+                      ua.possible == ub.possible && ua.needed == ub.needed &&
+                      ua.roll == ub.roll && ua.turned == ub.turned);
+            }
+
+            // Value checks anchored to existing rules-test constants.
+            {
+                Dice d(1);
+                RulesAdjudicator adj(repo, d);
+                RulesAdjudicator::SaveOutcome sv = adj.savingThrow(morgan, SaveCategory::DeathPoison);
+                check("savingThrow needed matches table (12)", sv.needed == 12);
+                check("savingThrow success is roll>=needed", sv.success == (sv.roll >= sv.needed));
+
+                AttackResult at = adj.characterAttack(1, 9, "Sword");
+                check("characterAttack needed vs AC9 = 10", at.needed == 10);
+                check("characterAttack hit flag consistent with roll",
+                      at.hit == (at.roll >= at.needed));
+                check("characterAttack damage in 1..8 on hit",
+                      !at.hit || (at.damage >= 1 && at.damage <= 8));
+
+                check("monsterXp(Orc) via facade = 10", adj.monsterXp(*repo.monster("Orc")) == 10);
+            }
+
+            // Authored-chance area checks at the deterministic extremes.
+            {
+                Dice d(1);
+                RulesAdjudicator adj(repo, d);
+                Area trapped; trapped.trapChancePct = 100; trapped.trapDescription = "Pit trap";
+                Area safe;    safe.trapChancePct = 0;      safe.trapDescription = "Pit trap";
+                RulesAdjudicator::CheckOutcome sprung = adj.trapCheck(trapped);
+                RulesAdjudicator::CheckOutcome clear = adj.trapCheck(safe);
+                check("trapCheck at 100% fires with authored text",
+                      sprung.occurred && sprung.description == "Pit trap");
+                check("trapCheck at 0% does not fire and has no text",
+                      !clear.occurred && clear.description.empty());
+                check("check(100)/check(0) extremes", adj.check(100) && !adj.check(0));
+            }
+        }
+
+        // ---- EncounterDirector: assemble encounters (M4 Actor) ----
+        std::printf("== encounter ==\n");
+        {
+            EncounterDirector dir(repo, dice);   // reuse the suite's seeded Dice
+
+            // Reaction table (pure, deterministic).
+            check("reaction 2 = hostile", reactionFor2d6(2) == Reaction::Hostile);
+            check("reaction 7 = neutral", reactionFor2d6(7) == Reaction::Neutral);
+            check("reaction 12 = friendly", reactionFor2d6(12) == Reaction::Friendly);
+            check("reactionText neutral", std::string(reactionText(Reaction::Neutral)) == "neutral");
+
+            // Area with a guaranteed encounter resolves a known gns.db monster.
+            Area lair; lair.monsterChancePct = 100; lair.monsterType = "Orc";
+            Encounter e = dir.checkArea(lair);
+            const MonsterDef* orc = repo.monster("Orc");
+            const int orcHd = orc ? orc->hitDiceNum.value_or(1) : 1;
+            check("area encounter occurs at 100%", e.occurred);
+            check("area encounter resolves a known monster",
+                  e.known && e.monsters.size() == 1 && e.monsters[0].name == "Orc");
+            check("orc hp rolled in a valid HD range and hp==maxHp",
+                  e.monsters[0].maxHp >= 1 && e.monsters[0].maxHp <= orcHd * 8 + 8 &&
+                  e.monsters[0].hp == e.monsters[0].maxHp);
+
+            // No encounter at 0%.
+            Area empty; empty.monsterChancePct = 0; empty.monsterType = "Orc";
+            Encounter none = dir.checkArea(empty);
+            check("no area encounter at 0%", !none.occurred && none.monsters.empty());
+
+            // Group size honored; AC pulled from the stat block.
+            Encounter band = dir.makeEncounter("Orc", 3, false);
+            check("group of 3 built and known", band.monsters.size() == 3 && band.known);
+            check("combatant AC from stat block",
+                  orc && band.monsters[0].armorClass == orc->armorClassNum.value_or(9));
+
+            // Unknown / free-text type still yields usable combatants.
+            Encounter weird = dir.makeEncounter("Giant Space Hamster", 2, false);
+            check("unknown monster flagged but still built",
+                  !weird.known && weird.monsters.size() == 2 &&
+                  weird.monsters[0].name == "Giant Space Hamster" && weird.monsters[0].hp >= 1);
+
+            // Wandering check yields a valid encounter for a populated environment.
+            Encounter w = dir.checkWandering("Dungeon", 1);
+            check("wandering yields a valid encounter",
+                  w.occurred && w.fromWandering && !w.monsters.empty() && w.monsters[0].hp >= 1);
         }
 
     } catch (const std::exception& ex) {
