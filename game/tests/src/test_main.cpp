@@ -7,6 +7,7 @@
 #include "gns/Rules.h"
 #include "gns/Module.h"
 #include "gns/Session.h"
+#include "gns/PlotTracker.h"
 
 #include <cstdio>
 #include <exception>
@@ -299,6 +300,54 @@ int main() {
             std::remove(path.c_str());
             check("startSessionFromFile seats at the declared start area",
                   s3.state().areaId == 10 && s3.seatedAtDeclaredStart());
+        }
+
+        // ---- PlotTracker: prerequisite gating + completion (M4 Storyteller) ----
+        std::printf("== plot ==\n");
+        {
+            // Module with a gated area: area 11 requires control point 1.
+            Module m;
+            m.name = "Gated Test";
+            Map map; map.id = 1; map.name = "Level 1";
+            map.gridW = 2; map.gridH = 2;
+            map.cells.assign(4, static_cast<int>(Terrain::Floor));
+            map.cellArea.assign(4, 0);
+            Area entry; entry.id = 10; entry.name = "Entry";   // no prerequisites
+            Area crypt; crypt.id = 11; crypt.name = "Crypt";
+            crypt.prerequisiteControlPointIds = {1};           // gated behind cp 1
+            map.areas.push_back(entry);
+            map.areas.push_back(crypt);
+            m.maps.push_back(map);
+            ControlPoint cp; cp.id = 1; cp.name = "Sealed gate";
+            cp.mapId = 1; cp.areaId = 11; cp.kind = 0;
+            m.controlPoints.push_back(cp);
+            m.startMapId = 1; m.startAreaId = 10; m.endAreaId = 11;
+
+            Party party; party.members.push_back(morgan);
+            Session s(m, party, 1);
+
+            check("ungated area enterable from the start", s.isAreaEnterable(10));
+            check("gated area blocked before prerequisite", !s.isAreaEnterable(11));
+            check("unknown area id is not enterable", !s.isAreaEnterable(999));
+
+            check("completing a control point reports newly-done", s.completeControlPoint(1));
+            check("plot records the completed id",
+                  s.plot().isComplete(1) && s.plot().completedIds().count(1) == 1);
+            check("gated area unlocks after prerequisite", s.isAreaEnterable(11));
+            check("re-completing reports already-done", !s.completeControlPoint(1));
+            check("unknown control point id is rejected and not recorded",
+                  !s.completeControlPoint(999) && s.plot().completedIds().count(999) == 0);
+
+            check("not at end while seated at entry", !s.isAtEnd());
+            s.state().areaId = m.endAreaId;
+            check("at end once seated on the end area", s.isAtEnd());
+
+            // Restore-from-save path + inert-by-default behavior (standalone tracker).
+            PlotTracker pt;
+            check("fresh tracker gates the crypt", !pt.isAreaEnterable(*m.areaById(11)));
+            check("ungated area enterable on a bare tracker", pt.isAreaEnterable(*m.areaById(10)));
+            pt.setCompletedIds({1});
+            check("restored tracker opens the crypt", pt.isAreaEnterable(*m.areaById(11)));
         }
 
     } catch (const std::exception& ex) {

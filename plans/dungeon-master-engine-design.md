@@ -36,8 +36,7 @@ slice is listed at the end.
 
 ## The five DM roles → engine subsystems
 
-A DM is Storyteller, Narrator, Actor, Arbiter/Referee, and Pacing/Coordinator (per the Wikipedia
-and dndduet references). The engine reproduces each as a subsystem in `gns_core` (UI-free, testable)
+A DM is Storyteller, Narrator, Actor, Arbiter/Referee, and Pacing/Coordinator. The engine reproduces each as a subsystem in `gns_core` (UI-free, testable)
 that the SDL/ImGui app renders:
 
 | DM role | What it means at the table | Engine subsystem (new, in `gns_core`) | Drives from |
