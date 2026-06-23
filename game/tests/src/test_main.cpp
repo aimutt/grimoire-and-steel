@@ -8,6 +8,7 @@
 #include "gns/Module.h"
 #include "gns/Session.h"
 #include "gns/PlotTracker.h"
+#include "gns/Narrator.h"
 
 #include <cstdio>
 #include <exception>
@@ -348,6 +349,61 @@ int main() {
             check("ungated area enterable on a bare tracker", pt.isAreaEnterable(*m.areaById(10)));
             pt.setCompletedIds({1});
             check("restored tracker opens the crypt", pt.isAreaEnterable(*m.areaById(11)));
+        }
+
+        // ---- Narrator: authored text + provider seam (M4 slice 3) ----
+        std::printf("== narrator ==\n");
+        {
+            Area area;
+            area.id = 10; area.name = "Entry";
+            area.playerText = "A dusty hall stretches north.";
+            area.dmText = "A pit trap hides under the third flagstone.";  // must never leak
+
+            Narrator narrator;  // built-in TemplateNarrationProvider
+
+            const std::string entry = narrator.describeAreaEntry(area);
+            check("narrate emits the player text",
+                  entry == "A dusty hall stretches north.");
+            check("narrate never leaks DM-only text",
+                  entry.find("pit trap") == std::string::npos);
+
+            std::vector<std::string> facts = {"The door creaks open.", "A cold draft escapes."};
+            const std::string withFacts = narrator.describeAreaEntry(area, facts);
+            check("narrate folds facts in order after the player text",
+                  withFacts ==
+                  "A dusty hall stretches north.\nThe door creaks open.\nA cold draft escapes.");
+
+            const std::string only = narrator.describe(facts);
+            check("describe renders a bare fact list",
+                  only == "The door creaks open.\nA cold draft escapes.");
+
+            const std::string line = narrator.speak("Old Hermit", area);
+            check("speakNpc returns a non-empty line naming the NPC",
+                  !line.empty() && line.find("Old Hermit") != std::string::npos);
+
+            // Fact formatter over an existing Rules result (deterministic, no RNG).
+            AttackResult hit; hit.hit = true; hit.damage = 6;
+            AttackResult miss; miss.hit = false;
+            check("factFor(AttackResult) renders a hit",
+                  factFor(hit, "Morgan", "Goblin") == "Morgan hits Goblin for 6 damage.");
+            check("factFor(AttackResult) renders a miss",
+                  factFor(miss, "Morgan", "Goblin") == "Morgan misses Goblin.");
+
+            // Seam proof: an injected provider is what Narrator calls through to,
+            // guaranteeing the local model drops in cleanly later.
+            struct StubProvider : INarrationProvider {
+                std::string narrate(const DmContext& ctx) override {
+                    return "STUB-NARRATE:" + ctx.areaName;
+                }
+                std::string speakNpc(const DmContext&, const std::string& npc) override {
+                    return "STUB-SPEAK:" + npc;
+                }
+            } stub;
+            Narrator custom(stub);
+            check("injected provider drives narrate",
+                  custom.describeAreaEntry(area) == "STUB-NARRATE:Entry");
+            check("injected provider drives speakNpc",
+                  custom.speak("Old Hermit", area) == "STUB-SPEAK:Old Hermit");
         }
 
     } catch (const std::exception& ex) {

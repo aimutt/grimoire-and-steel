@@ -74,9 +74,9 @@ Turns game events into the text the player sees. Two layers:
 - **Authored layer (always on):** on area entry, emit `area.playerText`; keep `area.dmText`
   internal (used to seed the DM's decisions and the optional LLM, never shown to the player).
   Format rule outcomes into plain sentences ("The orc's blade bites for 4 damage.").
-- **Generative layer (optional — see LLM section):** if enabled, rewrite/extend the authored text
-  and voice NPCs. With it **off**, the Narrator falls back to authored text verbatim — the game is
-  fully playable offline.
+- **Generative layer (optional — local model, see LLM section):** if enabled, an embedded llama.cpp
+  model rewrites/extends the authored text and voices NPCs. With it **off** (or absent), the Narrator
+  falls back to authored text verbatim — the game is fully playable offline.
 
 ### 4. Actor — `EncounterDirector`
 On area entry (and on wandering checks), rolls the area's `monsterChancePct`; on success resolves
@@ -116,18 +116,20 @@ forward/backward tolerant.
 
 ---
 
-## The optional LLM narration/dialogue layer
+## The optional LLM narration/dialogue layer (local-only)
 
-The creative DM roles (vivid narration, improvised NPC dialogue) are where a table-driven engine is
-weakest. Per your decision, add a **pluggable** layer behind a clean interface so the procedural
-core is the source of truth and the LLM only embellishes:
+The creative DM roles (vivid narration, NPC dialogue) are where a table-driven engine is weakest.
+Add a **pluggable** layer behind a clean interface so the procedural core stays the source of truth
+and the model only embellishes. **Decision: the model runs fully local and offline — the game must
+play with no internet, no API key, and nothing ever leaving the machine. There is no cloud/Claude
+provider.**
 
 ```cpp
 // gns_core, no SDL/ImGui dependency
 struct DmContext {                 // assembled from authored + runtime state
-  std::string areaDmText, areaPlayerText;
+  std::string areaName, areaPlayerText, areaDmText;
   std::string situation;           // e.g. "party enters; 3 orcs, reaction: hostile"
-  std::vector<std::string> facts;  // rule outcomes already decided by RulesAdjudicator
+  std::vector<std::string> facts;  // rule outcomes already decided by the rules engine
 };
 class INarrationProvider {
 public:
@@ -137,27 +139,35 @@ public:
 };
 ```
 
-- **`TemplateNarrationProvider` (default, offline):** returns authored text + formatted rule
-  outcomes. Zero network, deterministic. **The game ships and is fully playable with only this.**
-- **`ClaudeNarrationProvider` (opt-in):** calls the Claude API to rewrite/extend the authored text
-  and voice NPCs. The LLM **never decides outcomes** — `RulesAdjudicator` has already rolled the
-  dice and the results are passed in as immutable `facts`; the model only renders them as prose.
-  This keeps the game fair, deterministic where it matters, and authentic to the module author's
-  intent.
+- **`TemplateNarrationProvider` (default, always on, offline):** returns authored `playerText` +
+  rule outcomes formatted as plain sentences. Zero LLM, deterministic, no dependencies. **The game
+  ships and is fully playable with only this** — it is the permanent offline floor.
+- **`LlamaNarrationProvider` (optional, local):** an embedded **llama.cpp** model loaded from a local
+  GGUF file that rewrites/extends the authored text and voices NPCs. The model **never decides
+  outcomes** — the rules engine has already rolled the dice and the results arrive as immutable
+  `facts`; the model only renders them as prose. That keeps play fair and deterministic where it
+  matters, and authentic to the author's intent.
 
-### LLM integration specifics (when enabled)
-- **No official Anthropic C++ SDK exists**, so call the REST API directly over HTTPS with
-  **libcurl** (add as a vendored dep under `game/third_party/`, consistent with the no-package-manager
-  convention) plus a small JSON writer/reader. Endpoint `POST /v1/messages`.
-- **Model:** `claude-opus-4-8` (current most capable; the latest model is the right default for an
-  AI feature). Use **adaptive thinking** (`"thinking": {"type": "adaptive"}`) and **stream** the
-  response so narration appears progressively in the ImGui text panel instead of blocking the turn.
-- **Prompt caching:** the system prompt (DM persona + rules-of-narration) and the module's static
-  context are a stable prefix — mark them with `cache_control` so repeated turns are cheap/fast.
-- **Config & safety:** disabled by default; enabled only when the player supplies their own API key
-  (settings file / `ANTHROPIC_API_KEY`). Surface clearly in-app that enabling it **sends module and
-  play-state text to an external service**. The engine degrades to `TemplateNarrationProvider` on any
-  network/timeout/refusal so a session never stalls. Keep the call off the render thread.
+### Why a small local model is enough (the key design point)
+Quantized 7–8B models are weak at reasoning/math/long-horizon coherence — **none of which the
+Narrator needs**, because `RulesAdjudicator` / `PlotTracker` / `EncounterDirector` own every decision
+and roll. The model's only job is the narrow task of *rendering already-decided facts as prose and
+speaking one NPC line* — constrained rewriting, which small instruct models do well. We do **not**
+train or fine-tune a model (DM behavior comes from the system prompt + structured context, not custom
+weights), and this is **not** a RAG/embeddings system (the relevant context is the current game
+state, assembled deterministically — not retrieved from a corpus). A future embeddings index over
+module lore for long-campaign memory is an optional nicety, not a requirement.
+
+### Embedded-llama.cpp integration specifics (later slice, not step 3)
+- **Vendor `llama.cpp`** under `game/third_party/` (matches the no-package-manager convention) and
+  link it into a `LlamaNarrationProvider` in `gns_core` (kept UI-free; the engine owns the thread).
+- The player drops a **GGUF model file** next to the executable (suggested default: a 7–8B instruct
+  model at Q4_K_M); the provider memory-maps it once at session start. No download at play time.
+- Run generation on a **worker thread** and stream tokens into the ImGui narration panel so the turn
+  never blocks. A tight **system prompt** (DM persona + "render only the given facts, invent no
+  outcomes") plus a one-shot voice example is what gets small-model quality where it needs to be.
+- **Graceful degradation:** if no GGUF is present or the model fails to load, the engine silently
+  uses `TemplateNarrationProvider` — a session never stalls and the game is always playable.
 
 ---
 
@@ -195,10 +205,44 @@ Build the smallest end-to-end DM loop, then layer combat and saves:
 4. **`RulesAdjudicator` + combat loop:** initiative, HP tracking, attack/damage/saves via existing
    `Rules`, XP on victory.
 5. **`.gnssav` via `SaveIO.cpp`** (save/restore `Session`, including `Dice` state and plot/visibility).
-6. **`INarrationProvider` seam** with `TemplateNarrationProvider` only; add `ClaudeNarrationProvider`
-   last, behind config.
+6. **`INarrationProvider` seam** with `TemplateNarrationProvider` only; add the local
+   `LlamaNarrationProvider` (embedded llama.cpp + GGUF) last, as an optional drop-in.
 
 Keep every new piece in `gns_core` (UI-free) so it's covered by the `gns_tests` harness.
+
+> **Status:** step 1 (`Session`/`Party`/`PlayState`), the Storyteller `PlotTracker`, and the Narrator
+> (`Narrator` + `TemplateNarrationProvider` + the `INarrationProvider` seam) are implemented and green
+> under `gns_tests`. They were built before the engine-UI screen swap (step 2) so the whole DM core
+> stays UI-free and testable first.
+
+---
+
+## Step 3 (done) — Narrator + offline provider seam
+
+The always-on authored narration layer **plus** the provider seam the local model later plugs into.
+UI-free, deterministic, **no new dependencies** (llama.cpp is a later slice). All in `gns_core`,
+covered by `gns_tests`.
+
+**Files:** `game/core/include/gns/Narrator.h`, `game/core/src/Narrator.cpp` (added to
+`game/core/CMakeLists.txt`).
+
+**Contents:**
+- `DmContext` + `INarrationProvider` (shapes in the LLM section) — the seam every provider implements.
+- `TemplateNarrationProvider : INarrationProvider` — `narrate()` returns the area's `playerText`
+  followed by the formatted `facts`; it **never emits `dmText`** (DM-only — carried in the context
+  solely to seed a future model). `speakNpc()` returns a simple templated line.
+- `Narrator` — a thin service the engine constructs with a provider (defaults to the template
+  provider; a `LlamaNarrationProvider` drops in later). `describeAreaEntry(const Area&)` pairs with
+  `Session::currentArea()`; `describe(facts)` renders a bare outcome list; `speak(npc, area)` voices a
+  line. `factFor(const AttackResult&, attacker, target)` formats an existing `Rules.h` result into a
+  fact sentence (more formatters land with their producing slices).
+
+**Decoupling:** `Narrator` does **not** live inside `Session` (Session owns play-*state*; narration is
+a presentation service). The engine calls `narrator.describeAreaEntry(*session.currentArea())`.
+
+**Tests (`== narrator ==`):** template `narrate()` emits `playerText` and never leaks `dmText`; facts
+fold in order; `factFor(AttackResult)` renders hit/miss; `speakNpc()` is non-empty; and an injected
+test-double provider proves `Narrator` calls through the seam (so the local model drops in cleanly).
 
 ---
 
@@ -214,6 +258,7 @@ Keep every new piece in `gns_core` (UI-free) so it's covered by the `gns_tests` 
   monster chance), then run `GameEngine.exe` and walk the loop: enter start → fog reveals →
   read narration → trigger/resolve an encounter → complete the control point → confirm the gated area
   unlocks → reach `endAreaId` (victory) → save, quit, reload, verify state.
-- **LLM layer (only if/when built):** verify the game is fully playable with the provider **off**
-  (offline, deterministic), then enable `ClaudeNarrationProvider` with a key and confirm narration
-  streams in and that a forced network failure cleanly falls back to authored text without stalling.
+- **Narration layer:** verify the game is fully playable with `TemplateNarrationProvider` only
+  (offline, deterministic). When the local `LlamaNarrationProvider` is added, confirm a missing/bad
+  GGUF cleanly falls back to the template provider without stalling, and that generation runs off the
+  render thread.
