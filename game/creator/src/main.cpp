@@ -117,6 +117,14 @@ static std::uint32_t terrainColor(int t) {
         case gns::Terrain::Sand:     return 0xD9C58CFF;
         case gns::Terrain::Swamp:    return 0x4C5A3EFF;
         case gns::Terrain::Road:     return 0x9A8B6BFF;
+        case gns::Terrain::Path:     return 0xB8A06BFF;  // dusty tan dirt path
+        case gns::Terrain::Ruins:    return 0x6E6A62FF;  // weathered broken stone
+        case gns::Terrain::Graveyard:return 0x5A6356FF;  // dull grey-green
+        case gns::Terrain::Lava:     return 0xC23A12FF;  // molten orange-red
+        case gns::Terrain::AcidPool: return 0x7FB23AFF;  // sickly green
+        case gns::Terrain::Ditch:    return 0x4A3E2EFF;  // dark earth trench
+        case gns::Terrain::Crevice:  return 0x2A2622FF;  // near-black chasm
+        case gns::Terrain::Hills:    return 0x6E7A4AFF;  // muted green-brown
         case gns::Terrain::Empty:
         default:                     return 0x2B313BFF;
     }
@@ -124,7 +132,8 @@ static std::uint32_t terrainColor(int t) {
 // Display names, indexed by Terrain value (must match the enum order).
 static const char* kTerrainNames[] = {
     "Empty", "Floor", "Wall", "Door", "Water",
-    "Grass", "Trees", "Rocky", "Mountain", "Sand", "Swamp", "Road"};
+    "Grass", "Trees", "Rocky", "Mountain", "Sand", "Swamp", "Road",
+    "Path", "Ruins", "Graveyard", "Lava", "Acid Pool", "Ditch", "Crevice", "Hills"};
 
 // Small per-cell decoration so terrain types are visually distinct (only when the
 // cell is big enough to be worth it).
@@ -192,13 +201,76 @@ static void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
             dl->AddLine(ImVec2(c.x, p0.y + cs * 0.20f), ImVec2(c.x, p0.y + cs * 0.80f), dash, 1.5f);
             break;
         }
+        case gns::Terrain::Path: {
+            ImU32 dot = IM_COL32(150, 128, 84, 220);
+            dl->AddCircleFilled(ImVec2(c.x - cs * 0.16f, c.y - cs * 0.08f), 1.4f, dot);
+            dl->AddCircleFilled(ImVec2(c.x + cs * 0.10f, c.y + cs * 0.12f), 1.4f, dot);
+            dl->AddCircleFilled(ImVec2(c.x + cs * 0.02f, c.y - cs * 0.16f), 1.4f, dot);
+            break;
+        }
+        case gns::Terrain::Ruins: {
+            ImU32 stone = IM_COL32(120, 116, 108, 255);
+            dl->AddRectFilled(ImVec2(c.x - cs * 0.24f, c.y + cs * 0.04f),
+                              ImVec2(c.x - cs * 0.08f, c.y + cs * 0.24f), stone);
+            dl->AddRectFilled(ImVec2(c.x + cs * 0.04f, c.y - cs * 0.18f),
+                              ImVec2(c.x + cs * 0.20f, c.y + cs * 0.10f), stone);
+            break;
+        }
+        case gns::Terrain::Graveyard: {
+            ImU32 head = IM_COL32(176, 180, 172, 255);
+            // a rounded-top headstone
+            dl->AddRectFilled(ImVec2(c.x - cs * 0.10f, c.y - cs * 0.06f),
+                              ImVec2(c.x + cs * 0.10f, c.y + cs * 0.24f), head);
+            dl->AddCircleFilled(ImVec2(c.x, c.y - cs * 0.06f), cs * 0.10f, head);
+            dl->AddLine(ImVec2(c.x, c.y), ImVec2(c.x, c.y + cs * 0.14f), IM_COL32(90, 94, 88, 255), 1.2f);
+            dl->AddLine(ImVec2(c.x - cs * 0.06f, c.y + cs * 0.05f),
+                        ImVec2(c.x + cs * 0.06f, c.y + cs * 0.05f), IM_COL32(90, 94, 88, 255), 1.2f);
+            break;
+        }
+        case gns::Terrain::Lava: {
+            ImU32 hot = IM_COL32(255, 196, 70, 255), glow = IM_COL32(255, 120, 40, 220);
+            dl->AddCircleFilled(ImVec2(c.x - cs * 0.14f, c.y + cs * 0.02f), cs * 0.09f, hot, 6);
+            dl->AddCircleFilled(ImVec2(c.x + cs * 0.16f, c.y - cs * 0.10f), cs * 0.06f, glow, 6);
+            dl->AddCircleFilled(ImVec2(c.x + cs * 0.04f, c.y + cs * 0.16f), cs * 0.05f, glow, 6);
+            break;
+        }
+        case gns::Terrain::AcidPool: {
+            ImU32 bub = IM_COL32(196, 240, 120, 230);
+            dl->AddCircle(ImVec2(c.x - cs * 0.12f, c.y), cs * 0.08f, bub, 8, 1.4f);
+            dl->AddCircle(ImVec2(c.x + cs * 0.14f, c.y + cs * 0.10f), cs * 0.05f, bub, 8, 1.4f);
+            break;
+        }
+        case gns::Terrain::Ditch: {
+            ImU32 sh = IM_COL32(34, 28, 20, 220);
+            dl->AddRectFilled(ImVec2(p0.x + cs * 0.12f, c.y - cs * 0.10f),
+                              ImVec2(p0.x + cs * 0.88f, c.y + cs * 0.10f), sh);
+            break;
+        }
+        case gns::Terrain::Crevice: {
+            ImU32 crack = IM_COL32(10, 8, 8, 240);
+            dl->AddLine(ImVec2(p0.x + cs * 0.30f, p0.y + cs * 0.12f),
+                        ImVec2(c.x, c.y), crack, 2.0f);
+            dl->AddLine(ImVec2(c.x, c.y),
+                        ImVec2(p0.x + cs * 0.70f, p0.y + cs * 0.88f), crack, 2.0f);
+            break;
+        }
+        case gns::Terrain::Hills: {
+            ImU32 hump = IM_COL32(96, 108, 64, 255);
+            dl->AddCircleFilled(ImVec2(c.x - cs * 0.16f, c.y + cs * 0.12f), cs * 0.13f, hump, 10);
+            dl->AddCircleFilled(ImVec2(c.x + cs * 0.16f, c.y + cs * 0.14f), cs * 0.11f, hump, 10);
+            break;
+        }
         default: break;
     }
 }
 
 // Display names, indexed by ObjectType value (must match the enum order).
 static const char* kObjectNames[] = {
-    "Door", "Table", "Chair", "Chest", "Fireplace", "Cabinet", "Box", "Bar", "Barrel", "Bed"};
+    "Door", "Table", "Chair", "Chest", "Fireplace", "Cabinet", "Box", "Bar", "Barrel", "Bed",
+    "Well", "Stone Wall", "Wooden Wall", "Fence", "Altar",
+    "Wooden Bridge (S)", "Wooden Bridge (M)", "Wooden Bridge (L)",
+    "Stone Bridge (S)", "Stone Bridge (M)", "Stone Bridge (L)",
+    "Cave Entrance"};
 
 // Draw a placed prop centred at `ctr`, fitting roughly in an `s`-sized box, rotated
 // `rotDeg` degrees clockwise. All geometry is expressed in local fraction-of-s coords
@@ -226,6 +298,18 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float 
     };
     auto C = [&](float cx, float cy, float r, ImU32 col) {
         dl->AddCircleFilled(P(cx, cy), r * s, col);
+    };
+    auto Co = [&](float cx, float cy, float r, ImU32 col, float th) {
+        dl->AddCircle(P(cx, cy), r * s, col, 0, th);
+    };
+    // A bridge spanning [-hl,+hl] horizontally with deck plank/segment lines.
+    auto bridge = [&](float hl, ImU32 deck, ImU32 edge, int segs) {
+        R(-hl, -0.16f, hl, 0.16f, deck);
+        Ro(-hl, -0.16f, hl, 0.16f, edge);
+        for (int i = 1; i < segs; ++i) {
+            float x = -hl + 2.0f * hl * i / segs;
+            L(x, -0.16f, x, 0.16f, edge, 1.2f);
+        }
     };
     switch (static_cast<gns::ObjectType>(type)) {
         case gns::ObjectType::Door:
@@ -272,6 +356,46 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float 
             R(-0.40f, -0.30f, 0.40f, 0.34f, wood); R(-0.40f, -0.30f, -0.16f, 0.34f, IM_COL32(220, 220, 230, 255));
             Ro(-0.40f, -0.30f, 0.40f, 0.34f, line);
             break;
+        case gns::ObjectType::Well:
+            C(0.0f, 0.0f, 0.34f, stone); Co(0.0f, 0.0f, 0.34f, line, 1.5f);
+            C(0.0f, 0.0f, 0.20f, IM_COL32(40, 52, 70, 255));   // dark water
+            break;
+        case gns::ObjectType::StoneWall:
+            R(-0.46f, -0.12f, 0.46f, 0.12f, stone); Ro(-0.46f, -0.12f, 0.46f, 0.12f, line);
+            L(-0.15f, -0.12f, -0.15f, 0.12f, line, 1.0f);
+            L(0.15f, -0.12f, 0.15f, 0.12f, line, 1.0f);
+            L(-0.46f, 0.0f, 0.46f, 0.0f, line, 1.0f);
+            break;
+        case gns::ObjectType::WoodenWall:
+            R(-0.46f, -0.12f, 0.46f, 0.12f, wood); Ro(-0.46f, -0.12f, 0.46f, 0.12f, line);
+            for (float x = -0.30f; x <= 0.30f; x += 0.30f) L(x, -0.12f, x, 0.12f, wood2, 1.5f);
+            break;
+        case gns::ObjectType::Fence:
+            L(-0.46f, -0.04f, 0.46f, -0.04f, wood, 2.0f);
+            L(-0.46f, 0.10f, 0.46f, 0.10f, wood, 2.0f);
+            for (float x = -0.40f; x <= 0.40f; x += 0.20f) L(x, -0.18f, x, 0.20f, wood2, 2.0f);
+            break;
+        case gns::ObjectType::Altar:
+            R(-0.34f, -0.10f, 0.34f, 0.28f, stone); Ro(-0.34f, -0.10f, 0.34f, 0.28f, line);
+            R(-0.40f, -0.20f, 0.40f, -0.10f, IM_COL32(150, 150, 156, 255));  // top slab
+            Ro(-0.40f, -0.20f, 0.40f, -0.10f, line);
+            break;
+        case gns::ObjectType::WoodenBridgeS: bridge(0.30f, wood, line, 4); break;
+        case gns::ObjectType::WoodenBridgeM: bridge(0.42f, wood, line, 6); break;
+        case gns::ObjectType::WoodenBridgeL: bridge(0.50f, wood, line, 8); break;
+        case gns::ObjectType::StoneBridgeS:  bridge(0.30f, stone, line, 4); break;
+        case gns::ObjectType::StoneBridgeM:  bridge(0.42f, stone, line, 6); break;
+        case gns::ObjectType::StoneBridgeL:  bridge(0.50f, stone, line, 8); break;
+        case gns::ObjectType::CaveEntrance: {
+            // rocky mound with a dark arched mouth
+            R(-0.40f, -0.10f, 0.40f, 0.40f, IM_COL32(96, 92, 86, 255));
+            dl->AddTriangleFilled(P(0.0f, -0.42f), P(-0.40f, 0.10f), P(0.40f, 0.10f),
+                                  IM_COL32(110, 106, 100, 255));
+            R(-0.16f, 0.04f, 0.16f, 0.40f, IM_COL32(18, 16, 16, 255));   // mouth
+            dl->AddTriangleFilled(P(0.0f, -0.10f), P(-0.16f, 0.06f), P(0.16f, 0.06f),
+                                  IM_COL32(18, 16, 16, 255));
+            break;
+        }
         default: break;
     }
     if (selected) {
@@ -322,6 +446,7 @@ struct App {
     // Control point tool.
     int selectedControlPointId = 0;
     bool draggingCp = false;
+    int placeCpKind = 0;       // kind for newly placed markers: 0 = Point, 1 = Item
 
     // One undo snapshot per drag (set when a move actually starts).
     bool dragSnapshotTaken = false;
@@ -634,6 +759,7 @@ static void drawToolsWindow(App& app) {
 
     if (app.tool == Tool::PaintTerrain) {
         ImGui::SeparatorText("Terrain");
+        ImGui::BeginChild("TerrainScroll", ImVec2(-1, 240), true);
         for (int i = 0; i < IM_ARRAYSIZE(kTerrainNames); ++i) {
             ImGui::PushID(i);
             float col[4]; rgbaToFloat4(terrainColor(i), col);
@@ -644,12 +770,22 @@ static void drawToolsWindow(App& app) {
             if (ImGui::Selectable(kTerrainNames[i], app.paintTerrain == i)) app.paintTerrain = i;
             ImGui::PopID();
         }
+        ImGui::EndChild();
+    }
+
+    if (app.tool == Tool::PlaceControlPoint) {
+        ImGui::SeparatorText("Place");
+        ImGui::RadioButton("Control Point", &app.placeCpKind, 0);
+        ImGui::RadioButton("Control Item", &app.placeCpKind, 1);
+        ImGui::TextDisabled("Click the map to place. Drag to move.\nDel deletes. Items are plot\nthings the party must acquire/use.");
     }
 
     if (app.tool == Tool::PlaceObject) {
         ImGui::SeparatorText("Object");
+        ImGui::BeginChild("ObjectScroll", ImVec2(-1, 240), true);
         for (int i = 0; i < IM_ARRAYSIZE(kObjectNames); ++i)
             if (ImGui::Selectable(kObjectNames[i], app.paintObjectType == i)) app.paintObjectType = i;
+        ImGui::EndChild();
         ImGui::TextDisabled("Click to place. Drag to move.\nR rotates 90\xc2\xb0. Del deletes.");
 
         // Placed-objects list — click to (re)select one, on the map or after a tool switch.
@@ -1130,7 +1266,8 @@ static void drawCanvasWindow(App& app) {
             else {
                 pushUndo(app);
                 gns::ControlPoint cp; cp.id = app.mod.nextControlPointId();
-                cp.name = "CP " + std::to_string(cp.id); cp.mapId = m.id;
+                cp.kind = app.placeCpKind;
+                cp.name = (cp.kind == 1 ? "Item " : "CP ") + std::to_string(cp.id); cp.mapId = m.id;
                 cp.x = mxf; cp.y = myf; cp.areaId = cellAreaAt(mxf, myf);
                 app.mod.controlPoints.push_back(cp); app.selectedControlPointId = cp.id;
                 app.dirty = true; app.dragSnapshotTaken = true;
@@ -1245,7 +1382,15 @@ static void drawCanvasWindow(App& app) {
             center = ImVec2(origin.x + (ax + 0.5f) * cs, origin.y + (ay + 0.5f) * cs);
         }
         float rad = std::max(4.0f, cs * 0.3f);
-        dl->AddCircleFilled(center, rad, IM_COL32(255, 60, 60, 230));
+        if (cp.kind == 1) {
+            // Control Item: gold diamond so it reads apart from a Control Point.
+            ImVec2 q[4] = {ImVec2(center.x, center.y - rad), ImVec2(center.x + rad, center.y),
+                           ImVec2(center.x, center.y + rad), ImVec2(center.x - rad, center.y)};
+            dl->AddConvexPolyFilled(q, 4, IM_COL32(255, 198, 64, 235));
+            dl->AddPolyline(q, 4, IM_COL32(120, 80, 10, 235), ImDrawFlags_Closed, 1.5f);
+        } else {
+            dl->AddCircleFilled(center, rad, IM_COL32(255, 60, 60, 230));
+        }
         if (app.tool == Tool::PlaceControlPoint && cp.id == app.selectedControlPointId)
             dl->AddCircle(center, rad + 3.0f, IM_COL32(255, 230, 0, 255), 0, 2.0f);
         dl->AddText(ImVec2(center.x + 5, center.y - 6), IM_COL32(255, 255, 255, 255),
@@ -1292,6 +1437,76 @@ static void drawCanvasWindow(App& app) {
 // ---------------------------------------------------------------------------
 // UI: inspector
 // ---------------------------------------------------------------------------
+
+// Remove a control marker by id, and scrub any references to it from areas.
+static void deleteControlPoint(App& app, int id) {
+    auto& v = app.mod.controlPoints;
+    v.erase(std::remove_if(v.begin(), v.end(),
+        [&](const gns::ControlPoint& c) { return c.id == id; }), v.end());
+    for (auto& m : app.mod.maps)
+        for (auto& a : m.areas) {
+            auto& pre = a.prerequisiteControlPointIds;
+            pre.erase(std::remove(pre.begin(), pre.end(), id), pre.end());
+        }
+    if (app.selectedControlPointId == id) app.selectedControlPointId = 0;
+    app.dirty = true;
+}
+
+// Editable widgets for one control marker. Returns true if Delete was pressed
+// (caller removes it). `showArea` adds the "at area" line for the module-wide list.
+static bool drawControlPointEntry(App& app, gns::ControlPoint& cp, bool showArea) {
+    bool wantDelete = false;
+    ImGui::PushID(cp.id);
+    ImGui::Text("#%d", cp.id);
+    ImGui::SameLine();
+    if (InputStr("##cpname", &cp.name)) app.dirty = true;
+    if (InputStrMultiline("##cpdesc", &cp.description, ImVec2(-1, 40))) app.dirty = true;
+    int kind = cp.kind;
+    const char* kinds[] = {"Control Point", "Control Item"};
+    ImGui::SetNextItemWidth(150);
+    if (ImGui::Combo("##cpkind", &kind, kinds, 2)) { cp.kind = kind; app.dirty = true; }
+    if (showArea) {
+        ImGui::SameLine();
+        gns::Area* a = app.mod.areaById(cp.areaId);
+        ImGui::TextDisabled("at: %s", a ? (a->label.empty() ? a->name.c_str() : a->label.c_str()) : "(none)");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Delete")) wantDelete = true;
+    ImGui::Separator();
+    ImGui::PopID();
+    return wantDelete;
+}
+
+// Per-area list of the control markers that belong to the selected area. Empty for
+// a fresh area; this is the fix for every area previously showing the same markers.
+static void drawAreaControlPointsSection(App& app, gns::Area& a) {
+    ImGui::SeparatorText("Control Points & Items (this area)");
+    int deleteId = 0;
+    bool any = false;
+    for (auto& cp : app.mod.controlPoints) {
+        if (cp.areaId != a.id) continue;
+        any = true;
+        if (drawControlPointEntry(app, cp, false)) deleteId = cp.id;
+    }
+    if (!any) ImGui::TextDisabled("None for this area. Use the Control Point\ntool to place one inside it, or add here.");
+    if (ImGui::SmallButton("Add Control Point")) { deleteId = 0;
+        gns::ControlPoint cp; cp.id = app.mod.nextControlPointId();
+        cp.name = "CP " + std::to_string(cp.id); cp.mapId = app.currentMapId; cp.areaId = a.id;
+        if (gns::Map* m = currentMap(app)) { int ax, ay; areaCentroid(*m, a.id, ax, ay);
+            if (ax >= 0) { cp.x = ax + 0.5f; cp.y = ay + 0.5f; } }
+        app.mod.controlPoints.push_back(cp); app.selectedControlPointId = cp.id; app.dirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Add Control Item")) {
+        gns::ControlPoint cp; cp.id = app.mod.nextControlPointId(); cp.kind = 1;
+        cp.name = "Item " + std::to_string(cp.id); cp.mapId = app.currentMapId; cp.areaId = a.id;
+        if (gns::Map* m = currentMap(app)) { int ax, ay; areaCentroid(*m, a.id, ax, ay);
+            if (ax >= 0) { cp.x = ax + 0.5f; cp.y = ay + 0.5f; } }
+        app.mod.controlPoints.push_back(cp); app.selectedControlPointId = cp.id; app.dirty = true;
+    }
+    if (deleteId) deleteControlPoint(app, deleteId);
+}
+
 static void drawAreaInspector(App& app, gns::Area& a) {
     ImGui::SeparatorText("Area");
     if (InputStr("Label", &a.label)) app.dirty = true;
@@ -1348,6 +1563,9 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         }
     }
 
+    drawAreaControlPointsSection(app, a);
+
+    ImGui::Separator();
     if (ImGui::Button("Delete Area")) {
         if (gns::Map* m = currentMap(app)) {
             pushUndo(app);
@@ -1398,32 +1616,13 @@ static void drawModuleInspector(App& app) {
 }
 
 static void drawControlPointsSection(App& app) {
-    if (!ImGui::CollapsingHeader("Control Points (module)")) return;
+    if (!ImGui::CollapsingHeader("Control Points & Items (all areas)")) return;
     int deleteId = 0;
-    for (auto& cp : app.mod.controlPoints) {
-        ImGui::PushID(cp.id);
-        ImGui::Text("#%d", cp.id);
-        ImGui::SameLine();
-        if (InputStr("##cpname", &cp.name)) app.dirty = true;
-        if (InputStrMultiline("##cpdesc", &cp.description, ImVec2(-1, 40))) app.dirty = true;
-        gns::Area* a = app.mod.areaById(cp.areaId);
-        ImGui::TextDisabled("at area: %s", a ? (a->label.empty() ? a->name.c_str() : a->label.c_str()) : "?");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Delete")) deleteId = cp.id;
-        ImGui::Separator();
-        ImGui::PopID();
-    }
-    if (deleteId) {
-        auto& v = app.mod.controlPoints;
-        v.erase(std::remove_if(v.begin(), v.end(),
-            [&](const gns::ControlPoint& c) { return c.id == deleteId; }), v.end());
-        for (auto& m : app.mod.maps)
-            for (auto& a : m.areas) {
-                auto& pre = a.prerequisiteControlPointIds;
-                pre.erase(std::remove(pre.begin(), pre.end(), deleteId), pre.end());
-            }
-        app.dirty = true;
-    }
+    if (app.mod.controlPoints.empty())
+        ImGui::TextDisabled("None yet. Select an area to add markers to it.");
+    for (auto& cp : app.mod.controlPoints)
+        if (drawControlPointEntry(app, cp, true)) deleteId = cp.id;
+    if (deleteId) deleteControlPoint(app, deleteId);
 }
 
 static void drawInspectorWindow(App& app) {
@@ -1432,10 +1631,15 @@ static void drawInspectorWindow(App& app) {
     ImGui::SetNextWindowSize(ImVec2(kRightPaneW, vp->WorkSize.y), ImGuiCond_Always);
     ImGui::Begin("Inspector", nullptr, kPaneFlags);
     gns::Area* a = app.mod.areaById(app.selectedAreaId);
-    if (a) drawAreaInspector(app, *a);
-    else drawModuleInspector(app);
-    ImGui::Separator();
-    drawControlPointsSection(app);
+    if (a) {
+        // Per-area markers live in drawAreaInspector; no module-wide list here so
+        // each area shows only its own Control Points & Items.
+        drawAreaInspector(app, *a);
+    } else {
+        drawModuleInspector(app);
+        ImGui::Separator();
+        drawControlPointsSection(app);
+    }
     ImGui::End();
 }
 

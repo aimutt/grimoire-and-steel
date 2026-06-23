@@ -32,12 +32,24 @@ enum class Terrain : int {
     Sand     = 9,
     Swamp    = 10,
     Road     = 11,  // path / trail
-    Count    = 12,
+    Path      = 12, // dirt path / trail through open ground
+    Ruins     = 13, // broken stone / rubble
+    Graveyard = 14,
+    Lava      = 15,
+    AcidPool  = 16,
+    Ditch     = 17,
+    Crevice   = 18,
+    Hills     = 19,
+    Count     = 20,
 };
 
 // Furniture / props placed at sub-grid positions on a map (not snapped to cells).
 enum class ObjectType : int {
     Door = 0, Table, Chair, Chest, Fireplace, Cabinet, Box, Bar, Barrel, Bed,
+    Well, StoneWall, WoodenWall, Fence, Altar,
+    WoodenBridgeS, WoodenBridgeM, WoodenBridgeL,
+    StoneBridgeS, StoneBridgeM, StoneBridgeL,
+    CaveEntrance,
     Count
 };
 
@@ -67,6 +79,7 @@ struct ControlPoint {
     std::string description;
     int mapId = 0;     // where the control point lives
     int areaId = 0;    // area under the marker (0 = none), for prerequisite linkage
+    int kind = 0;      // 0 = Control Point, 1 = Control Item (plot item to acquire/use)
     float x = -1.0f;   // sub-grid position; <0 means "legacy: use area centroid"
     float y = -1.0f;
 };
@@ -137,8 +150,9 @@ struct Module {
 
 // On-disk format version, written to PRAGMA user_version.
 // v2 added the map_objects table (sub-grid props); v3 added object rotation;
-// v4 added control-point position (x,y) and the map_texts table.
-constexpr int kModuleFormatVersion = 4;
+// v4 added control-point position (x,y) and the map_texts table; v5 added the
+// control-point kind column (Control Point vs Control Item).
+constexpr int kModuleFormatVersion = 5;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);
