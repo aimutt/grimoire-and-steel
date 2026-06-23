@@ -158,6 +158,7 @@ CREATE TABLE control_points (
     id INTEGER PRIMARY KEY,
     name TEXT, description TEXT,
     map_id INTEGER, area_id INTEGER,
+    kind INTEGER,
     x REAL, y REAL
 );
 CREATE TABLE area_prerequisites (
@@ -266,11 +267,11 @@ void saveModule(const Module& mod, const std::string& path) {
     }
 
     {
-        Stmt s(c.db, "INSERT INTO control_points(id,name,description,map_id,area_id,x,y) "
-                     "VALUES(?,?,?,?,?,?,?);");
+        Stmt s(c.db, "INSERT INTO control_points(id,name,description,map_id,area_id,kind,x,y) "
+                     "VALUES(?,?,?,?,?,?,?,?);");
         for (const auto& cp : mod.controlPoints) {
             s.bind(cp.id).bind(cp.name).bind(cp.description).bind(cp.mapId).bind(cp.areaId)
-             .bind((double)cp.x).bind((double)cp.y);
+             .bind(cp.kind).bind((double)cp.x).bind((double)cp.y);
             s.run();
         }
     }
@@ -353,12 +354,15 @@ Module loadModule(const std::string& path) {
         }
     }
 
-    // control_points gained x,y in v4. Try with the columns, fall back without them
-    // (legacy files keep the -1 sentinel so the editor renders them at area centroids).
-    auto loadControlPoints = [&](bool withXy) {
-        Stmt s(c.db, withXy
-            ? "SELECT id,name,description,map_id,area_id,x,y FROM control_points ORDER BY id;"
-            : "SELECT id,name,description,map_id,area_id FROM control_points ORDER BY id;");
+    // control_points gained x,y in v4 and a kind column in v5. Try the newest layout
+    // first, then fall back column-set by column-set (legacy files keep the -1 sentinel
+    // so the editor renders them at area centroids, and default kind = 0 = Control Point).
+    auto loadControlPoints = [&](bool withKind, bool withXy) {
+        const char* sql =
+            withKind ? "SELECT id,name,description,map_id,area_id,kind,x,y FROM control_points ORDER BY id;"
+            : withXy ? "SELECT id,name,description,map_id,area_id,x,y FROM control_points ORDER BY id;"
+                     : "SELECT id,name,description,map_id,area_id FROM control_points ORDER BY id;";
+        Stmt s(c.db, sql);
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             ControlPoint cp;
             cp.id          = colInt(s.s, 0);
@@ -366,15 +370,25 @@ Module loadModule(const std::string& path) {
             cp.description = colText(s.s, 2);
             cp.mapId       = colInt(s.s, 3);
             cp.areaId      = colInt(s.s, 4);
-            if (withXy) { cp.x = (float)colDouble(s.s, 5); cp.y = (float)colDouble(s.s, 6); }
+            if (withKind) {
+                cp.kind = colInt(s.s, 5);
+                cp.x = (float)colDouble(s.s, 6); cp.y = (float)colDouble(s.s, 7);
+            } else if (withXy) {
+                cp.x = (float)colDouble(s.s, 5); cp.y = (float)colDouble(s.s, 6);
+            }
             mod.controlPoints.push_back(std::move(cp));
         }
     };
     try {
-        loadControlPoints(true);
+        loadControlPoints(true, true);                 // v5
     } catch (const DbError&) {
-        mod.controlPoints.clear();   // partial read from the failed attempt
-        loadControlPoints(false);
+        mod.controlPoints.clear();                     // partial read from the failed attempt
+        try {
+            loadControlPoints(false, true);            // v4
+        } catch (const DbError&) {
+            mod.controlPoints.clear();
+            loadControlPoints(false, false);           // v3 and older
+        }
     }
 
     // map_objects was added in v2 and gained the rot column in v3. Tolerate older

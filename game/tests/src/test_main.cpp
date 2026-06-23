@@ -6,6 +6,7 @@
 #include "gns/Character.h"
 #include "gns/Rules.h"
 #include "gns/Module.h"
+#include "gns/Session.h"
 
 #include <cstdio>
 #include <exception>
@@ -197,6 +198,7 @@ int main() {
 
             ControlPoint cp; cp.id = 1; cp.name = "Sealed gate";
             cp.description = "Opens the crypt."; cp.mapId = 1; cp.areaId = 11;
+            cp.kind = 1;   // Control Item
             cp.x = 2.5f; cp.y = 1.25f;
             m.controlPoints.push_back(cp);
             m.startMapId = 1; m.startAreaId = 10; m.endAreaId = 11;
@@ -231,6 +233,8 @@ int main() {
                   r.controlPoints[0].areaId == 11);
             check("control point position preserved", r.controlPoints.size() == 1 &&
                   r.controlPoints[0].x == 2.5f && r.controlPoints[0].y == 1.25f);
+            check("control point kind preserved", r.controlPoints.size() == 1 &&
+                  r.controlPoints[0].kind == 1);
             check("map text preserved", r.maps[0].texts.size() == 1 &&
                   r.maps[0].texts[0].id == 1 && r.maps[0].texts[0].x == 0.5f &&
                   r.maps[0].texts[0].y == 2.5f && r.maps[0].texts[0].text == "Hall of Echoes" &&
@@ -245,6 +249,56 @@ int main() {
             check("object rotation preserved", r.maps[0].objects.size() == 2 &&
                   r.maps[0].objects[0].rotationDeg == 90.0f &&
                   r.maps[0].objects[1].rotationDeg == 45.0f);
+        }
+
+        // ---- Session / Party / PlayState seating (M4 slice 1) ----
+        std::printf("== session ==\n");
+        {
+            // Minimal module: one map, two areas, declared start = area 10.
+            Module m;
+            m.name = "Seating Test";
+            Map map; map.id = 1; map.name = "Level 1";
+            map.gridW = 2; map.gridH = 2;
+            map.cells.assign(4, static_cast<int>(Terrain::Floor));
+            map.cellArea.assign(4, 0);
+            Area entry; entry.id = 10; entry.label = "A1"; entry.name = "Entry";
+            entry.playerText = "A dusty hall.";
+            Area crypt; crypt.id = 11; crypt.label = "B1"; crypt.name = "Crypt";
+            map.areas.push_back(entry);
+            map.areas.push_back(crypt);
+            m.maps.push_back(map);
+            m.startMapId = 1; m.startAreaId = 10; m.endAreaId = 11;
+
+            Party party;
+            party.members.push_back(morgan);   // level-1 Fighter built above
+
+            Session s(m, party, 4242);
+            check("session seats at declared start map", s.state().mapId == 1);
+            check("session seats at declared start area", s.state().areaId == 10);
+            check("session reports declared-start seating", s.seatedAtDeclaredStart());
+            check("session current area resolves to Entry",
+                  s.currentArea() && s.currentArea()->name == "Entry");
+            check("session current map resolves", s.currentMap() && s.currentMap()->id == 1);
+            check("session begins in exploration at turn 0",
+                  s.state().mode == PlayMode::Exploration && s.state().turnCount == 0);
+            check("party not wiped, average level 1",
+                  !s.party().isWiped() && s.party().averageLevel() == 1);
+
+            // Fallback: no declared start -> seat on the first area of the first map.
+            Module m2 = m; m2.startMapId = 0; m2.startAreaId = 0;
+            Session s2(m2, party, 1);
+            check("session falls back to first map/area",
+                  s2.state().mapId == 1 && s2.state().areaId == 10);
+            check("fallback is not flagged as declared start", !s2.seatedAtDeclaredStart());
+
+            // Disk path: save then start a session straight from the .gnsmod file.
+            const std::string path = "gns_session_roundtrip_test.gnsmod";
+            std::remove(path.c_str());
+            saveModule(m, path);
+            Session s3 = startSessionFromFile(path, party, 7);
+            std::remove(path.c_str());
+            check("startSessionFromFile seats at the declared start area",
+                  s3.state().areaId == 10 && s3.seatedAtDeclaredStart());
         }
 
     } catch (const std::exception& ex) {
