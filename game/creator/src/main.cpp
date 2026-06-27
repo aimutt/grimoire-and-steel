@@ -11,6 +11,7 @@
 
 #define NOMINMAX
 #include <SDL.h>
+#include <SDL_image.h>
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_sdlrenderer2.h"
@@ -23,6 +24,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -47,9 +49,12 @@ static bool InputStr(const char* label, std::string* s, ImGuiInputTextFlags flag
     flags |= ImGuiInputTextFlags_CallbackResize;
     return ImGui::InputText(label, s->data(), s->capacity() + 1, flags, gInputTextResize, s);
 }
-static bool InputStrMultiline(const char* label, std::string* s, const ImVec2& size) {
+// Word-wrap is on by default so every multiline box wraps (and scrolls vertically)
+// instead of running text off the right edge of these narrow inspector fields.
+static bool InputStrMultiline(const char* label, std::string* s, const ImVec2& size,
+                              ImGuiInputTextFlags flags = ImGuiInputTextFlags_WordWrap) {
     return ImGui::InputTextMultiline(label, s->data(), s->capacity() + 1, size,
-                                     ImGuiInputTextFlags_CallbackResize, gInputTextResize, s);
+                                     flags | ImGuiInputTextFlags_CallbackResize, gInputTextResize, s);
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +78,22 @@ static std::string fileDialog(bool save) {
     }
 #else
     (void)save;
+#endif
+    return "";
+}
+
+// Open dialog filtered to supported image types (#13). Returns "" if cancelled.
+static std::string imageFileDialog() {
+#ifdef _WIN32
+    char buf[1024] = {0};
+    OPENFILENAMEA ofn = {0};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter =
+        "Images (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = sizeof(buf);
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetOpenFileNameA(&ofn)) return buf;
 #endif
     return "";
 }
@@ -125,6 +146,11 @@ static std::uint32_t terrainColor(int t) {
         case gns::Terrain::Ditch:    return 0x4A3E2EFF;  // dark earth trench
         case gns::Terrain::Crevice:  return 0x2A2622FF;  // near-black chasm
         case gns::Terrain::Hills:    return 0x6E7A4AFF;  // muted green-brown
+        case gns::Terrain::WoodenBridge: return 0x9A6A3AFF;  // plank-brown deck
+        case gns::Terrain::StoneBridge:  return 0x8A8A90FF;  // grey stone deck
+        case gns::Terrain::Stairs:       return 0x9A958AFF;  // worn stone steps
+        case gns::Terrain::WoodenStairs: return 0x8A5E32FF;  // wooden flight
+        case gns::Terrain::Dirt:         return 0x6F5234FF;  // dark packed earth
         case gns::Terrain::Empty:
         default:                     return 0x2B313BFF;
     }
@@ -133,7 +159,8 @@ static std::uint32_t terrainColor(int t) {
 static const char* kTerrainNames[] = {
     "Empty", "Floor", "Wall", "Door", "Water",
     "Grass", "Trees", "Rocky", "Mountain", "Sand", "Swamp", "Road",
-    "Path", "Ruins", "Graveyard", "Lava", "Acid Pool", "Ditch", "Crevice", "Hills"};
+    "Path", "Ruins", "Graveyard", "Lava", "Acid Pool", "Ditch", "Crevice", "Hills",
+    "Wooden Bridge", "Stone Bridge", "Stairs", "Wooden Stairs", "Dirt"};
 
 // Small per-cell decoration so terrain types are visually distinct (only when the
 // cell is big enough to be worth it).
@@ -167,11 +194,16 @@ static void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
             break;
         }
         case gns::Terrain::Grass: {
-            ImU32 blade = IM_COL32(64, 146, 58, 220);
-            for (int i = -1; i <= 1; ++i) {
-                float bx = c.x + i * cs * 0.22f;
-                dl->AddLine(ImVec2(bx, c.y + cs * 0.20f), ImVec2(bx, c.y - cs * 0.18f), blade, 1.5f);
-            }
+            // Dense green speckles (like Sand, but many more and green).
+            ImU32 dark = IM_COL32(46, 104, 38, 235), lite = IM_COL32(96, 172, 72, 230);
+            static const float sp[][2] = {
+                {0.16f, 0.20f}, {0.38f, 0.13f}, {0.60f, 0.23f}, {0.82f, 0.16f},
+                {0.26f, 0.44f}, {0.50f, 0.37f}, {0.73f, 0.47f}, {0.90f, 0.35f},
+                {0.18f, 0.70f}, {0.42f, 0.74f}, {0.65f, 0.66f}, {0.86f, 0.78f},
+            };
+            for (size_t i = 0; i < IM_ARRAYSIZE(sp); ++i)
+                dl->AddCircleFilled(ImVec2(p0.x + cs * sp[i][0], p0.y + cs * sp[i][1]), 1.4f,
+                                    (i & 1) ? lite : dark);
             break;
         }
         case gns::Terrain::Mountain: {
@@ -188,6 +220,18 @@ static void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
             dl->AddCircleFilled(ImVec2(c.x - cs * 0.18f, c.y - cs * 0.10f), 1.5f, dot);
             dl->AddCircleFilled(ImVec2(c.x + cs * 0.12f, c.y + cs * 0.05f), 1.5f, dot);
             dl->AddCircleFilled(ImVec2(c.x, c.y - cs * 0.20f), 1.5f, dot);
+            break;
+        }
+        case gns::Terrain::Dirt: {
+            // Speckles like Sand, but darker browns (lighter grit + dark clods).
+            ImU32 lite = IM_COL32(150, 120, 84, 255), dark = IM_COL32(58, 42, 26, 255);
+            static const float sp[][2] = {
+                {0.22f, 0.26f}, {0.52f, 0.18f}, {0.78f, 0.30f}, {0.34f, 0.54f},
+                {0.64f, 0.50f}, {0.18f, 0.74f}, {0.50f, 0.78f}, {0.82f, 0.68f},
+            };
+            for (size_t i = 0; i < IM_ARRAYSIZE(sp); ++i)
+                dl->AddCircleFilled(ImVec2(p0.x + cs * sp[i][0], p0.y + cs * sp[i][1]), 1.5f,
+                                    (i & 1) ? lite : dark);
             break;
         }
         case gns::Terrain::Swamp: {
@@ -260,8 +304,95 @@ static void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
             dl->AddCircleFilled(ImVec2(c.x + cs * 0.16f, c.y + cs * 0.14f), cs * 0.11f, hump, 10);
             break;
         }
+        // Stairs / bridges are drawn separately (drawStairBridgeMotif) because their
+        // step/plank orientation depends on the run direction inferred from neighbours.
         default: break;
     }
+}
+
+// Run direction for a stairs/bridge cell, inferred from same-type 4-neighbours so steps
+// and planks align with the path and corners render as blank "landings".
+enum class RunDir { Default, Horizontal, Vertical, Landing };
+static RunDir runDirection(const gns::Map& m, int x, int y, int terr) {
+    auto same = [&](int xx, int yy) {
+        return xx >= 0 && yy >= 0 && xx < m.gridW && yy < m.gridH &&
+               m.cells[(size_t)yy * m.gridW + xx] == terr;
+    };
+    bool h = same(x - 1, y) || same(x + 1, y);
+    bool v = same(x, y - 1) || same(x, y + 1);
+    if (h && v) return RunDir::Landing;     // bend / junction: a flat landing
+    if (h)      return RunDir::Horizontal;
+    if (v)      return RunDir::Vertical;
+    return RunDir::Default;                  // isolated cell -> treat like a vertical run
+}
+
+// Draw a stairs/bridge cell oriented to its run (#stairs/bridges): horizontal runs get
+// treads/planks crossing vertically, vertical runs (the default) cross horizontally, and
+// landings are left flat with no steps/planks.
+static void drawStairBridgeMotif(ImDrawList* dl, ImVec2 p0, float cs, int terr, RunDir dir) {
+    if (cs < 9.0f) return;
+    bool horizontal = (dir == RunDir::Horizontal);   // Default/Vertical fall through to "across"
+    gns::Terrain T = static_cast<gns::Terrain>(terr);
+
+    // --- Stairs (plain treads) and Wooden Stairs (treads framed by side rails) ---
+    if (T == gns::Terrain::Stairs || T == gns::Terrain::WoodenStairs) {
+        if (dir == RunDir::Landing) return;          // landing: flat, no steps
+        bool wood = (T == gns::Terrain::WoodenStairs);
+        ImU32 step = wood ? IM_COL32(74, 48, 26, 235) : IM_COL32(60, 56, 50, 230);
+        ImU32 rail = IM_COL32(120, 86, 46, 255);
+        if (wood) {   // side rails (stringers) running along the flight
+            if (horizontal) {
+                dl->AddLine(ImVec2(p0.x, p0.y + cs * 0.12f), ImVec2(p0.x + cs, p0.y + cs * 0.12f), rail, 1.6f);
+                dl->AddLine(ImVec2(p0.x, p0.y + cs * 0.88f), ImVec2(p0.x + cs, p0.y + cs * 0.88f), rail, 1.6f);
+            } else {
+                dl->AddLine(ImVec2(p0.x + cs * 0.12f, p0.y), ImVec2(p0.x + cs * 0.12f, p0.y + cs), rail, 1.6f);
+                dl->AddLine(ImVec2(p0.x + cs * 0.88f, p0.y), ImVec2(p0.x + cs * 0.88f, p0.y + cs), rail, 1.6f);
+            }
+        }
+        float lo = wood ? 0.12f : 0.10f, hi = wood ? 0.88f : 0.90f;
+        for (int i = 1; i < 5; ++i) {
+            float t = (float)i / 5.0f;
+            if (horizontal)   // horizontal run -> treads aligned vertically (cross the flight)
+                dl->AddLine(ImVec2(p0.x + cs * t, p0.y + cs * lo),
+                            ImVec2(p0.x + cs * t, p0.y + cs * hi), step, 1.4f);
+            else              // vertical run -> treads aligned horizontally (the default)
+                dl->AddLine(ImVec2(p0.x + cs * lo, p0.y + cs * t),
+                            ImVec2(p0.x + cs * hi, p0.y + cs * t), step, 1.4f);
+        }
+        return;
+    }
+
+    // --- Bridges: a railed deck spanning a gap (reads distinctly from stair treads) ---
+    bool wooden = (T == gns::Terrain::WoodenBridge);
+    ImU32 rail  = wooden ? IM_COL32(120, 86, 46, 255) : IM_COL32(160, 160, 166, 255);
+    ImU32 plank = wooden ? IM_COL32(82, 54, 30, 220)  : IM_COL32(74, 74, 80, 220);
+    ImU32 gap   = IM_COL32(16, 20, 26, 140);         // the span below the deck on either side
+    if (dir == RunDir::Landing) {                    // landing: framed deck, no span gap
+        dl->AddRect(ImVec2(p0.x + cs * 0.10f, p0.y + cs * 0.10f),
+                    ImVec2(p0.x + cs * 0.90f, p0.y + cs * 0.90f), rail, 0, 0, 2.0f);
+        return;
+    }
+    if (horizontal) {   // deck spans left-right: side rails + a longitudinal deck plank
+        dl->AddRectFilled(p0, ImVec2(p0.x + cs, p0.y + cs * 0.16f), gap);                 // gap above
+        dl->AddRectFilled(ImVec2(p0.x, p0.y + cs * 0.84f), ImVec2(p0.x + cs, p0.y + cs), gap);  // gap below
+        dl->AddLine(ImVec2(p0.x, p0.y + cs * 0.16f), ImVec2(p0.x + cs, p0.y + cs * 0.16f), rail, 2.2f);
+        dl->AddLine(ImVec2(p0.x, p0.y + cs * 0.84f), ImVec2(p0.x + cs, p0.y + cs * 0.84f), rail, 2.2f);
+        dl->AddLine(ImVec2(p0.x, p0.y + cs * 0.50f), ImVec2(p0.x + cs, p0.y + cs * 0.50f), plank, 1.2f);
+    } else {            // deck spans up-down
+        dl->AddRectFilled(p0, ImVec2(p0.x + cs * 0.16f, p0.y + cs), gap);                 // gap left
+        dl->AddRectFilled(ImVec2(p0.x + cs * 0.84f, p0.y), ImVec2(p0.x + cs, p0.y + cs), gap);  // gap right
+        dl->AddLine(ImVec2(p0.x + cs * 0.16f, p0.y), ImVec2(p0.x + cs * 0.16f, p0.y + cs), rail, 2.2f);
+        dl->AddLine(ImVec2(p0.x + cs * 0.84f, p0.y), ImVec2(p0.x + cs * 0.84f, p0.y + cs), rail, 2.2f);
+        dl->AddLine(ImVec2(p0.x + cs * 0.50f, p0.y), ImVec2(p0.x + cs * 0.50f, p0.y + cs), plank, 1.2f);
+    }
+}
+
+// True for the terrain types whose motif depends on run direction.
+static bool isStairOrBridge(int terr) {
+    return terr == static_cast<int>(gns::Terrain::Stairs) ||
+           terr == static_cast<int>(gns::Terrain::WoodenStairs) ||
+           terr == static_cast<int>(gns::Terrain::WoodenBridge) ||
+           terr == static_cast<int>(gns::Terrain::StoneBridge);
 }
 
 // Display names, indexed by ObjectType value (must match the enum order).
@@ -270,7 +401,7 @@ static const char* kObjectNames[] = {
     "Well", "Stone Wall", "Wooden Wall", "Fence", "Altar",
     "Wooden Bridge (S)", "Wooden Bridge (M)", "Wooden Bridge (L)",
     "Stone Bridge (S)", "Stone Bridge (M)", "Stone Bridge (L)",
-    "Cave Entrance"};
+    "Cave Entrance", "Spiral Stairs"};
 
 // Draw a placed prop centred at `ctr`, fitting roughly in an `s`-sized box, rotated
 // `rotDeg` degrees clockwise. All geometry is expressed in local fraction-of-s coords
@@ -302,13 +433,14 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float 
     auto Co = [&](float cx, float cy, float r, ImU32 col, float th) {
         dl->AddCircle(P(cx, cy), r * s, col, 0, th);
     };
-    // A bridge spanning [-hl,+hl] horizontally with deck plank/segment lines.
+    // A bridge spanning [-hl,+hl] horizontally with deck plank/segment lines. The deck
+    // is a full cell wide (half-height 0.45) so bridges aren't too thin (#19).
     auto bridge = [&](float hl, ImU32 deck, ImU32 edge, int segs) {
-        R(-hl, -0.16f, hl, 0.16f, deck);
-        Ro(-hl, -0.16f, hl, 0.16f, edge);
+        R(-hl, -0.45f, hl, 0.45f, deck);
+        Ro(-hl, -0.45f, hl, 0.45f, edge);
         for (int i = 1; i < segs; ++i) {
             float x = -hl + 2.0f * hl * i / segs;
-            L(x, -0.16f, x, 0.16f, edge, 1.2f);
+            L(x, -0.45f, x, 0.45f, edge, 1.2f);
         }
     };
     switch (static_cast<gns::ObjectType>(type)) {
@@ -396,6 +528,17 @@ static void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float 
                                   IM_COL32(18, 16, 16, 255));
             break;
         }
+        case gns::ObjectType::SpiralStairs: {
+            // top-down spiral staircase: outer ring, central post, radial step treads
+            Co(0.0f, 0.0f, 0.42f, stone, 2.0f);
+            C(0.0f, 0.0f, 0.10f, IM_COL32(70, 70, 76, 255));   // central newel post
+            for (int i = 0; i < 8; ++i) {
+                float a2 = i * 3.14159265f / 4.0f;
+                L(0.10f * std::cos(a2), 0.10f * std::sin(a2),
+                  0.42f * std::cos(a2), 0.42f * std::sin(a2), line, 1.4f);
+            }
+            break;
+        }
         default: break;
     }
     if (selected) {
@@ -422,6 +565,15 @@ struct App {
     gns::Module mod;
     std::string path;          // current .gnsmod file ("" = unsaved)
     bool dirty = false;
+
+    SDL_Renderer* renderer = nullptr;                  // for artwork textures (#14)
+    std::map<std::string, SDL_Texture*> artCache;      // path -> texture (nullptr = failed)
+
+    bool focusAreaName = false;   // request caret in the area Name box next frame (#16)
+    bool focusTextEdit = false;   // request caret in the selected-text box next frame (#15)
+    int pendingStartAreaId = 0;   // area awaiting "make start area" confirmation (#22)
+    int pendingEndAreaId = 0;     // area awaiting "make end area" confirmation
+    std::string imageDetailsPath; // image whose details window is open ("" = closed)
 
     int currentMapId = 0;      // map shown in the canvas
     // The active area: shown in the inspector, painted by Assign Area, cyan border on
@@ -474,6 +626,14 @@ struct App {
 
 static gns::Map* currentMap(App& app) { return app.mod.mapById(app.currentMapId); }
 
+// The map that owns a given area id (area ids are unique across all maps).
+static gns::Map* mapOfArea(gns::Module& mod, int areaId) {
+    for (auto& m : mod.maps)
+        for (auto& a : m.areas)
+            if (a.id == areaId) return &m;
+    return nullptr;
+}
+
 // Coarse-grid label (e.g. "A1") for a fine cell, from the overlay grid.
 static std::string coarseLabel(const gns::Map& m, int cx, int cy) {
     int ow = m.overlayW > 0 ? m.overlayW : 1;
@@ -502,9 +662,11 @@ static std::string baseName(const std::string& path) {
     return p == std::string::npos ? path : path.substr(p + 1);
 }
 
-// Re-derive every area's coordinate label (e.g. "A1") from its centroid + overlay grid.
+// Re-derive each auto-labelled area's coordinate label (e.g. "A1") from its centroid +
+// overlay grid. Areas whose label was edited by hand (labelAuto == false) are left alone.
 static void relabelAreas(gns::Map& m) {
     for (auto& a : m.areas) {
+        if (!a.labelAuto) continue;
         int ax, ay; areaCentroid(m, a.id, ax, ay);
         if (ax >= 0) a.label = coarseLabel(m, ax, ay);
     }
@@ -659,6 +821,99 @@ static bool pickerField(const char* label, std::string* value,
     return changed;
 }
 
+// Lazily load + cache an area's artwork image as a texture for the inspector thumbnail
+// (#14). Caches nullptr on failure so a bad/missing path isn't retried every frame.
+static SDL_Texture* artworkTexture(App& app, const std::string& path) {
+    if (path.empty() || !app.renderer) return nullptr;
+    auto it = app.artCache.find(path);
+    if (it != app.artCache.end()) return it->second;
+    SDL_Texture* tex = nullptr;
+    if (SDL_Surface* surf = IMG_Load(path.c_str())) {
+        tex = SDL_CreateTextureFromSurface(app.renderer, surf);
+        SDL_FreeSurface(surf);
+    }
+    app.artCache[path] = tex;
+    return tex;
+}
+
+// The trailing portion of `path` (always keeping the file name) that fits in `width` px,
+// prefixed with an ellipsis when truncated — so small path fields show the file name.
+static std::string fitPathTail(const std::string& path, float width) {
+    if (path.empty() || ImGui::CalcTextSize(path.c_str()).x <= width) return path;
+    const std::string ell = "\xE2\x80\xA6";   // …
+    std::string best = ell;
+    for (size_t i = path.size(); i-- > 0; ) {
+        std::string cand = ell + path.substr(i);
+        if (ImGui::CalcTextSize(cand.c_str()).x > width) break;
+        best = cand;
+    }
+    return best;
+}
+
+// Floating window with the full path + pixel dimensions of app.imageDetailsPath.
+static void drawImageDetailsWindow(App& app) {
+    if (app.imageDetailsPath.empty()) return;
+    bool open = true;
+    ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_Appearing);
+    if (ImGui::Begin("Image Details", &open, ImGuiWindowFlags_NoCollapse)) {
+        const std::string& p = app.imageDetailsPath;
+        ImGui::TextUnformatted("File name");
+        ImGui::TextWrapped("%s", baseName(p).c_str());
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Full path");
+        ImGui::TextWrapped("%s", p.c_str());
+        ImGui::Spacing();
+        if (SDL_Texture* tex = artworkTexture(app, p)) {
+            int tw = 0, th = 0;
+            SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
+            ImGui::Text("Dimensions: %d \xC3\x97 %d px", tw, th);   // ×
+        } else {
+            ImGui::TextDisabled("Image not found or unreadable.");
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Close")) open = false;
+    }
+    ImGui::End();
+    if (!open) app.imageDetailsPath.clear();
+}
+
+// Filename-focused image path field shared by the module cover art and per-area artwork:
+// a truncated path label (file name always visible, full path on hover), Browse / Image
+// Details / Clear buttons, and a thumbnail. `id` disambiguates the button IDs.
+static void drawImagePathField(App& app, const char* id, std::string* path) {
+    if (!path->empty()) {
+        std::string shown = fitPathTail(*path, ImGui::GetContentRegionAvail().x);
+        ImGui::TextUnformatted(shown.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", path->c_str());
+    } else {
+        ImGui::TextDisabled("No image set.");
+    }
+    ImGui::PushID(id);
+    if (ImGui::SmallButton("Browse")) {
+        std::string p = imageFileDialog();
+        if (!p.empty()) { *path = p; app.dirty = true; }
+    }
+    if (!path->empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Image Details")) app.imageDetailsPath = *path;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear")) { path->clear(); app.dirty = true; }
+    }
+    ImGui::PopID();
+    if (!path->empty()) {
+        if (SDL_Texture* tex = artworkTexture(app, *path)) {
+            int tw = 0, th = 0;
+            SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
+            float maxW = 200.0f;
+            float w = (tw > maxW) ? maxW : (float)tw;
+            float h = (tw > 0) ? w * th / tw : 0.0f;
+            ImGui::Image((ImTextureID)tex, ImVec2(w, h));
+        } else {
+            ImGui::TextDisabled("(image not found or unreadable)");
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Persistence actions
 // ---------------------------------------------------------------------------
@@ -775,8 +1030,10 @@ static void drawToolsWindow(App& app) {
 
     if (app.tool == Tool::PlaceControlPoint) {
         ImGui::SeparatorText("Place");
-        ImGui::RadioButton("Control Point", &app.placeCpKind, 0);
-        ImGui::RadioButton("Control Item", &app.placeCpKind, 1);
+        // Unique IDs (##cpkind): "Control Point" already labels the tool radio above, and
+        // two same-ID items in one window trips ImGui's conflicting-ID assert.
+        ImGui::RadioButton("Control Point##cpkind", &app.placeCpKind, 0);
+        ImGui::RadioButton("Control Item##cpkind", &app.placeCpKind, 1);
         ImGui::TextDisabled("Click the map to place. Drag to move.\nDel deletes. Items are plot\nthings the party must acquire/use.");
     }
 
@@ -866,6 +1123,7 @@ static void drawToolsWindow(App& app) {
         if (selT) {
             ImGui::SeparatorText("Selected text");
             ImGui::SetNextItemWidth(-1);
+            if (app.focusTextEdit) { ImGui::SetKeyboardFocusHere(); app.focusTextEdit = false; }
             if (InputStr("##edittext", &selT->text)) app.dirty = true;
             float sc[4]; rgbaToFloat4(selT->color, sc);
             if (ImGui::ColorEdit3("Color", sc)) { sc[3] = 1.0f; selT->color = float4ToRgba(sc); app.dirty = true; }
@@ -1012,6 +1270,7 @@ static void drawToolsWindow(App& app) {
             m->areas.push_back(a);
             app.selectedAreaId = a.id;
             app.tool = Tool::AssignArea;
+            app.focusAreaName = true;   // caret jumps to the Name box next frame (#16)
             app.dirty = true;
         }
     }
@@ -1047,8 +1306,9 @@ static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy) {
                 (!areaHasCells(m, app.selectedAreaId) ||
                  hasAdjacentSameArea(m, cx, cy, app.selectedAreaId))) {
                 m.cellArea[idx] = app.selectedAreaId;
-                if (m.cells[idx] == static_cast<int>(gns::Terrain::Empty))
-                    m.cells[idx] = static_cast<int>(gns::Terrain::Floor);
+                // Terrain is left untouched: assigning an area no longer auto-paints Floor,
+                // so "remove fill" exposes the real terrain (bare grid if none) and Floor
+                // painted inside the area still shows (#18 follow-up).
                 app.dirty = true;
             }
             break;
@@ -1071,6 +1331,26 @@ static void applyBrush(App& app, gns::Map& m, int cx, int cy) {
             int x = cx + dx, y = cy + dy;
             if (x >= 0 && y >= 0 && x < m.gridW && y < m.gridH)
                 applyToolAtCell(app, m, x, y);
+        }
+}
+
+// Draw an area's perimeter — the cell edges whose 4-neighbour is outside the area.
+// Used both for outline-only (no-fill) areas and the selected-area glow (#18).
+static void drawAreaOutline(ImDrawList* dl, const gns::Map& m, int areaId, ImU32 col,
+                            float th, ImVec2 origin, float cs, ImVec2 visMin, ImVec2 visMax) {
+    auto owns = [&](int x, int y) {
+        return x >= 0 && y >= 0 && x < m.gridW && y < m.gridH &&
+               m.cellArea[(size_t)y * m.gridW + x] == areaId;
+    };
+    for (int y = 0; y < m.gridH; ++y)
+        for (int x = 0; x < m.gridW; ++x) {
+            if (!owns(x, y)) continue;
+            ImVec2 p0(origin.x + x * cs, origin.y + y * cs), p1(p0.x + cs, p0.y + cs);
+            if (p1.x < visMin.x || p1.y < visMin.y || p0.x > visMax.x || p0.y > visMax.y) continue;
+            if (!owns(x, y - 1)) dl->AddLine(ImVec2(p0.x, p0.y), ImVec2(p1.x, p0.y), col, th);
+            if (!owns(x, y + 1)) dl->AddLine(ImVec2(p0.x, p1.y), ImVec2(p1.x, p1.y), col, th);
+            if (!owns(x - 1, y)) dl->AddLine(ImVec2(p0.x, p0.y), ImVec2(p0.x, p1.y), col, th);
+            if (!owns(x + 1, y)) dl->AddLine(ImVec2(p1.x, p0.y), ImVec2(p1.x, p1.y), col, th);
         }
 }
 
@@ -1151,13 +1431,32 @@ static void drawCanvasWindow(App& app) {
         return m.cellArea[(size_t)y * m.gridW + x];
     };
 
-    if (paintTool && cellValid) {
+    // Double-click a text label (in any tool) -> jump to the Text tool and edit it (#15).
+    bool dblEdit = false;
+    if (hovered && inBounds && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        int hit = -1; float best = 0.6f;
+        for (size_t i = 0; i < m.texts.size(); ++i) {
+            float dx = m.texts[i].x - mxf, dy = m.texts[i].y - myf;
+            if (dx * dx + dy * dy < best) { best = dx * dx + dy * dy; hit = (int)i; }
+        }
+        if (hit >= 0) {
+            app.tool = Tool::PlaceText;
+            app.selectedTextId = m.texts[hit].id;
+            app.focusTextEdit = true;
+            dblEdit = true;
+        }
+    }
+
+    if (dblEdit) {
+        // handled above — skip the normal per-tool interaction this frame
+    } else if (paintTool && cellValid) {
         if (leftClick) { pushUndo(app); app.strokeOpen = true; }   // one undo entry per stroke
         if (active && leftDown) applyBrush(app, m, cx, cy);
         if (leftRelease && app.strokeOpen) {
             app.strokeOpen = false;
             if (app.tool == Tool::Erase)                       // erasing may split an area (#6)
                 for (auto& a : m.areas) pruneAreaConnectivity(m, a.id);
+            relabelAreas(m);   // auto-labelled areas follow their new map position
         }
         if (!typingGuard && ImGui::IsKeyPressed(ImGuiKey_Delete)) doUndo(app);   // DELETE undoes (#4)
     } else if (app.tool == Tool::Select) {
@@ -1312,14 +1611,19 @@ static void drawCanvasWindow(App& app) {
             ImVec2 p1(p0.x + cs, p0.y + cs);
             if (p1.x < visMin.x || p1.y < visMin.y || p0.x > visMax.x || p0.y > visMax.y) continue;
             size_t idx = (size_t)y * m.gridW + x;
-            dl->AddRectFilled(p0, p1, rgbaToImU32(terrainColor(m.cells[idx])));
+            int terr = m.cells[idx];
             int areaId = m.cellArea[idx];
-            if (areaId != 0) {
-                std::uint32_t ac = 0x808080FF;
-                for (const auto& a : m.areas) if (a.id == areaId) { ac = a.color; break; }
-                dl->AddRectFilled(p0, p1, rgbaToImU32(ac, 110));
-            }
-            drawTerrainMotif(dl, p0, cs, m.cells[idx]);
+            std::uint32_t ac = 0x808080FF;
+            bool fill = true;
+            if (areaId != 0)
+                for (const auto& a : m.areas) if (a.id == areaId) { ac = a.color; fill = a.fillEnabled; break; }
+            dl->AddRectFilled(p0, p1, rgbaToImU32(terrainColor(terr)));   // real terrain (#18)
+            if (areaId != 0 && fill)
+                dl->AddRectFilled(p0, p1, rgbaToImU32(ac, 110));   // area colour tint (skipped when no-fill)
+            if (isStairOrBridge(terr))
+                drawStairBridgeMotif(dl, p0, cs, terr, runDirection(m, x, y, terr));
+            else
+                drawTerrainMotif(dl, p0, cs, terr);
         }
     }
 
@@ -1397,26 +1701,15 @@ static void drawCanvasWindow(App& app) {
                     std::to_string(cp.id).c_str());
     }
 
-    // Outline the selected area (the one shown in the Inspector): draw only the
-    // perimeter edges — cell sides whose neighbour is not part of the same area.
-    if (app.selectedAreaId != 0) {
-        ImU32 selCol = IM_COL32(90, 220, 255, 255);   // cyan, stands out from tints/coarse grid
-        float th = std::max(2.5f, cs * 0.14f);
-        auto owns = [&](int x, int y) {
-            return x >= 0 && y >= 0 && x < m.gridW && y < m.gridH &&
-                   m.cellArea[(size_t)y * m.gridW + x] == app.selectedAreaId;
-        };
-        for (int y = 0; y < m.gridH; ++y)
-            for (int x = 0; x < m.gridW; ++x) {
-                if (!owns(x, y)) continue;
-                ImVec2 p0 = cellTL(x, y), p1(p0.x + cs, p0.y + cs);
-                if (p1.x < visMin.x || p1.y < visMin.y || p0.x > visMax.x || p0.y > visMax.y) continue;
-                if (!owns(x, y - 1)) dl->AddLine(ImVec2(p0.x, p0.y), ImVec2(p1.x, p0.y), selCol, th);
-                if (!owns(x, y + 1)) dl->AddLine(ImVec2(p0.x, p1.y), ImVec2(p1.x, p1.y), selCol, th);
-                if (!owns(x - 1, y)) dl->AddLine(ImVec2(p0.x, p0.y), ImVec2(p0.x, p1.y), selCol, th);
-                if (!owns(x + 1, y)) dl->AddLine(ImVec2(p1.x, p0.y), ImVec2(p1.x, p1.y), selCol, th);
-            }
-    }
+    // Outline no-fill areas in their own colour so they read without a fill tint, then
+    // the selected area in bright cyan with a thicker stroke (the "glow") on top (#18).
+    for (const auto& a : m.areas)
+        if (!a.fillEnabled && a.id != app.selectedAreaId)
+            drawAreaOutline(dl, m, a.id, rgbaToImU32(a.color, 235),
+                            std::max(2.0f, cs * 0.10f), origin, cs, visMin, visMax);
+    if (app.selectedAreaId != 0)
+        drawAreaOutline(dl, m, app.selectedAreaId, IM_COL32(90, 220, 255, 255),
+                        std::max(2.5f, cs * 0.14f), origin, cs, visMin, visMax);
 
     // Hover highlight — shows the brush footprint for paint tools.
     if (cellValid) {
@@ -1507,19 +1800,113 @@ static void drawAreaControlPointsSection(App& app, gns::Area& a) {
     if (deleteId) deleteControlPoint(app, deleteId);
 }
 
+// Combo to pick a destination area across every map, labelled "<area> [<map>]".
+// `excludeAreaId` hides one area (the source) so an area can't link to itself.
+static bool areaDestCombo(App& app, const char* id, int* targetId, int excludeAreaId) {
+    bool changed = false;
+    gns::Area* sel = app.mod.areaById(*targetId);
+    gns::Map* selMap = mapOfArea(app.mod, *targetId);
+    std::string cur = sel ? ((sel->label.empty() ? sel->name : sel->label) +
+                             (selMap ? " [" + selMap->name + "]" : ""))
+                          : std::string("(none)");
+    if (ImGui::BeginCombo(id, cur.c_str())) {
+        if (ImGui::Selectable("(none)", *targetId == 0)) { *targetId = 0; changed = true; }
+        for (auto& m : app.mod.maps)
+            for (auto& ar : m.areas) {
+                if (ar.id == excludeAreaId) continue;
+                ImGui::PushID(ar.id);
+                std::string lbl = (ar.label.empty() ? ar.name : ar.label) + " [" + m.name + "]";
+                if (ImGui::Selectable(lbl.c_str(), ar.id == *targetId)) { *targetId = ar.id; changed = true; }
+                ImGui::PopID();
+            }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
 static void drawAreaInspector(App& app, gns::Area& a) {
     ImGui::SeparatorText("Area");
-    if (InputStr("Label", &a.label)) app.dirty = true;
+    if (InputStr("Label", &a.label)) { app.dirty = true; a.labelAuto = false; }  // hand-edited
     ImGui::SameLine();
     if (ImGui::SmallButton("From map")) {
         if (gns::Map* m = currentMap(app)) {
+            a.labelAuto = true;   // resume auto-tracking the area's map position
             int ax, ay; areaCentroid(*m, a.id, ax, ay);
             if (ax >= 0) { a.label = coarseLabel(*m, ax, ay); app.dirty = true; }
         }
     }
+    if (a.labelAuto) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(auto)");
+    }
+    if (app.focusAreaName) { ImGui::SetKeyboardFocusHere(); app.focusAreaName = false; }
     if (InputStr("Name", &a.name)) app.dirty = true;
     float col[4]; rgbaToFloat4(a.color, col);
     if (ImGui::ColorEdit3("Color", col)) { col[3] = 1.0f; a.color = float4ToRgba(col); app.dirty = true; }
+    bool removeFill = !a.fillEnabled;
+    if (ImGui::Checkbox("Remove fill color", &removeFill)) { a.fillEnabled = !removeFill; app.dirty = true; }
+
+    // Start area (#22): exactly one across the module. Picking a new one warns first.
+    bool isStart = (app.mod.startAreaId == a.id);
+    if (ImGui::Checkbox("Start area", &isStart)) {
+        if (!isStart) {
+            app.mod.startAreaId = 0; app.dirty = true;
+        } else if (app.mod.startAreaId != 0 && app.mod.startAreaId != a.id) {
+            app.pendingStartAreaId = a.id;   // confirm before stealing it from the other area
+        } else {
+            app.mod.startAreaId = a.id; app.mod.startMapId = app.currentMapId; app.dirty = true;
+        }
+    }
+    if (app.pendingStartAreaId == a.id) ImGui::OpenPopup("Change start area?");
+    if (ImGui::BeginPopupModal("Change start area?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        gns::Area* other = app.mod.areaById(app.mod.startAreaId);
+        gns::Map* otherMap = mapOfArea(app.mod, app.mod.startAreaId);
+        const char* thisName = a.label.empty() ? a.name.c_str() : a.label.c_str();
+        const char* otherName = other ? (other->label.empty() ? other->name.c_str()
+                                                               : other->label.c_str()) : "?";
+        ImGui::Text("Only one start area is allowed.\n"
+                    "The start area is currently '%s' on map '%s'.\n"
+                    "Make '%s' the start area instead?",
+                    otherName, otherMap ? otherMap->name.c_str() : "?", thisName);
+        if (ImGui::Button("Make Start Area")) {
+            app.mod.startAreaId = a.id; app.mod.startMapId = app.currentMapId; app.dirty = true;
+            app.pendingStartAreaId = 0; ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { app.pendingStartAreaId = 0; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    // End area: also exactly one across the module; warns with the current map + area.
+    bool isEnd = (app.mod.endAreaId == a.id);
+    if (ImGui::Checkbox("End area", &isEnd)) {
+        if (!isEnd) {
+            app.mod.endAreaId = 0; app.dirty = true;
+        } else if (app.mod.endAreaId != 0 && app.mod.endAreaId != a.id) {
+            app.pendingEndAreaId = a.id;
+        } else {
+            app.mod.endAreaId = a.id; app.dirty = true;
+        }
+    }
+    if (app.pendingEndAreaId == a.id) ImGui::OpenPopup("Change end area?");
+    if (ImGui::BeginPopupModal("Change end area?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        gns::Area* other = app.mod.areaById(app.mod.endAreaId);
+        gns::Map* otherMap = mapOfArea(app.mod, app.mod.endAreaId);
+        const char* thisName = a.label.empty() ? a.name.c_str() : a.label.c_str();
+        const char* otherName = other ? (other->label.empty() ? other->name.c_str()
+                                                               : other->label.c_str()) : "?";
+        ImGui::Text("Only one end area is allowed.\n"
+                    "The end area is currently '%s' on map '%s'.\n"
+                    "Make '%s' the end area instead?",
+                    otherName, otherMap ? otherMap->name.c_str() : "?", thisName);
+        if (ImGui::Button("Make End Area")) {
+            app.mod.endAreaId = a.id; app.dirty = true;
+            app.pendingEndAreaId = 0; ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { app.pendingEndAreaId = 0; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
 
     ImGui::SeparatorText("Descriptions");
     ImGui::TextDisabled("DM only");
@@ -1529,9 +1916,43 @@ static void drawAreaInspector(App& app, gns::Area& a) {
 
     ImGui::SeparatorText("Statistics");
     if (ImGui::SliderInt("Monster %", &a.monsterChancePct, 0, 100)) app.dirty = true;
-    if (pickerField("Monster", &a.monsterType, app.monsterNames)) app.dirty = true;
-    if (ImGui::SliderInt("Treasure %", &a.treasureChancePct, 0, 100)) app.dirty = true;
-    if (InputStr("Treasure type (A-T)", &a.treasureType)) app.dirty = true;
+    // Monsters: one or more types, each with a count, spawned together on entry (#23).
+    ImGui::TextDisabled("Monsters (type \xc3\x97 count)");
+    int delMonster = -1;
+    for (size_t i = 0; i < a.monsters.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(150);
+        if (pickerField("##mtype", &a.monsters[i].type, app.monsterNames)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90);
+        if (ImGui::InputInt("##mcount", &a.monsters[i].count)) {
+            if (a.monsters[i].count < 1) a.monsters[i].count = 1;
+            app.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delMonster = (int)i;
+        ImGui::PopID();
+    }
+    if (delMonster >= 0) { a.monsters.erase(a.monsters.begin() + delMonster); app.dirty = true; }
+    if (ImGui::SmallButton("Add monster")) { a.monsters.push_back(gns::AreaMonster{}); app.dirty = true; }
+    ImGui::Spacing();
+    // Treasure: one or more treasure types, each with its own independent chance.
+    ImGui::TextDisabled("Treasure (type A-T \xc3\x97 chance %)");
+    int delTreasure = -1;
+    for (size_t i = 0; i < a.treasures.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(110);
+        if (InputStr("##ttype", &a.treasures[i].type)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120);
+        if (ImGui::SliderInt("##tpct", &a.treasures[i].chancePct, 0, 100, "%d%%")) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delTreasure = (int)i;
+        ImGui::PopID();
+    }
+    if (delTreasure >= 0) { a.treasures.erase(a.treasures.begin() + delTreasure); app.dirty = true; }
+    if (ImGui::SmallButton("Add treasure")) { a.treasures.push_back(gns::AreaTreasure{}); app.dirty = true; }
+    ImGui::Spacing();
     if (ImGui::SliderInt("Trap %", &a.trapChancePct, 0, 100)) app.dirty = true;
     if (InputStr("Trap desc", &a.trapDescription)) app.dirty = true;
     if (ImGui::SliderInt("Lock pick %", &a.lockChancePct, 0, 100)) app.dirty = true;
@@ -1539,13 +1960,58 @@ static void drawAreaInspector(App& app, gns::Area& a) {
     if (ImGui::SliderInt("Hidden discover %", &a.hiddenChancePct, 0, 100)) app.dirty = true;
     if (InputStr("Hidden desc", &a.hiddenDescription)) app.dirty = true;
 
-    ImGui::SeparatorText("Artwork");
-    if (InputStr("Path", &a.artworkPath)) app.dirty = true;
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Browse")) {
-        std::string p = fileDialog(false);
-        if (!p.empty()) { a.artworkPath = p; app.dirty = true; }
+    ImGui::SeparatorText("Shop / Market");
+    if (ImGui::Checkbox("Party can buy & sell here", &a.isShop)) app.dirty = true;
+    if (a.isShop) {
+        ImGui::TextDisabled("Supply — items the party can buy/sell.");
+        int delItem = -1;
+        for (size_t i = 0; i < a.shopItems.size(); ++i) {
+            gns::ShopItem& it = a.shopItems[i];
+            ImGui::PushID((int)i);
+            std::string hdr = (it.name.empty() ? "(unnamed item)" : it.name) +
+                              "  (" + std::to_string(it.costGp) + " gp, " +
+                              std::to_string(it.stock) + " in stock)###shopitem";
+            if (ImGui::CollapsingHeader(hdr.c_str())) {
+                ImGui::SetNextItemWidth(-1);
+                if (InputStr("Name##si", &it.name)) app.dirty = true;
+                ImGui::TextDisabled("Description");
+                if (InputStrMultiline("##sidesc", &it.description, ImVec2(-1, 50))) app.dirty = true;
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::InputInt("Cost (gp)##si", &it.costGp)) {
+                    if (it.costGp < 0) it.costGp = 0; app.dirty = true;
+                }
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::InputInt("In stock##si", &it.stock)) {
+                    if (it.stock < 0) it.stock = 0; app.dirty = true;
+                }
+                ImGui::TextDisabled("Image (optional)");
+                drawImagePathField(app, "shopimg", &it.imagePath);
+                if (ImGui::SmallButton("Delete item")) delItem = (int)i;
+            }
+            ImGui::PopID();
+        }
+        if (delItem >= 0) { a.shopItems.erase(a.shopItems.begin() + delItem); app.dirty = true; }
+        if (ImGui::SmallButton("Add item")) { a.shopItems.push_back(gns::ShopItem{}); app.dirty = true; }
     }
+
+    ImGui::SeparatorText("Artwork");
+    drawImagePathField(app, "area-art", &a.artworkPath);
+
+    ImGui::SeparatorText("Transitions (exits to other areas)");
+    ImGui::TextDisabled("Link this area to an area on another map,\ne.g. stairs leading down to Level 2.");
+    int delTrans = -1;
+    for (size_t i = 0; i < a.transitions.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(-30);
+        if (areaDestCombo(app, "##dest", &a.transitions[i].targetAreaId, a.id)) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delTrans = (int)i;
+        ImGui::SetNextItemWidth(-1);
+        if (InputStr("##tlabel", &a.transitions[i].label)) app.dirty = true;
+        ImGui::PopID();
+    }
+    if (delTrans >= 0) { a.transitions.erase(a.transitions.begin() + delTrans); app.dirty = true; }
+    if (ImGui::SmallButton("Add transition")) { a.transitions.push_back(gns::AreaTransition{}); app.dirty = true; }
 
     ImGui::SeparatorText("Prerequisite control points");
     if (app.mod.controlPoints.empty()) {
@@ -1586,6 +2052,10 @@ static void drawModuleInspector(App& app) {
     if (InputStr("Author", &app.mod.author)) app.dirty = true;
     ImGui::TextDisabled("Summary");
     if (InputStrMultiline("##summary", &app.mod.summary, ImVec2(-1, 80))) app.dirty = true;
+
+    ImGui::SeparatorText("Cover Art");
+    ImGui::TextDisabled("Splash image shown by the Game Engine when this module loads.");
+    drawImagePathField(app, "cover", &app.mod.coverArtPath);
 
     ImGui::SeparatorText("Start / End");
     auto mapCombo = [&](const char* label, int* id) {
@@ -1671,6 +2141,7 @@ int main(int, char**) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
+    IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);   // artwork thumbnails (#14)
     SDL_Window* window = SDL_CreateWindow(
         "Grimoire & Steel — Module Creator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 800,
@@ -1690,6 +2161,7 @@ int main(int, char**) {
     ImGui_ImplSDLRenderer2_Init(renderer);
 
     App app;
+    app.renderer = renderer;
     newModule(app);
     loadReference(app);
 
@@ -1721,6 +2193,7 @@ int main(int, char**) {
         drawToolsWindow(app);
         drawCanvasWindow(app);
         drawInspectorWindow(app);
+        drawImageDetailsWindow(app);
         drawExitModal(app, running);
 
         ImGui::Render();
@@ -1730,11 +2203,14 @@ int main(int, char**) {
         SDL_RenderPresent(renderer);
     }
 
+    for (auto& kv : app.artCache) if (kv.second) SDL_DestroyTexture(kv.second);
+
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    IMG_Quit();
     SDL_Quit();
     return 0;
 }

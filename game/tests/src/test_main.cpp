@@ -162,6 +162,7 @@ int main() {
             m.name = "Tomb of Tests";
             m.author = "QA";
             m.summary = "Round-trip fixture.";
+            m.coverArtPath = "art/cover.png";   // module splash image (v8)
 
             Map map;
             map.id = 1; map.name = "Level 1";
@@ -183,8 +184,17 @@ int main() {
             a1.lockChancePct = 15; a1.lockDescription = "Iron door";
             a1.hiddenChancePct = 40; a1.hiddenDescription = "Loose brick";
             a1.artworkPath = "art/entry.png";
+            a1.fillEnabled = false;                                 // outline-only (#18)
+            a1.labelAuto = false;                                    // hand-edited label (v9)
+            a1.monsters = {{"Skeleton", 4}, {"Goblin", 2}};          // multi-type (#23)
+            a1.treasures = {{"C", 50}, {"D", 20}};                   // multi-treasure (v10)
+            a1.isShop = true;                                         // shop/market (v10/v11)
+            a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png"},
+                            {"Rations (1 week)", "", 5, 20, ""}};
+            a1.transitions = {{11, "Stairs down to the crypt"}};     // cross-area exit (v7)
             a1.prerequisiteControlPointIds = {1};
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
+            a2.monsterType = "Zombie";   // legacy single field, empty list -> migrated on load
             map.areas.push_back(a1);
             map.areas.push_back(a2);
 
@@ -216,6 +226,7 @@ int main() {
 
             check("module name preserved", r.name == "Tomb of Tests");
             check("module author/summary preserved", r.author == "QA" && r.summary == "Round-trip fixture.");
+            check("module cover art preserved", r.coverArtPath == "art/cover.png");
             check("start/end markers preserved", r.startMapId == 1 && r.startAreaId == 10 && r.endAreaId == 11);
             check("one map preserved", r.maps.size() == 1);
             check("grid dims preserved", r.maps[0].gridW == 4 && r.maps[0].gridH == 3);
@@ -233,6 +244,30 @@ int main() {
                   ra->artworkPath == "art/entry.png");
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
+            check("area fillEnabled=false preserved", ra && ra->fillEnabled == false);
+            check("area monster list preserved", ra && ra->monsters.size() == 2 &&
+                  ra->monsters[0].type == "Skeleton" && ra->monsters[0].count == 4 &&
+                  ra->monsters[1].type == "Goblin" && ra->monsters[1].count == 2);
+            check("area treasure list preserved", ra && ra->treasures.size() == 2 &&
+                  ra->treasures[0].type == "C" && ra->treasures[0].chancePct == 50 &&
+                  ra->treasures[1].type == "D" && ra->treasures[1].chancePct == 20);
+            check("area shop preserved", ra && ra->isShop && ra->shopItems.size() == 2 &&
+                  ra->shopItems[0].name == "Long sword" &&
+                  ra->shopItems[0].description == "A fine blade." &&
+                  ra->shopItems[0].costGp == 15 && ra->shopItems[0].stock == 3 &&
+                  ra->shopItems[0].imagePath == "art/sword.png" &&
+                  ra->shopItems[1].name == "Rations (1 week)" &&
+                  ra->shopItems[1].costGp == 5 && ra->shopItems[1].stock == 20);
+            check("area transitions preserved", ra && ra->transitions.size() == 1 &&
+                  ra->transitions[0].targetAreaId == 11 &&
+                  ra->transitions[0].label == "Stairs down to the crypt");
+            check("area labelAuto=false preserved", ra && ra->labelAuto == false);
+            const Area* rb = r.areaById(11);
+            check("area default fillEnabled=true", rb && rb->fillEnabled == true);
+            check("area default labelAuto=true preserved", rb && rb->labelAuto == true);
+            check("area default isShop=false", rb && rb->isShop == false && rb->shopItems.empty());
+            check("legacy monsterType migrated to list", rb && rb->monsters.size() == 1 &&
+                  rb->monsters[0].type == "Zombie" && rb->monsters[0].count == 1);
             check("control point preserved", r.controlPoints.size() == 1 &&
                   r.controlPoints[0].id == 1 && r.controlPoints[0].name == "Sealed gate" &&
                   r.controlPoints[0].areaId == 11);
