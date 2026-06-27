@@ -9,13 +9,17 @@ Module Details:
 A module contains one or more maps that describe the terrian, dungeon, environment the adventure takes place in.
 A module contains detailed description for each area of the map. There is two distinct descriptions and information for each area - Dungeon Master only info and Player Character info.
 Each area described should contain statistics that the game engine uses to drive the game. For example:
-percentage of and type of creatures for that area.
-percentage of and type of treasure for that area.
+percentage of and type of creatures for that area. An area may list more than one monster type, each with the exact number that appears.
+percentage of and type of treasure for that area. An area may list multiple treasure-type possibilities, each with its own independent percentage.
 Plot specific items and information.
 Hidden items and chance a party will discover them.
 Traps and the chance or possibility a party or character will fall victim to the trap.
-Locked items (Chests, Wordrobes, Doors) and the possibility a character will unlock it. 
+Locked items (Chests, Wordrobes, Doors) and the possibility a character will unlock it.
 Each area may have artwork associated with it that the game engine will display when that area is visited.
+Some areas are shops/markets where the party may buy and sell. A shop area lists a supply of items; each item has a name, a description, a cost in gold pieces, a number available in stock, and an optional image.
+Each area can be marked as the single Start area or the single End area of the module (a module has exactly one of each).
+An area may define transitions (exits) that lead to an area on another map - for example, stairs on a Level 1 map that lead to a room defined on a Level 2 map. Because area ids are unique across the whole module, a transition's target identifies both the destination map and area.
+A module may define cover art: a splash image the game engine displays when the module is loaded.
 Plot specific areas or items that the party has visited or aquired need to be tracked somehow. I think the game engine should do the tracking since a module only provides information.
 There is a beginning and an end to each module.
 A module defines an adventure, but does not track the status and events of players that play the module (the game engine does that)
@@ -29,19 +33,26 @@ If a module has no control points defined, then plot specific progress is not tr
 Module Creator:
 The user should be able to draw maps using the mouse.
 A map is a fine grid of squared with specific areas colored in defining areas on the map.
-User can draw sub-grid object items such as chests, chairs, table, ets.. 
+Terrain is painted with the mouse. Terrain includes direction-aware bridges and stairs: drawing a straight or L-shaped run orients the planks/treads automatically and renders a flat landing where the run bends. Spiral stairs are placed as an object. Wooden stairs, dirt, and other terrains round out the palette.
+An area's fill color can be removed so that only its outline is shown; the currently selected area's outline glows whether or not it has a fill color.
+Area coordinate labels (A1, C4, ...) auto-track the area's position on the map as it is drawn, until the author edits a label by hand.
+User can draw sub-grid object items such as chests, chairs, table, ets..
 The user defines specific information for each area of the map - description of room, area, etc. Number of monsters present, treasure, etc.
+The user can add multiple monster types (each with a count), multiple treasure possibilities (each with a percentage), shop supply items (name/description/cost/stock/optional image), and transitions that link the area to areas on other maps. The user can also designate the area as the module's Start or End area.
+Each area, the module cover art, and each shop item may reference an image; the creator previews a thumbnail and can show full image details (path and pixel dimensions).
 A user can add control points to defined areas. these control points mark plot specific areas complete or not-completed.
 An area can have a prerequisite that spefic control points must be completed first before a party may visit that area.
 A finished module should be able to be loaded into the game engine.
 
 Game Engine:
 Allows a user to load a module and play it.
+When a module is loaded, the game engine first displays the module's cover art as a splash screen (a default title card is shown when the module has no cover art).
 When a user is playing a module:
 	Displays text for each area.
 	Displays map for an area and shows the parties position on the map.
 	Portions of a map the party has not visited yet are not revealed.
 	Allows the users to make choices to progress the plot.
+	At shop/market areas the party may buy items from the area's supply (spending gold pieces, limited by the number in stock) and sell items.
 	Controls the game play using the rules in the dns database.
 	Allows a user to create characters based off the information in the dns database.
 	During game play each character has an avatar and key information displayed like Player name, hit points, and ability scores

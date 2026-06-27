@@ -53,8 +53,9 @@ class EncounterDirector {
 public:
     EncounterDirector(const Repository& repo, Dice& dice);
 
-    // Area entry: roll the area's monsterChancePct; on success build from
-    // area.monsterType (group size 1 -- the module names a type, not a count).
+    // Area entry: roll the area's monsterChancePct once; on success spawn every
+    // {type, count} row in area.monsters (falling back to the legacy single
+    // area.monsterType, group size 1, when the list is empty).
     Encounter checkArea(const Area& area);
 
     // Wandering check for an environment + party level (count comes from the
@@ -71,6 +72,8 @@ public:
 
 private:
     int rollMonsterHp(const MonsterDef& def);
+    // Append `count` combatants of `monsterType` to an existing encounter.
+    void appendMonsters(Encounter& e, const std::string& monsterType, int count);
     const Repository& repo_;
     Dice& dice_;
 };

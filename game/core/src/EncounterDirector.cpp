@@ -66,16 +66,9 @@ int EncounterDirector::rollMonsterHp(const MonsterDef& def) {
     return std::max(1, hp);
 }
 
-Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int count,
-                                           bool fromWandering) {
-    Encounter e;
-    e.occurred = true;
-    e.monsterType = monsterType;
-    e.fromWandering = fromWandering;
-
+void EncounterDirector::appendMonsters(Encounter& e, const std::string& monsterType,
+                                       int count) {
     const MonsterDef* def = repo_.monster(monsterType);
-    e.known = (def != nullptr);
-
     const int n = std::max(1, count);
     for (int i = 0; i < n; ++i) {
         Combatant c;
@@ -96,14 +89,35 @@ Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int c
         c.hp = c.maxHp;
         e.monsters.push_back(c);
     }
+}
 
+Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int count,
+                                           bool fromWandering) {
+    Encounter e;
+    e.occurred = true;
+    e.monsterType = monsterType;
+    e.fromWandering = fromWandering;
+    e.known = (repo_.monster(monsterType) != nullptr);
+    appendMonsters(e, monsterType, count);
     e.reaction = rollReaction();
     return e;
 }
 
 Encounter EncounterDirector::checkArea(const Area& area) {
     if (!dice_.percent(area.monsterChancePct)) return Encounter{};   // occurred = false
-    return makeEncounter(area.monsterType, 1, /*fromWandering=*/false);
+    if (area.monsters.empty())
+        return makeEncounter(area.monsterType, 1, /*fromWandering=*/false);
+
+    // Multiple types: spawn each row's count into one encounter.
+    Encounter e;
+    e.occurred = true;
+    e.fromWandering = false;
+    e.monsterType = area.monsters.front().type;        // representative label
+    e.known = (repo_.monster(e.monsterType) != nullptr);
+    for (const auto& am : area.monsters)
+        appendMonsters(e, am.type, am.count);
+    e.reaction = rollReaction();
+    return e;
 }
 
 Encounter EncounterDirector::checkWandering(const std::string& environment, int partyLevel) {

@@ -40,7 +40,12 @@ enum class Terrain : int {
     Ditch     = 17,
     Crevice   = 18,
     Hills     = 19,
-    Count     = 20,
+    WoodenBridge = 20,  // plank deck, paintable (drag-drawn, one cell wide)
+    StoneBridge  = 21,  // stone deck, paintable
+    Stairs       = 22,  // steps, paintable (straight / L-shaped runs)
+    WoodenStairs = 23,  // wooden flight: side rails + treads, paintable
+    Dirt         = 24,  // packed earth: speckles like Sand but darker brown
+    Count     = 25,
 };
 
 // Furniture / props placed at sub-grid positions on a map (not snapped to cells).
@@ -50,6 +55,7 @@ enum class ObjectType : int {
     WoodenBridgeS, WoodenBridgeM, WoodenBridgeL,
     StoneBridgeS, StoneBridgeM, StoneBridgeL,
     CaveEntrance,
+    SpiralStairs,
     Count
 };
 
@@ -84,21 +90,55 @@ struct ControlPoint {
     float y = -1.0f;
 };
 
+// One monster type the engine may spawn on area entry, with how many of them.
+struct AreaMonster {
+    std::string type;   // monster name (from gns.db) or free text
+    int count = 1;
+};
+
+// One treasure-type possibility for an area, with its own independent chance.
+struct AreaTreasure {
+    std::string type;     // treasure-type code A-T or free text
+    int chancePct = 0;    // 0-100
+};
+
+// A purchasable item in a shop/market area, priced in gold pieces.
+struct ShopItem {
+    std::string name;        // e.g. "Long sword", "Rations (1 week)"
+    std::string description; // flavour / details shown to the party
+    int costGp = 0;          // price in gold pieces
+    int stock = 0;           // number available in stock
+    std::string imagePath;   // optional item image (relative or absolute path)
+};
+
+// A link from one area to another (typically on a different map): e.g. stairs in a
+// Level 1 area leading to a room on Level 2. Area ids are unique across all maps, so the
+// target id alone identifies both the destination map and area.
+struct AreaTransition {
+    int targetAreaId = 0;   // destination area (0 = unset)
+    std::string label;      // optional, e.g. "Stairs down to the crypt"
+};
+
 // A described region of a map (a set of fine cells sharing an id).
 struct Area {
     int id = 0;
     std::string label;          // coarse-grid coordinate, e.g. "A1"
+    bool labelAuto = true;      // true = label auto-tracks the area's map position
+                                // (set false once the author edits the label by hand)
     std::string name;           // optional human name, e.g. "Guard Room"
     std::uint32_t color = 0x3366CCFFu;  // RGBA fill tint on the map
+    bool fillEnabled = true;    // false = outline only (no fill tint drawn)
 
     std::string dmText;         // DM-only description
     std::string playerText;     // player-facing description
 
     // Statistics the engine uses (chances are 0-100).
     int monsterChancePct = 0;
-    std::string monsterType;    // monster name (from gns.db) or free text
+    std::string monsterType;    // legacy single type (kept for backward-compat/migration)
+    std::vector<AreaMonster> monsters;  // one or more types to spawn, each with a count
     int treasureChancePct = 0;
-    std::string treasureType;   // treasure-type code A-T or free text
+    std::string treasureType;   // legacy single treasure (kept for backward-compat/migration)
+    std::vector<AreaTreasure> treasures;  // one or more treasure types, each with a chance
     int trapChancePct = 0;
     std::string trapDescription;
     int lockChancePct = 0;      // chance a character can open/pick
@@ -107,6 +147,13 @@ struct Area {
     std::string hiddenDescription;
 
     std::string artworkPath;    // relative path; image preview is deferred
+
+    // Shop/market: when isShop, the party may buy & sell here from this supply list.
+    bool isShop = false;
+    std::vector<ShopItem> shopItems;
+
+    // Exits from this area to other areas (often on another map).
+    std::vector<AreaTransition> transitions;
 
     // Control points that must be completed before a party may enter this area.
     std::vector<int> prerequisiteControlPointIds;
@@ -130,6 +177,7 @@ struct Module {
     std::string name;
     std::string author;
     std::string summary;
+    std::string coverArtPath;   // splash/cover image the engine shows when the module loads
     std::vector<Map> maps;
     std::vector<ControlPoint> controlPoints;
     int startMapId = 0;   // beginning of the adventure
@@ -151,8 +199,14 @@ struct Module {
 // On-disk format version, written to PRAGMA user_version.
 // v2 added the map_objects table (sub-grid props); v3 added object rotation;
 // v4 added control-point position (x,y) and the map_texts table; v5 added the
-// control-point kind column (Control Point vs Control Item).
-constexpr int kModuleFormatVersion = 5;
+// control-point kind column (Control Point vs Control Item); v6 added the area
+// fill_enabled column and the area_monsters table (multiple monster types/counts);
+// v7 added the area_transitions table (cross-area/cross-map exits); v8 added the
+// module cover_art column (splash image shown by the engine on load); v9 added the
+// area label_auto column (label auto-tracks map position until edited by hand); v10
+// added the area is_shop column + area_treasures and area_shop_items tables; v11 added
+// shop-item description, stock, and image columns to area_shop_items.
+constexpr int kModuleFormatVersion = 11;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);
