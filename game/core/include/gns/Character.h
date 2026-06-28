@@ -43,6 +43,7 @@ struct Character {
     int weaponBonus = 0;                   // magic weapon bonus (+1..+3)
 
     // Flavor / identity (no rules code reads these; persisted with the character).
+    std::string portraitPath;   // avatar image filename (resolved against the engine's assets)
     std::string playerName;
     std::string background;
     std::string goal;

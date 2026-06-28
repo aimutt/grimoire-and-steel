@@ -133,7 +133,8 @@ CREATE TABLE module (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
     name          TEXT, author TEXT, summary TEXT,
     start_map_id  INTEGER, start_area_id INTEGER, end_area_id INTEGER,
-    cover_art     TEXT
+    cover_art     TEXT,
+    splash_music  TEXT, default_music TEXT
 );
 CREATE TABLE maps (
     id        INTEGER PRIMARY KEY,
@@ -156,7 +157,8 @@ CREATE TABLE areas (
     artwork_path    TEXT,
     fill_enabled    INTEGER,
     label_auto      INTEGER,
-    is_shop         INTEGER
+    is_shop         INTEGER,
+    music           TEXT
 );
 CREATE TABLE area_monsters (
     area_id INTEGER,
@@ -239,9 +241,11 @@ void saveModule(const Module& mod, const std::string& path) {
 
     {
         Stmt s(c.db, "INSERT INTO module(id,name,author,summary,"
-                     "start_map_id,start_area_id,end_area_id,cover_art) VALUES(1,?,?,?,?,?,?,?);");
+                     "start_map_id,start_area_id,end_area_id,cover_art,splash_music,default_music) "
+                     "VALUES(1,?,?,?,?,?,?,?,?,?);");
         s.bind(mod.name).bind(mod.author).bind(mod.summary)
-         .bind(mod.startMapId).bind(mod.startAreaId).bind(mod.endAreaId).bind(mod.coverArtPath);
+         .bind(mod.startMapId).bind(mod.startAreaId).bind(mod.endAreaId).bind(mod.coverArtPath)
+         .bind(mod.splashMusicPath).bind(mod.defaultMusicPath);
         s.run();
     }
 
@@ -252,8 +256,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
             "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
-            "artwork_path,fill_enabled,label_auto,is_shop) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "artwork_path,fill_enabled,label_auto,is_shop,music) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt prereqStmt(c.db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt monsterStmt(c.db,
@@ -297,7 +301,7 @@ void saveModule(const Module& mod, const std::string& path) {
                         .bind(a.lockChancePct).bind(a.lockDescription)
                         .bind(a.hiddenChancePct).bind(a.hiddenDescription)
                         .bind(a.artworkPath).bind(a.fillEnabled ? 1 : 0).bind(a.labelAuto ? 1 : 0)
-                        .bind(a.isShop ? 1 : 0);
+                        .bind(a.isShop ? 1 : 0).bind(a.musicPath);
                 areaStmt.run();
 
                 for (int cpId : a.prerequisiteControlPointIds) {
@@ -351,13 +355,15 @@ Module loadModule(const std::string& path) {
 
     Module mod;
 
-    // module gained cover_art in v8. Try the newest layout first, then fall back.
-    auto loadModuleRow = [&](bool withCover) {
-        Stmt s(c.db, withCover
-            ? "SELECT name,author,summary,start_map_id,start_area_id,end_area_id,cover_art "
-              "FROM module WHERE id=1;"
-            : "SELECT name,author,summary,start_map_id,start_area_id,end_area_id "
-              "FROM module WHERE id=1;");
+    // module gained cover_art in v8 and splash_music/default_music in v12. Try the newest
+    // layout first, falling back tier by tier so older files still load.
+    //   opt 2 = v12 (cover_art + splash_music + default_music), 1 = v8 (cover_art), 0 = v7.
+    auto loadModuleRow = [&](int opt) {
+        std::string sql = "SELECT name,author,summary,start_map_id,start_area_id,end_area_id";
+        if (opt >= 1) sql += ",cover_art";
+        if (opt >= 2) sql += ",splash_music,default_music";
+        sql += " FROM module WHERE id=1;";
+        Stmt s(c.db, sql.c_str());
         if (sqlite3_step(s.s) != SQLITE_ROW) fail(c.db, "module row missing");
         mod.name        = colText(s.s, 0);
         mod.author      = colText(s.s, 1);
@@ -365,12 +371,12 @@ Module loadModule(const std::string& path) {
         mod.startMapId  = colInt(s.s, 3);
         mod.startAreaId = colInt(s.s, 4);
         mod.endAreaId   = colInt(s.s, 5);
-        if (withCover) mod.coverArtPath = colText(s.s, 6);
+        if (opt >= 1) mod.coverArtPath = colText(s.s, 6);
+        if (opt >= 2) { mod.splashMusicPath = colText(s.s, 7); mod.defaultMusicPath = colText(s.s, 8); }
     };
-    try {
-        loadModuleRow(true);                 // v8
-    } catch (const DbError&) {
-        loadModuleRow(false);                // v7 and older
+    for (int opt = 2; ; --opt) {
+        try { loadModuleRow(opt); break; }
+        catch (const DbError&) { if (opt == 0) throw; }
     }
 
     {
@@ -391,10 +397,11 @@ Module loadModule(const std::string& path) {
     }
 
     // The areas table grew optional trailing columns over time: fill_enabled (v6),
-    // label_auto (v9), is_shop (v10). `opt` = how many of those trailing columns the file
-    // has; we try the newest layout first and fall back one column at a time so older
-    // files still load (older rows default fillEnabled=true, labelAuto=false, isShop=false).
-    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop"};
+    // label_auto (v9), is_shop (v10), music (v12). `opt` = how many of those trailing columns
+    // the file has; we try the newest layout first and fall back one column at a time so older
+    // files still load (older rows default fillEnabled=true, labelAuto=false, isShop=false,
+    // music="").
+    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music"};
     auto loadAreas = [&](int opt) {
         std::string sql =
             "SELECT id,map_id,label,name,color,dm_text,player_text,"
@@ -427,10 +434,11 @@ Module loadModule(const std::string& path) {
             a.fillEnabled       = opt >= 1 ? (colInt(s.s, 18) != 0) : true;
             a.labelAuto         = opt >= 2 ? (colInt(s.s, 19) != 0) : false;
             a.isShop            = opt >= 3 ? (colInt(s.s, 20) != 0) : false;
+            a.musicPath         = opt >= 4 ? colText(s.s, 21) : "";
             if (Map* m = mod.mapById(mapId)) m->areas.push_back(std::move(a));
         }
     };
-    for (int opt = 3; ; --opt) {
+    for (int opt = 4; ; --opt) {
         try { loadAreas(opt); break; }
         catch (const DbError&) {
             for (auto& m : mod.maps) m.areas.clear();   // partial read from failed attempt

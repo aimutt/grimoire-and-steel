@@ -21,8 +21,11 @@
 #include "gns/Narrator.h"
 #include "gns/ui/MapRender.h"
 
+#include "embedded_assets.h"   // generated: kEmbeddedPortraits (filename -> RCDATA id)
+
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
@@ -33,12 +36,13 @@
 #include <commdlg.h>
 #endif
 
-static std::string dbPath() {
+static std::string basePath() {
     char* base = SDL_GetBasePath();
     std::string p = base ? base : "";
     if (base) SDL_free(base);
-    return p + "data/gns.db";
+    return p;
 }
+static std::string dbPath() { return basePath() + "data/gns.db"; }
 
 // Native open dialog for a .gnsmod module. Returns "" if cancelled / unsupported.
 static std::string openModuleDialog() {
@@ -218,6 +222,7 @@ int main(int, char**) {
         std::string weaponCat, weaponName, armorName = "No armor";
         int weaponBonus = 0;
         bool shield = false;
+        std::string portraitPath;   // chosen avatar filename ("" = placeholder)
     } draft;
     draft.trainingSel.assign(trainingNames.size(), 0);
     draft.spellSel.assign(spellNames.size(), 0);
@@ -230,6 +235,7 @@ int main(int, char**) {
     }
     std::string charStatus;
     std::vector<gns::Character> roster;
+    int defaultPartyCount = 3;   // Quick Start party size (1-5)
 
     // Loaded adventure module + its cover-art splash.
     gns::Module mod;
@@ -254,6 +260,43 @@ int main(int, char**) {
         SDL_Texture* tex = loadImage(renderer, full);
         imgCache[path] = tex;
         return tex;
+    };
+
+    // Character portraits + the startup splash are baked into the executable as RCDATA
+    // resources (see engine/CMakeLists.txt). Map portrait filename -> resource id.
+    std::vector<std::string> portraitFiles;
+    std::map<std::string, std::string> portraitRes;
+    for (const auto& p : kEmbeddedPortraits) {
+        portraitFiles.push_back(p.file);
+        portraitRes[p.file] = p.res;
+    }
+    // Load (and cache) a texture from an embedded RCDATA resource by name.
+    auto loadResourceTexture = [&](const std::string& resName) -> SDL_Texture* {
+        std::string key = "res:" + resName;
+        auto it = imgCache.find(key);
+        if (it != imgCache.end()) return it->second;
+        SDL_Texture* tex = nullptr;
+#ifdef _WIN32
+        if (HRSRC h = FindResourceA(nullptr, resName.c_str(), reinterpret_cast<LPCSTR>(RT_RCDATA))) {
+            HGLOBAL g = LoadResource(nullptr, h);
+            void* data = g ? LockResource(g) : nullptr;
+            DWORD sz = SizeofResource(nullptr, h);
+            if (data && sz) {
+                SDL_RWops* rw = SDL_RWFromConstMem(data, (int)sz);
+                if (SDL_Surface* surf = IMG_Load_RW(rw, 1)) {
+                    tex = SDL_CreateTextureFromSurface(renderer, surf);
+                    SDL_FreeSurface(surf);
+                }
+            }
+        }
+#endif
+        imgCache[key] = tex;   // cache (incl. nullptr) so failures aren't retried
+        return tex;
+    };
+    // Texture for a portrait filename via its embedded resource.
+    auto portraitTexture = [&](const std::string& file) -> SDL_Texture* {
+        auto it = portraitRes.find(file);
+        return it == portraitRes.end() ? nullptr : loadResourceTexture(it->second);
     };
 
     auto openModule = [&](const std::string& path) {
@@ -281,6 +324,7 @@ int main(int, char**) {
     std::vector<std::string> journal;
     std::string playStatus;
     int cursorX = 0, cursorY = 0;            // party token position, in map cells
+    int faceX = 0, faceY = 1;                 // facing direction (default south)
 
     auto areaLabel = [](const gns::Area* a) -> std::string {
         if (!a) return "Unknown";
@@ -325,15 +369,39 @@ int main(int, char**) {
         }
     };
 
-    auto quickStart = [&]() {
+    // Generate a varied default party of `n` (1-5): distinct names, callings, traits, and
+    // portraits. Replaces the roster (Quick Start = pregenerated band).
+    auto quickStartParty = [&](int n) {
         if (!repo) return;
-        gns::Traits t; t.might = 2; t.grace = 1; t.wits = 0; t.spirit = -1;
-        gns::Character c = gns::makeCharacter(
-            *repo, "Bram", "Human", "Blade", t,
-            {"Blades", "Survival", "Lore", "Healing"}, "Light armor", true);
-        c.weaponName = "Short sword";
-        c.weaponDamageDie = "1d6";
-        roster.push_back(c);
+        struct Pre {
+            const char* name; const char* kin; const char* calling;
+            gns::Traits traits; std::vector<std::string> trainings;
+            const char* armor; bool shield; const char* weapon; const char* die;
+            std::vector<std::string> spells;
+        };
+        const Pre pres[5] = {
+            {"Bram", "Human", "Blade",  {2,1,0,-1}, {"Blades","Shields","Survival","Lore"},
+                "Mail armor", true,  "Short sword", "1d6", {}},
+            {"Mira", "Elf", "Mystic",   {-1,0,1,2}, {"Sorcery","Lore","Healing"},
+                "No armor", false, "Staff", "1d6", {"Flame","Heal","Ward"}},
+            {"Dax", "Halfling", "Shadow", {0,2,1,-1}, {"Stealth","Locks","Survival"},
+                "Light armor", false, "Dagger", "1d4", {}},
+            {"Lyra", "Human", "Sage",   {-1,0,2,1}, {"Lore","Healing","Persuasion","Crafting"},
+                "Light armor", false, "Short sword", "1d6", {}},
+            {"Orin", "Dwarf", "Blade",  {2,0,-1,1}, {"Axes","Shields","Survival"},
+                "Mail armor", true,  "Hand axe", "1d6", {}},
+        };
+        roster.clear();
+        for (int i = 0; i < n; ++i) {
+            const Pre& p = pres[i % 5];
+            gns::Character c = gns::makeCharacter(*repo, p.name, p.kin, p.calling, p.traits,
+                                                  p.trainings, p.armor, p.shield);
+            c.weaponName = p.weapon;
+            c.weaponDamageDie = p.die;
+            c.spells = p.spells;
+            if (!portraitFiles.empty()) c.portraitPath = portraitFiles[i % portraitFiles.size()];
+            roster.push_back(std::move(c));
+        }
     };
 
     auto startAdventure = [&]() {
@@ -354,6 +422,11 @@ int main(int, char**) {
         }
     };
 
+    // Startup splash: the baked-in G&S splash, shown briefly on launch (skippable).
+    SDL_Texture* startupSplashTex = loadResourceTexture("GNSSPLASH");
+    Uint32 startupSplashUntil = SDL_GetTicks() + 2500;
+    bool startupSplashDone = (startupSplashTex == nullptr);
+
     bool running = true;
     while (running) {
         SDL_Event ev;
@@ -368,6 +441,43 @@ int main(int, char**) {
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+
+        // --- Startup splash: the baked-in G&S logo, shown for a couple seconds on launch ---
+        if (!startupSplashDone) {
+            bool skip = SDL_GetTicks() >= startupSplashUntil ||
+                        ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+            if (skip) {
+                startupSplashDone = true;
+            } else {
+                const ImGuiViewport* vp = ImGui::GetMainViewport();
+                ImGui::SetNextWindowPos(vp->WorkPos);
+                ImGui::SetNextWindowSize(vp->WorkSize);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.03f, 0.05f, 1.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+                ImGui::Begin("##startupsplash", nullptr,
+                             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                             ImGuiWindowFlags_NoScrollbar);
+                ImVec2 win = ImGui::GetWindowSize();
+                int tw = 0, th = 0;
+                SDL_QueryTexture(startupSplashTex, nullptr, nullptr, &tw, &th);
+                float scale = (tw > 0 && th > 0) ? std::min(win.x / tw, win.y / th) : 1.0f;
+                ImVec2 sz(tw * scale, th * scale);
+                ImGui::SetCursorPos(ImVec2((win.x - sz.x) * 0.5f, (win.y - sz.y) * 0.5f));
+                ImGui::Image((ImTextureID)startupSplashTex, sz);
+                ImGui::End();
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
+
+                ImGui::Render();
+                SDL_SetRenderDrawColor(renderer, 10, 8, 12, 255);
+                SDL_RenderClear(renderer);
+                ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
+                SDL_RenderPresent(renderer);
+                continue;   // hold on the splash
+            }
+        }
 
         // --- Cover-art splash: shown full-window when a module loads, until dismissed ---
         if (showSplash) {
@@ -530,6 +640,7 @@ int main(int, char**) {
         ch.goal = draft.goal;
         ch.personality = draft.personality;
         ch.notes = draft.notes;
+        ch.portraitPath = draft.portraitPath;
 
         const bool isMystic = (draft.calling == "Mystic");
         const int needTraining = gns::requiredTrainingCount(draft.kin);
@@ -549,6 +660,34 @@ int main(int, char**) {
             inputText("Player", &draft.player);
             inputText("Background", &draft.background);
             inputText("Goal", &draft.goal);
+
+            ImGui::SeparatorText("Portrait");
+            if (portraitFiles.empty()) {
+                ImGui::TextDisabled("No portraits found in assets/portraits.");
+            } else {
+                const float sz = 64.0f;
+                ImGuiStyle& st = ImGui::GetStyle();
+                float availW = ImGui::GetContentRegionAvail().x;
+                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (sz + st.ItemSpacing.x)));
+                int placed = 0;
+                auto rowBreak = [&]() { if (placed % perRow != 0) ImGui::SameLine(); };
+                rowBreak();
+                if (ImGui::Button("None##port", ImVec2(sz, sz))) draft.portraitPath.clear();
+                ++placed;
+                for (size_t i = 0; i < portraitFiles.size(); ++i) {
+                    rowBreak();
+                    bool sel = (draft.portraitPath == portraitFiles[i]);
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.62f, 0.86f, 1.0f));
+                    std::string id = "##port" + std::to_string(i);
+                    SDL_Texture* tex = portraitTexture(portraitFiles[i]);
+                    bool clicked = tex
+                        ? ImGui::ImageButton(id.c_str(), (ImTextureID)tex, ImVec2(sz, sz))
+                        : ImGui::Button((std::to_string(i + 1) + id).c_str(), ImVec2(sz, sz));
+                    if (clicked) draft.portraitPath = portraitFiles[i];
+                    if (sel) ImGui::PopStyleColor();
+                    ++placed;
+                }
+            }
 
             ImGui::SeparatorText("Kin & Calling");
             comboField("Kin", &draft.kin, kinNames);
@@ -751,19 +890,23 @@ int main(int, char**) {
             // area there (gated by prerequisites).
             auto actOnCell = [&](int cx, int cy) {
                 if (cx < 0 || cy < 0 || cx >= m.gridW || cy >= m.gridH) return;
+                int target = m.cellArea[(size_t)cy * m.gridW + cx];
+                // Pick up Control Items on this exact cell OR sitting inside the target area
+                // (the latter resolves modules whose required item lives in the area it gates,
+                // e.g. the Tavern's "Map of Mount Toggenburg").
                 for (const auto& cp : mod.controlPoints) {
                     int ix, iy; controlItemCell(cp, ix, iy);
-                    if (ix == cx && iy == cy) {
+                    bool onCell = (ix == cx && iy == cy);
+                    bool inArea = (cp.kind == 1 && cp.mapId == m.id && target != 0 && cp.areaId == target);
+                    if (onCell || inArea) {
                         if (session->completeControlPoint(cp.id)) {
                             journal.push_back("Acquired: " + cp.name);
                             playStatus = "Acquired " + cp.name + ".";
-                        } else playStatus = "You already have " + cp.name + ".";
-                        return;
+                        }
                     }
                 }
-                int target = m.cellArea[(size_t)cy * m.gridW + cx];
                 int curId = session->currentArea() ? session->currentArea()->id : 0;
-                if (target == 0) { playStatus = "Nothing of interest here."; return; }
+                if (target == 0) return;            // undefined cell: HUD shows party details
                 if (target == curId) return;
                 if (session->isAreaEnterable(target)) { enterArea(target); playStatus.clear(); }
                 else {
@@ -776,13 +919,23 @@ int main(int, char**) {
                 }
             };
 
-            // Keyboard: arrow keys glide the party token; Enter acts on its cell.
+            // Keyboard: arrow keys glide the party token (and set facing); holding Space turns
+            // the party in place (facing only). Enter acts on the token's cell.
             ImGuiIO& io = ImGui::GetIO();
             if (!io.WantTextInput) {
-                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))  cursorX = std::max(0, cursorX - 1);
-                if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) cursorX = std::min(m.gridW - 1, cursorX + 1);
-                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    cursorY = std::max(0, cursorY - 1);
-                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  cursorY = std::min(m.gridH - 1, cursorY + 1);
+                bool turnOnly = ImGui::IsKeyDown(ImGuiKey_Space);
+                int dx = 0, dy = 0;
+                if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))  dx = -1;
+                if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) dx = +1;
+                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    dy = -1;
+                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  dy = +1;
+                if (dx || dy) {
+                    faceX = dx; faceY = dy;          // face the pressed direction
+                    if (!turnOnly) {                  // and step there unless turning in place
+                        cursorX = std::min(m.gridW - 1, std::max(0, cursorX + dx));
+                        cursorY = std::min(m.gridH - 1, std::max(0, cursorY + dy));
+                    }
+                }
                 if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
                     actOnCell(cursorX, cursorY);
             }
@@ -796,12 +949,24 @@ int main(int, char**) {
                 }
             }
 
-            // Party token at the cursor cell.
+            // Party token at the cursor cell, with a facing arrowhead.
             {
                 ImVec2 tc(origin.x + (cursorX + 0.5f) * cs, origin.y + (cursorY + 0.5f) * cs);
-                float rad = std::max(4.0f, cs * 0.38f);
+                float rad = std::max(4.0f, cs * 0.34f);
                 dl->AddCircleFilled(tc, rad, IM_COL32(255, 240, 120, 255));
                 dl->AddCircle(tc, rad, IM_COL32(40, 30, 10, 255), 0, 2.5f);
+                // Arrowhead pointing along the facing vector.
+                float fl = (float)std::sqrt((float)(faceX * faceX + faceY * faceY));
+                if (fl > 0.0f) {
+                    float ux = faceX / fl, uy = faceY / fl;      // unit facing
+                    float px = -uy, py = ux;                      // perpendicular
+                    float tip = rad * 1.45f, base = rad * 0.65f, half = rad * 0.55f;
+                    ImVec2 a(tc.x + ux * tip, tc.y + uy * tip);
+                    ImVec2 b(tc.x + ux * base + px * half, tc.y + uy * base + py * half);
+                    ImVec2 c(tc.x + ux * base - px * half, tc.y + uy * base - py * half);
+                    dl->AddTriangleFilled(a, b, c, IM_COL32(180, 30, 30, 255));
+                    dl->AddTriangle(a, b, c, IM_COL32(40, 30, 10, 255), 1.5f);
+                }
             }
         }
         ImGui::End();
@@ -813,25 +978,70 @@ int main(int, char**) {
             return IM_COL32(70 + (h & 0x7F), 70 + ((h >> 8) & 0x7F), 70 + ((h >> 16) & 0x7F), 255);
         };
         // One card per party member: placeholder avatar + name / kin·calling / Life·Def·AP.
-        auto drawPartyCards = [&](const std::vector<gns::Character>& members) {
+        // Draw an `av`-sized avatar at the current cursor: the character's portrait if it
+        // loads, else a name-hashed placeholder square with the initial.
+        // Avatar of width `w`; the box is 3:4 portrait (matches the source images, so no
+        // stretching). Draws the portrait texture if available, else a name-hashed placeholder.
+        auto drawAvatar = [&](const gns::Character& pc, float w) {
+            const float h = w * 4.0f / 3.0f;
             ImDrawList* pdl = ImGui::GetWindowDrawList();
-            const float av = 48.0f;
-            for (const auto& pc : members) {
-                ImVec2 p = ImGui::GetCursorScreenPos();
-                pdl->AddRectFilled(p, ImVec2(p.x + av, p.y + av), nameColor(pc.name), 6.0f);
-                pdl->AddRect(p, ImVec2(p.x + av, p.y + av), IM_COL32(20, 16, 24, 255), 6.0f, 0, 2.0f);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImVec2 q(p.x + w, p.y + h);
+            SDL_Texture* tex = portraitTexture(pc.portraitPath);
+            if (tex) {
+                pdl->AddImageRounded((ImTextureID)tex, p, q,
+                                     ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, 6.0f);
+            } else {
+                pdl->AddRectFilled(p, q, nameColor(pc.name), 6.0f);
                 std::string initial(1, pc.name.empty() ? '?' :
                                     (char)std::toupper((unsigned char)pc.name[0]));
                 ImVec2 ts = ImGui::CalcTextSize(initial.c_str());
-                pdl->AddText(ImVec2(p.x + (av - ts.x) * 0.5f, p.y + (av - ts.y) * 0.5f),
+                pdl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f),
                              IM_COL32(255, 255, 255, 255), initial.c_str());
-                ImGui::Dummy(ImVec2(av, av));
+            }
+            pdl->AddRect(p, q, IM_COL32(20, 16, 24, 255), 6.0f, 0, 2.0f);
+            ImGui::Dummy(ImVec2(w, h));
+        };
+        auto drawPartyCards = [&](const std::vector<gns::Character>& members) {
+            const float av = 44.0f;
+            for (const auto& pc : members) {
+                drawAvatar(pc, av);
                 ImGui::SameLine();
                 ImGui::BeginGroup();
                 ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
                 ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
                 ImGui::Text("Life %d/%d   Def %d   AP %d", pc.life, pc.maxLife, pc.defense, pc.ap);
                 ImGui::EndGroup();
+                ImGui::Spacing();
+            }
+        };
+        // Full character sheet per member — shown in the HUD when the party is on open terrain.
+        auto joinList = [](const std::vector<std::string>& v) {
+            std::string s;
+            for (const auto& x : v) { if (!s.empty()) s += ", "; s += x; }
+            return s.empty() ? std::string("\xE2\x80\x94") : s;
+        };
+        auto drawPartyDetails = [&](const std::vector<gns::Character>& members) {
+            for (size_t i = 0; i < members.size(); ++i) {
+                const gns::Character& pc = members[i];
+                if (i) ImGui::Separator();
+                drawAvatar(pc, 64.0f);
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d",
+                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain);
+                ImGui::Text("Might %+d  Grace %+d  Wits %+d  Spirit %+d",
+                            pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
+                ImGui::EndGroup();
+                ImGui::TextWrapped("Training: %s", joinList(pc.trainings).c_str());
+                std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
+                weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
+                if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
+                ImGui::TextWrapped("Weapon: %s", weap.c_str());
+                ImGui::TextWrapped("Armor: %s%s", pc.armorName.c_str(), pc.shield ? " + shield" : "");
+                if (!pc.spells.empty()) ImGui::TextWrapped("Spells: %s", joinList(pc.spells).c_str());
                 ImGui::Spacing();
             }
         };
@@ -862,28 +1072,39 @@ int main(int, char**) {
             ImGui::Separator();
             if (!session) {
                 ImGui::TextDisabled("Party from roster: %d character(s)", (int)roster.size());
-                if (roster.empty()) {
-                    if (ImGui::Button("Quick Start (pregen adventurer)")) { quickStart(); startAdventure(); }
-                    ImGui::TextDisabled("or build a party in Characters mode, then Load it.");
-                } else {
+                if (!roster.empty()) {
                     if (ImGui::Button("Start Adventure")) startAdventure();
-                    ImGui::SameLine();
-                    if (ImGui::Button("Quick Start")) { quickStart(); startAdventure(); }
                     ImGui::Spacing();
                     ImGui::SeparatorText("Party");
                     drawPartyCards(roster);
+                    ImGui::Separator();
                 }
+                ImGui::SetNextItemWidth(160);
+                ImGui::SliderInt("Characters", &defaultPartyCount, 1, 5);
+                if (ImGui::Button("Quick Start (generate party)")) {
+                    quickStartParty(defaultPartyCount);
+                    startAdventure();
+                }
+                ImGui::TextDisabled("or build a party in Characters mode, then Load it.");
             } else {
                 const gns::Area* ca = session->currentArea();
 
-                // Party roster with placeholder avatars.
-                ImGui::SeparatorText("Party");
-                drawPartyCards(session->party().members);
-
-                // Current area: image, then name + player text.
-                ImGui::SeparatorText(areaLabel(ca).c_str());
-                drawAreaImage(ca);
-                if (ca && !ca->playerText.empty()) ImGui::TextWrapped("%s", ca->playerText.c_str());
+                // On a defined area, show the compact party strip + the area image/text; on
+                // open terrain, show only the detailed party sheet (no stale last-area info).
+                int cursorAreaId = 0;
+                if (const gns::Map* cm2 = session->currentMap())
+                    if (cursorX >= 0 && cursorY >= 0 && cursorX < cm2->gridW && cursorY < cm2->gridH)
+                        cursorAreaId = cm2->cellArea[(size_t)cursorY * cm2->gridW + cursorX];
+                if (cursorAreaId == 0) {
+                    ImGui::SeparatorText("Party Details");
+                    drawPartyDetails(session->party().members);
+                } else {
+                    ImGui::SeparatorText("Party");
+                    drawPartyCards(session->party().members);
+                    ImGui::SeparatorText(areaLabel(ca).c_str());
+                    drawAreaImage(ca);
+                    if (ca && !ca->playerText.empty()) ImGui::TextWrapped("%s", ca->playerText.c_str());
+                }
 
                 ImGui::Spacing();
                 if (!playStatus.empty())
