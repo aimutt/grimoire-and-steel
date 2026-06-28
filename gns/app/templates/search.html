@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Search — Grimoire &amp; Steel{% endblock %}
+{% block content %}
+  <h1>Search</h1>
+  <form class="filters" method="get" action="{{ url_for('search') }}" style="margin-bottom:1rem">
+    <input type="text" name="q" value="{{ q }}" placeholder="e.g. strain, defense, ogre" autofocus
+           style="padding:.5rem .7rem; font-size:1rem; min-width:280px; border:1px solid #b7a9cf; border-radius:4px">
+    <button type="submit" style="padding:.55rem 1rem; font-size:1rem; cursor:pointer; background:var(--accent); color:#fff; border:none; border-radius:4px">Search</button>
+  </form>
+
+  {% if q %}
+    <p class="muted">{{ results|length }} result(s) for &ldquo;{{ q }}&rdquo;.</p>
+    {% for r in results %}
+      <div class="result">
+        <span class="cat">{{ r['category'] }}</span>
+        {% if r['slug'] %}
+          <a href="{{ url_for('section', slug=r['slug']) }}"><strong>{{ r['name'] }}</strong></a>
+        {% else %}
+          <strong>{{ r['name'] }}</strong>
+        {% endif %}
+        <div class="desc">{{ r['snippet']|safe }}</div>
+      </div>
+    {% else %}
+      <p>No matches.</p>
+    {% endfor %}
+  {% endif %}
+{% endblock %}

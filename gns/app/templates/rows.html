@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Grimoire &amp; Steel{% endblock %}
+{% block content %}
+  <p><a class="back" href="{{ url_for('index') }}">&larr; Home</a></p>
+  <h1>{{ title }}</h1>
+  <p class="muted">{{ rows|length }} row(s).</p>
+  <table class="grid">
+    <thead>
+      <tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>{% for c in columns %}<td>{{ row[c] if row[c] is not none else '—' }}</td>{% endfor %}</tr>
+      {% else %}
+        <tr><td colspan="{{ columns|length or 1 }}">No rows.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

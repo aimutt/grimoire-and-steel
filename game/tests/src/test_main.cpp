@@ -1,4 +1,4 @@
-// gns_core unit tests (M0 smoke + M1 rules). Opens the real gns.db (path from CMake).
+// gns_core unit tests (Grimoire & Steel). Opens the real gns.db (path from CMake).
 #include "gns/Database.h"
 #include "gns/Content.h"
 #include "gns/Dice.h"
@@ -28,10 +28,13 @@ int main() {
     try {
         Database db(GNS_DB_PATH);
 
-        // ---- M0 smoke ----
+        // ---- data smoke ----
         std::printf("== data ==\n");
-        check("monsters == 97", countRows(db, "monsters") == 97);
-        check("all_spells == 66", countRows(db, "all_spells") == 66);
+        check("monster == 6", countRows(db, "monster") == 6);
+        check("spell == 10", countRows(db, "spell") == 10);
+        check("trait == 4", countRows(db, "trait") == 4);
+        check("calling == 4", countRows(db, "calling") == 4);
+        check("advancement_level == 40", countRows(db, "advancement_level") == 40);
 
         // ---- Dice ----
         std::printf("== dice ==\n");
@@ -58,101 +61,94 @@ int main() {
         // ---- Repository lookups ----
         std::printf("== repository ==\n");
         Repository repo(db);
-        check("Fighter prime-req XP @ STR16 = +10%", repo.abilityAdjustment("Prime Requisite", 16) == 10);
-        check("CON 14 hit-die mod = 0", repo.abilityAdjustment("Constitution", 14) == 0);
-        check("CON 18 hit-die mod = +3", repo.abilityAdjustment("Constitution", 18) == 3);
-        check("char L1-3 to-hit vs AC2 = 17", repo.attackRollNeeded("character", "1st-3rd Level Character", 2) == 17);
-        check("monster '11 up' vs AC9 = 0", repo.attackRollNeeded("monster", "11 up", 9) == 0);
-        check("STR 16 base capacity = 100", repo.strengthCapacity(16)->baseLbs == 100);
-        check("Two-handed Sword dmg 1..10", repo.weapon("Two-handed Sword")->damageMax == 10);
-        check("Orc XP = 10", [&] {
-            const MonsterDef* o = repo.monster("Orc"); return o && monsterXp(repo, *o) == 10;
-        }());
+        check("Normal challenge target = 12", repo.challenge("Normal") == 12);
+        check("Hard challenge target = 15", repo.challenge("Hard") == 15);
+        check("One-handed weapon die = 1d6",
+              repo.weaponCategory("One-handed weapon")->damageDie == "1d6");
+        check("Two-handed weapon die = 1d8",
+              repo.weaponCategory("Two-handed weapon")->damageDie == "1d8");
+        check("Mail armor defense bonus = 2", repo.armor("Mail armor")->defenseBonus == 2);
+        check("Plate armor defense bonus = 3", repo.armor("Plate armor")->defenseBonus == 3);
+        check("Ogre life = 22", repo.monster("Ogre")->life == 22);
+        check("Ogre AP = 75", repo.monster("Ogre")->apValue == 75);
+        check("Heal challenge = 12", repo.spell("Heal")->challengeNumber.value_or(0) == 12);
+        check("Blade is a known calling", repo.calling("Blade") != nullptr);
+        check("Blade has training options", !repo.calling("Blade")->trainingOptions.empty());
+        {
+            const Calling* blade = repo.calling("Blade");
+            check("Blade level-5 AP = 1000", blade && repo.apRequired(blade->id, 5) == 1000);
+            check("Blade level-1 AP = 0", blade && repo.apRequired(blade->id, 1) == 0);
+            check("Blade level for 1200 AP = 5", blade && repo.levelForAp(blade->id, 1200) == 5);
+        }
 
-        // ---- Character creation (Morgan-like: Fighter/Human, STR16 CON14) ----
+        // ---- Character creation (Dwarf Blade, Might+2 Grace+1 Wits0 Spirit-1) ----
         std::printf("== character ==\n");
-        AbilityScores sc;
-        sc.str = 16; sc.intel = 7; sc.wis = 9; sc.dex = 13; sc.con = 14; sc.cha = 8;
-        Character morgan = makeCharacter(repo, dice, "Morgan", "Human", "Fighter", sc, 1);
-        check("xp bonus 10%", morgan.xpBonusPct == 10);
-        check("class group = Fighting Man", morgan.classGroup == "Fighting Man, Thief, Hobgoblin");
-        check("save vs death/poison = 12", morgan.saveDeathPoison == 12);
-        check("save vs dragon breath = 15", morgan.saveDragonBreath == 15);
-        check("HP between 1 and 8", morgan.maxHp >= 1 && morgan.maxHp <= 8);
-        check("base movement 120 (Human)", morgan.baseMovementFt == 120);
-        // Dwarf uses the Dwarves & Halflings save group + 90' movement.
-        Character dorin = makeCharacter(repo, dice, "Dorin", "Dwarf", "Fighter", sc, 1);
-        check("Dwarf save group", dorin.classGroup == "Dwarves & Halflings");
-        check("Dwarf movement 90", dorin.baseMovementFt == 90);
+        Traits tr; tr.might = 2; tr.grace = 1; tr.wits = 0; tr.spirit = -1;
+        check("trait spread {+2,+1,0,-1} is valid", validTraitSpread(tr));
+        check("Human needs 4 trainings", requiredTrainingCount("Human") == 4);
+        check("Dwarf needs 3 trainings", requiredTrainingCount("Dwarf") == 3);
+        Character morgan = makeCharacter(repo, "Morgan", "Dwarf", "Blade", tr,
+                                         {"Blades", "Survival", "Lore"}, "Mail armor", true);
+        morgan.weaponName = "Sword";
+        morgan.weaponDamageDie = "1d6";
+        check("Dwarf Blade Life = 13 (10 + Might 2 + Dwarf 1)", morgan.maxLife == 13);
+        check("life starts at maxLife", morgan.life == morgan.maxLife);
+        check("Defense = 14 (10 + Grace 1 + Mail 2 + Shield 1)", morgan.defense == 14);
+        check("melee attack bonus = 4 (Might 2 + Blades 2)", meleeAttackBonus(morgan) == 4);
+        check("strain limit = 2 (3 + Spirit -1)", strainLimit(morgan) == 2);
+        check("starts with 0 AP", morgan.ap == 0);
+        // A Human gains the extra training and no Dwarf Life bonus.
+        Character mira = makeCharacter(repo, "Mira", "Human", "Mystic", tr,
+                                       {"Sorcery", "Lore", "Healing", "Persuasion"}, "No armor", false);
+        check("Human Mystic Life = 12 (10 + Might 2)", mira.maxLife == 12);
+        check("Mystic unarmored Defense = 11 (10 + Grace 1)", mira.defense == 11);
+        check("spell cast bonus = 1 (Spirit -1 + Sorcery 2)", spellCastBonus(mira) == 1);
 
-        // ---- Encumbrance / movement ----
-        std::printf("== encumbrance ==\n");
-        LoadInfo light = computeLoad(repo, morgan, 80);   // <= 100 capacity
-        check("light load: full movement", !light.encumbered && light.effectiveMovementFt == 120);
-        LoadInfo heavy = computeLoad(repo, morgan, 120);   // > 100, <= 200
-        check("encumbered: half movement", heavy.encumbered && heavy.effectiveMovementFt == 60);
-        LoadInfo over = computeLoad(repo, morgan, 250);    // > max
-        check("overloaded: no movement", over.effectiveMovementFt == 0);
+        // ---- Core resolution ----
+        std::printf("== resolution ==\n");
+        {
+            CheckResult easy = resolveCheck(dice, 5, 9);
+            check("resolveCheck reports total = roll + bonus", easy.total == easy.roll + 5);
+            check("resolveCheck success iff nat20 or total>=target",
+                  easy.success == (easy.roll == 20 || easy.total >= 9));
+            bool valid = true;
+            for (int i = 0; i < 500; ++i) {
+                CheckResult r = resolveCheck(dice, 0, 12);
+                if (r.success != (r.roll == 20 || r.roll >= 12)) valid = false;
+            }
+            check("resolveCheck consistent over many rolls", valid);
+        }
 
         // ---- Combat ----
         std::printf("== combat ==\n");
-        check("characterToHit AC9 = 10", characterToHit(repo, 1, 9) == 10);
-        check("monster 1 HD vs AC9 needs 10", monsterToHit(repo, 1, 9) == 10);
         {
-            bool ok = true;
+            bool ok = true, sawHit = false;
             for (int i = 0; i < 500; ++i) {
-                AttackResult ar = characterAttack(repo, dice, 1, 7, "Sword");
-                if (ar.hit && (ar.damage < 1 || ar.damage > 8)) ok = false;  // Sword = 1d8
+                AttackResult ar = resolveAttack(dice, 4, 13, "1d6");   // vs Defense 13
+                if (ar.hit) {
+                    sawHit = true;
+                    if (ar.damage < 1 || ar.damage > 6) ok = false;     // 1d6
+                    if (!(ar.roll == 20 || ar.total >= 13)) ok = false;
+                } else if (ar.damage != 0) ok = false;
             }
-            check("Sword hit damage in 1..8", ok);
+            check("attack hits land 1..6 damage and respect Defense", ok && sawHit);
+        }
+        {
+            // Deterministic nat-20 path: with a huge bonus, every attack hits.
+            AttackResult ar = resolveAttack(dice, 50, 13, "1d6");
+            check("overwhelming bonus always hits", ar.hit && ar.damage >= 1);
         }
 
-        // ---- Saving throw ----
-        check("save needed (poison) = 12", saveNeeded(morgan, SaveCategory::DeathPoison) == 12);
-
-        // ---- Turn undead ----
-        std::printf("== turn undead ==\n");
-        Character cleric = makeCharacter(repo, dice, "Father", "Human", "Cleric", sc, 1);
-        (void)cleric;
-        TurnResult t1 = turnUndead(repo, dice, 1, "Skeleton");
-        check("L1 cleric can attempt to turn Skeleton (needs 7)", t1.possible && t1.needed == 7);
-        TurnResult t3 = turnUndead(repo, dice, 3, "Zombie");
-        check("L3 cleric auto-turns Zombie", t3.autoTurned && t3.turned);
-        TurnResult tv = turnUndead(repo, dice, 1, "Vampire");
-        check("L1 cleric cannot turn Vampire", !tv.possible);
-
-        // ---- Wandering ----
-        std::printf("== wandering ==\n");
+        // ---- Spellcasting / strain ----
+        std::printf("== spell ==\n");
         {
-            bool sawSkeleton = false, sawElephant = false, allValid = true;
-            for (int i = 0; i < 800; ++i) {
-                WanderingResult w = rollWandering(repo, dice, "Dungeon", 1);
-                if (!w.any || w.count < 1) allValid = false;
-                if (w.monster == "Skeleton") sawSkeleton = true;
-                if (w.monster == "Elephant") sawElephant = true;
-            }
-            check("Dungeon L1 yields valid encounters", allValid);
-            check("Dungeon L1 can yield Skeleton", sawSkeleton);
-            check("Dungeon L1 never yields Elephant", !sawElephant);
-        }
-
-        // ---- Treasure ----
-        std::printf("== treasure ==\n");
-        {
-            // Type Q is gems only; should never produce coins.
-            bool coinsSeen = false, gemsSeen = false;
-            for (int i = 0; i < 200; ++i) {
-                TreasureResult tr = rollTreasure(repo, dice, "Q");
-                if (tr.copper || tr.silver || tr.electrum || tr.gold || tr.platinum) coinsSeen = true;
-                if (!tr.gems.empty()) gemsSeen = true;
-            }
-            check("Type Q yields no coins", !coinsSeen);
-            check("Type Q can yield gems", gemsSeen);
-            // Type A should occasionally produce a non-zero hoard.
-            bool nonZero = false;
-            for (int i = 0; i < 200 && !nonZero; ++i)
-                if (rollTreasure(repo, dice, "A").totalGpValue() > 0) nonZero = true;
-            check("Type A can yield treasure", nonZero);
+            // Impossible challenge -> always fails -> gains strain; backlash past limit.
+            CastResult fail = castSpell(dice, 0, 999, /*strain=*/2, /*limit=*/2);
+            check("failed cast gains 1 strain", !fail.success && fail.strainGained == 1);
+            check("failure beyond strain limit triggers backlash", fail.backlash);
+            // Trivial challenge -> always succeeds -> no strain.
+            CastResult win = castSpell(dice, 0, 1, 0, 2);
+            check("trivial cast succeeds with no strain", win.success && win.strainGained == 0);
         }
 
         // ---- Module .gnsmod round-trip (M2 I/O) ----
@@ -186,7 +182,7 @@ int main() {
             a1.artworkPath = "art/entry.png";
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
-            a1.monsters = {{"Skeleton", 4}, {"Goblin", 2}};          // multi-type (#23)
+            a1.monsters = {{"Skeleton", 4}, {"Cave Goblin", 2}};     // multi-type (#23)
             a1.treasures = {{"C", 50}, {"D", 20}};                   // multi-treasure (v10)
             a1.isShop = true;                                         // shop/market (v10/v11)
             a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png"},
@@ -194,7 +190,7 @@ int main() {
             a1.transitions = {{11, "Stairs down to the crypt"}};     // cross-area exit (v7)
             a1.prerequisiteControlPointIds = {1};
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
-            a2.monsterType = "Zombie";   // legacy single field, empty list -> migrated on load
+            a2.monsterType = "Ogre";   // legacy single field, empty list -> migrated on load
             map.areas.push_back(a1);
             map.areas.push_back(a2);
 
@@ -247,7 +243,7 @@ int main() {
             check("area fillEnabled=false preserved", ra && ra->fillEnabled == false);
             check("area monster list preserved", ra && ra->monsters.size() == 2 &&
                   ra->monsters[0].type == "Skeleton" && ra->monsters[0].count == 4 &&
-                  ra->monsters[1].type == "Goblin" && ra->monsters[1].count == 2);
+                  ra->monsters[1].type == "Cave Goblin" && ra->monsters[1].count == 2);
             check("area treasure list preserved", ra && ra->treasures.size() == 2 &&
                   ra->treasures[0].type == "C" && ra->treasures[0].chancePct == 50 &&
                   ra->treasures[1].type == "D" && ra->treasures[1].chancePct == 20);
@@ -267,7 +263,7 @@ int main() {
             check("area default labelAuto=true preserved", rb && rb->labelAuto == true);
             check("area default isShop=false", rb && rb->isShop == false && rb->shopItems.empty());
             check("legacy monsterType migrated to list", rb && rb->monsters.size() == 1 &&
-                  rb->monsters[0].type == "Zombie" && rb->monsters[0].count == 1);
+                  rb->monsters[0].type == "Ogre" && rb->monsters[0].count == 1);
             check("control point preserved", r.controlPoints.size() == 1 &&
                   r.controlPoints[0].id == 1 && r.controlPoints[0].name == "Sealed gate" &&
                   r.controlPoints[0].areaId == 11);
@@ -294,7 +290,6 @@ int main() {
         // ---- Session / Party / PlayState seating (M4 slice 1) ----
         std::printf("== session ==\n");
         {
-            // Minimal module: one map, two areas, declared start = area 10.
             Module m;
             m.name = "Seating Test";
             Map map; map.id = 1; map.name = "Level 1";
@@ -310,7 +305,7 @@ int main() {
             m.startMapId = 1; m.startAreaId = 10; m.endAreaId = 11;
 
             Party party;
-            party.members.push_back(morgan);   // level-1 Fighter built above
+            party.members.push_back(morgan);   // level-1 Blade built above
 
             Session s(m, party, 4242);
             check("session seats at declared start map", s.state().mapId == 1);
@@ -324,14 +319,12 @@ int main() {
             check("party not wiped, average level 1",
                   !s.party().isWiped() && s.party().averageLevel() == 1);
 
-            // Fallback: no declared start -> seat on the first area of the first map.
             Module m2 = m; m2.startMapId = 0; m2.startAreaId = 0;
             Session s2(m2, party, 1);
             check("session falls back to first map/area",
                   s2.state().mapId == 1 && s2.state().areaId == 10);
             check("fallback is not flagged as declared start", !s2.seatedAtDeclaredStart());
 
-            // Disk path: save then start a session straight from the .gnsmod file.
             const std::string path = "gns_session_roundtrip_test.gnsmod";
             std::remove(path.c_str());
             saveModule(m, path);
@@ -344,7 +337,6 @@ int main() {
         // ---- PlotTracker: prerequisite gating + completion (M4 Storyteller) ----
         std::printf("== plot ==\n");
         {
-            // Module with a gated area: area 11 requires control point 1.
             Module m;
             m.name = "Gated Test";
             Map map; map.id = 1; map.name = "Level 1";
@@ -381,7 +373,6 @@ int main() {
             s.state().areaId = m.endAreaId;
             check("at end once seated on the end area", s.isAtEnd());
 
-            // Restore-from-save path + inert-by-default behavior (standalone tracker).
             PlotTracker pt;
             check("fresh tracker gates the crypt", !pt.isAreaEnterable(*m.areaById(11)));
             check("ungated area enterable on a bare tracker", pt.isAreaEnterable(*m.areaById(10)));
@@ -419,7 +410,6 @@ int main() {
             check("speakNpc returns a non-empty line naming the NPC",
                   !line.empty() && line.find("Old Hermit") != std::string::npos);
 
-            // Fact formatter over an existing Rules result (deterministic, no RNG).
             AttackResult hit; hit.hit = true; hit.damage = 6;
             AttackResult miss; miss.hit = false;
             check("factFor(AttackResult) renders a hit",
@@ -427,8 +417,6 @@ int main() {
             check("factFor(AttackResult) renders a miss",
                   factFor(miss, "Morgan", "Goblin") == "Morgan misses Goblin.");
 
-            // Seam proof: an injected provider is what Narrator calls through to,
-            // guaranteeing the local model drops in cleanly later.
             struct StubProvider : INarrationProvider {
                 std::string narrate(const DmContext& ctx) override {
                     return "STUB-NARRATE:" + ctx.areaName;
@@ -450,65 +438,44 @@ int main() {
             // Seed-equivalence: the same seed through the façade vs the free
             // function must produce identical results -- proves pure forwarding.
             {
-                Dice da(2024), db(2024);
+                Dice da(2024), db2(2024);
                 RulesAdjudicator adj(repo, da);
-                AttackResult fa = adj.characterAttack(1, 9, "Sword");
-                AttackResult fb = characterAttack(repo, db, 1, 9, "Sword");
+                AttackResult fa = adj.characterAttack(morgan, 13);
+                AttackResult fb = resolveAttack(db2, meleeAttackBonus(morgan), 13, morgan.weaponDamageDie);
                 check("characterAttack forwards (seed-equivalent)",
-                      fa.roll == fb.roll && fa.needed == fb.needed &&
+                      fa.roll == fb.roll && fa.total == fb.total &&
                       fa.hit == fb.hit && fa.damage == fb.damage);
             }
             {
-                Dice da(55), db(55);
+                Dice da(55), db2(55);
                 RulesAdjudicator adj(repo, da);
-                AttackResult ma = adj.monsterAttack(1, 9, "1d6");
-                AttackResult mb = monsterAttack(repo, db, 1, 9, "1d6");
+                AttackResult ma = adj.monsterAttack(4, 14, "1d8");
+                AttackResult mb = resolveAttack(db2, 4, 14, "1d8");
                 check("monsterAttack forwards (seed-equivalent)",
                       ma.roll == mb.roll && ma.hit == mb.hit && ma.damage == mb.damage);
             }
             {
-                Dice da(7), db(7);
+                Dice da(9), db2(9);
                 RulesAdjudicator adj(repo, da);
-                WanderingResult wa = adj.wandering("Dungeon", 1);
-                WanderingResult wb = rollWandering(repo, db, "Dungeon", 1);
-                check("wandering forwards (seed-equivalent)",
-                      wa.any == wb.any && wa.monster == wb.monster && wa.count == wb.count);
-            }
-            {
-                Dice da(3), db(3);
-                RulesAdjudicator adj(repo, da);
-                TreasureResult ta = adj.treasure("A");
-                TreasureResult tb = rollTreasure(repo, db, "A");
-                check("treasure forwards (seed-equivalent)",
-                      ta.totalGpValue() == tb.totalGpValue() && ta.gold == tb.gold &&
-                      ta.magicItems.size() == tb.magicItems.size());
-            }
-            {
-                Dice da(9), db(9);
-                RulesAdjudicator adj(repo, da);
-                TurnResult ua = adj.turnUndead(1, "Skeleton");
-                TurnResult ub = turnUndead(repo, db, 1, "Skeleton");
-                check("turnUndead forwards (seed-equivalent)",
-                      ua.possible == ub.possible && ua.needed == ub.needed &&
-                      ua.roll == ub.roll && ua.turned == ub.turned);
+                CastResult ua = adj.castSpell(mira, 12);
+                CastResult ub = castSpell(db2, spellCastBonus(mira), 12, mira.strain, strainLimit(mira));
+                check("castSpell forwards (seed-equivalent)",
+                      ua.success == ub.success && ua.total == ub.total &&
+                      ua.strainGained == ub.strainGained);
             }
 
-            // Value checks anchored to existing rules-test constants.
+            // Value checks anchored to known stat blocks.
             {
                 Dice d(1);
                 RulesAdjudicator adj(repo, d);
-                RulesAdjudicator::SaveOutcome sv = adj.savingThrow(morgan, SaveCategory::DeathPoison);
-                check("savingThrow needed matches table (12)", sv.needed == 12);
-                check("savingThrow success is roll>=needed", sv.success == (sv.roll >= sv.needed));
-
-                AttackResult at = adj.characterAttack(1, 9, "Sword");
-                check("characterAttack needed vs AC9 = 10", at.needed == 10);
-                check("characterAttack hit flag consistent with roll",
-                      at.hit == (at.roll >= at.needed));
-                check("characterAttack damage in 1..8 on hit",
-                      !at.hit || (at.damage >= 1 && at.damage <= 8));
-
-                check("monsterXp(Orc) via facade = 10", adj.monsterXp(*repo.monster("Orc")) == 10);
+                AttackResult at = adj.characterAttack(morgan, 13);
+                check("characterAttack uses Defense as the target", at.defense == 13);
+                check("characterAttack hit flag consistent",
+                      at.hit == (at.roll == 20 || at.total >= 13));
+                check("characterAttack damage in 1..6 on hit",
+                      !at.hit || (at.damage >= 1 && at.damage <= 6));
+                CheckResult cr = adj.resolve(2, 12);
+                check("resolve forwards a 1d20+bonus check", cr.target == 12 && cr.bonus == 2);
             }
 
             // Authored-chance area checks at the deterministic extremes.
@@ -532,59 +499,50 @@ int main() {
         {
             EncounterDirector dir(repo, dice);   // reuse the suite's seeded Dice
 
-            // Reaction table (pure, deterministic).
             check("reaction 2 = hostile", reactionFor2d6(2) == Reaction::Hostile);
             check("reaction 7 = neutral", reactionFor2d6(7) == Reaction::Neutral);
             check("reaction 12 = friendly", reactionFor2d6(12) == Reaction::Friendly);
             check("reactionText neutral", std::string(reactionText(Reaction::Neutral)) == "neutral");
 
             // Area with a guaranteed encounter resolves a known gns.db monster.
-            Area lair; lair.monsterChancePct = 100; lair.monsterType = "Orc";
-            Encounter e = dir.checkArea(lair);
-            const MonsterDef* orc = repo.monster("Orc");
-            const int orcHd = orc ? orc->hitDiceNum.value_or(1) : 1;
-            check("area encounter occurs at 100%", e.occurred);
+            Area lair; lair.monsterChancePct = 100; lair.monsterType = "Ogre";
+            Encounter en = dir.checkArea(lair);
+            const MonsterDef* ogre = repo.monster("Ogre");
+            check("area encounter occurs at 100%", en.occurred);
             check("area encounter resolves a known monster",
-                  e.known && e.monsters.size() == 1 && e.monsters[0].name == "Orc");
-            check("orc hp rolled in a valid HD range and hp==maxHp",
-                  e.monsters[0].maxHp >= 1 && e.monsters[0].maxHp <= orcHd * 8 + 8 &&
-                  e.monsters[0].hp == e.monsters[0].maxHp);
+                  en.known && en.monsters.size() == 1 && en.monsters[0].name == "Ogre");
+            check("ogre combatant has fixed Life from the stat block and life==maxLife",
+                  ogre && en.monsters[0].maxLife == ogre->life &&
+                  en.monsters[0].life == en.monsters[0].maxLife);
+            check("combatant Defense/AP from stat block",
+                  ogre && en.monsters[0].defense == ogre->defense &&
+                  en.monsters[0].apValue == ogre->apValue);
 
-            // No encounter at 0%.
-            Area empty; empty.monsterChancePct = 0; empty.monsterType = "Orc";
+            Area empty; empty.monsterChancePct = 0; empty.monsterType = "Ogre";
             Encounter none = dir.checkArea(empty);
             check("no area encounter at 0%", !none.occurred && none.monsters.empty());
 
-            // Group size honored; AC pulled from the stat block.
-            Encounter band = dir.makeEncounter("Orc", 3, false);
+            Encounter band = dir.makeEncounter("Cave Goblin", 3);
             check("group of 3 built and known", band.monsters.size() == 3 && band.known);
-            check("combatant AC from stat block",
-                  orc && band.monsters[0].armorClass == orc->armorClassNum.value_or(9));
 
-            // Unknown / free-text type still yields usable combatants.
-            Encounter weird = dir.makeEncounter("Giant Space Hamster", 2, false);
+            Encounter weird = dir.makeEncounter("Giant Space Hamster", 2);
             check("unknown monster flagged but still built",
                   !weird.known && weird.monsters.size() == 2 &&
-                  weird.monsters[0].name == "Giant Space Hamster" && weird.monsters[0].hp >= 1);
-
-            // Wandering check yields a valid encounter for a populated environment.
-            Encounter w = dir.checkWandering("Dungeon", 1);
-            check("wandering yields a valid encounter",
-                  w.occurred && w.fromWandering && !w.monsters.empty() && w.monsters[0].hp >= 1);
+                  weird.monsters[0].name == "Giant Space Hamster" && weird.monsters[0].life >= 1);
         }
 
         // ---- CombatEngine: auto-resolve a fight (M4 combat loop) ----
         std::printf("== combat loop ==\n");
         {
-            Character bram = morgan; bram.name = "Bram";   // second fighter, same stats
+            Character bram = morgan; bram.name = "Bram";   // second blade, same stats
 
-            // Pure XP math (no RNG): 3 Orcs at 10 XP each = 30.
+            // Pure AP math (no RNG): 3 Cave Goblins at 10 AP each = 30.
             {
                 EncounterDirector dir(repo, dice);
                 CombatEngine combat(repo, dice);
-                Encounter threeOrcs = dir.makeEncounter("Orc", 3, false);
-                check("encounterXp sums monster XP (3 Orcs = 30)",
-                      combat.encounterXp(threeOrcs) == 30);
+                Encounter threeGoblins = dir.makeEncounter("Cave Goblin", 3);
+                check("encounterAp sums monster AP (3 Cave Goblins = 30)",
+                      combat.encounterAp(threeGoblins) == 30);
             }
 
             // Termination + bookkeeping invariants (hold for any seed).
@@ -592,36 +550,34 @@ int main() {
                 Party party;
                 party.members.push_back(morgan);
                 party.members.push_back(bram);
-                for (auto& pc : party.members) pc.weaponName = "Sword";
-                std::vector<int> xp0;
-                for (auto& pc : party.members) xp0.push_back(pc.experiencePoints);
+                std::vector<int> ap0;
+                for (auto& pc : party.members) ap0.push_back(pc.ap);
 
                 EncounterDirector dir(repo, dice);
                 CombatEngine combat(repo, dice);
-                Encounter enc = dir.makeEncounter("Orc", 2, false);
-                const int preXp = combat.encounterXp(enc);
+                Encounter enc = dir.makeEncounter("Cave Goblin", 2);
+                const int preAp = combat.encounterAp(enc);
 
-                CombatResult r = combat.run(party, enc);
-                check("combat terminates within the cap", r.rounds >= 1 && r.rounds <= 100);
-                check("combat produced a log", !r.log.empty());
+                CombatResult rr = combat.run(party, enc);
+                check("combat terminates within the cap", rr.rounds >= 1 && rr.rounds <= 100);
+                check("combat produced a log", !rr.log.empty());
 
                 bool monstersDown = true;
-                for (auto& m : enc.monsters) if (m.hp > 0) monstersDown = false;
-                if (r.outcome == CombatOutcome::PartyVictory) {
+                for (auto& mm : enc.monsters) if (mm.life > 0) monstersDown = false;
+                if (rr.outcome == CombatOutcome::PartyVictory) {
                     check("victory <=> all monsters down", monstersDown);
-                    check("xp awarded equals encounter xp", r.xpAwarded == preXp);
-                    bool xpOk = true; int survivors = 0;
+                    check("ap awarded equals encounter ap", rr.apAwarded == preAp);
+                    bool apOk = true; int survivors = 0;
                     for (std::size_t i = 0; i < party.members.size(); ++i) {
                         const Character& pc = party.members[i];
-                        if (pc.hp > 0) {
+                        if (pc.life > 0) {
                             ++survivors;
-                            if (pc.experiencePoints !=
-                                xp0[i] + applyXpBonus(r.xpPerSurvivor, pc.xpBonusPct)) xpOk = false;
-                        } else if (pc.experiencePoints != xp0[i]) {
-                            xpOk = false;   // a fallen PC earns nothing
+                            if (pc.ap != ap0[i] + rr.apPerSurvivor) apOk = false;
+                        } else if (pc.ap != ap0[i]) {
+                            apOk = false;   // a fallen PC earns nothing
                         }
                     }
-                    check("survivors gained bonus-adjusted xp share", xpOk && survivors >= 1);
+                    check("survivors gained the AP share", apOk && survivors >= 1);
                 } else {
                     check("defeat <=> party wiped", party.isWiped());
                 }
@@ -630,18 +586,17 @@ int main() {
             // Determinism: identical seeds -> identical result (proves .gnssav replay).
             {
                 Party pa; pa.members.push_back(morgan); pa.members.push_back(bram);
-                for (auto& pc : pa.members) pc.weaponName = "Sword";
                 Party pb = pa;
                 Dice d1(2025), d2(2025);
-                EncounterDirector da(repo, d1), db(repo, d2);
-                Encounter ea = da.makeEncounter("Orc", 2, false);
-                Encounter eb = db.makeEncounter("Orc", 2, false);
+                EncounterDirector da(repo, d1), db2(repo, d2);
+                Encounter ea = da.makeEncounter("Cave Goblin", 2);
+                Encounter eb = db2.makeEncounter("Cave Goblin", 2);
                 CombatEngine ca(repo, d1), cb(repo, d2);
                 CombatResult ra = ca.run(pa, ea);
                 CombatResult rb = cb.run(pb, eb);
                 check("combat is deterministic for a fixed seed",
                       ra.outcome == rb.outcome && ra.rounds == rb.rounds &&
-                      ra.xpAwarded == rb.xpAwarded);
+                      ra.apAwarded == rb.apAwarded);
             }
 
             // Empty encounter -> immediate victory.
@@ -652,7 +607,7 @@ int main() {
                 CombatResult rn = ce.run(pe, none);
                 check("empty encounter is immediate victory",
                       rn.outcome == CombatOutcome::PartyVictory && rn.rounds == 0 &&
-                      rn.xpAwarded == 0);
+                      rn.apAwarded == 0);
             }
         }
 

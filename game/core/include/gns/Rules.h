@@ -1,7 +1,6 @@
 #pragma once
 #include "gns/Character.h"
 #include <string>
-#include <vector>
 
 namespace gns {
 
@@ -9,76 +8,54 @@ class Repository;
 class Dice;
 struct MonsterDef;
 
-// ---- Combat ----
-enum class SaveCategory { SpellStaff, MagicWand, DeathPoison, Stone, DragonBreath };
+// Core resolution: 1d20 + bonus vs a target number. A natural 20 always succeeds.
+struct CheckResult {
+    int roll = 0;       // raw d20
+    int bonus = 0;
+    int total = 0;      // roll + bonus
+    int target = 0;
+    bool success = false;
+};
+CheckResult resolveCheck(Dice& dice, int bonus, int target);
 
-// Attack-table band label for a monster of the given (integer) hit dice.
-std::string monsterAttackLabel(int hitDiceNum);
+// ---- Combat ----------------------------------------------------------------
 
-// Roll needed for a level-1..3 character to hit an Armor Class.
-int characterToHit(const Repository& repo, int level, int targetAc);
-// Roll needed for a monster (by hit dice) to hit an Armor Class.
-int monsterToHit(const Repository& repo, int hitDiceNum, int targetAc);
-
+// One attack: 1d20 + attackBonus vs the target's Defense. Hit on natural 20 or
+// total >= defense; on a hit, damage = roll(damageDie) + damageBonus (min 1).
 struct AttackResult {
-    int roll = 0;        // d20
-    int needed = 0;
+    int roll = 0;       // raw d20
+    int bonus = 0;      // attack bonus added
+    int total = 0;      // roll + bonus
+    int defense = 0;    // target defense
     bool hit = false;
     int damage = 0;
 };
-AttackResult characterAttack(const Repository& repo, Dice& dice, int level, int targetAc,
-                             const std::string& weaponName);
-AttackResult monsterAttack(const Repository& repo, Dice& dice, int hitDiceNum, int targetAc,
-                           const std::string& damageExpr);
+AttackResult resolveAttack(Dice& dice, int attackBonus, int targetDefense,
+                           const std::string& damageDie, int damageBonus = 0);
 
-// Saving throw: needed number, and a rolled result.
-int saveNeeded(const Character& c, SaveCategory cat);
-bool rollSave(Dice& dice, int needed);   // d20 >= needed
+// ---- Spellcasting / Strain -------------------------------------------------
 
-// ---- Encumbrance / movement ----
-struct LoadInfo {
-    int weightLbs = 0;
-    int capacityLbs = 0;
-    int maxCapacityLbs = 0;
-    bool encumbered = false;
-    int effectiveMovementFt = 0;
-};
-LoadInfo computeLoad(const Repository& repo, const Character& c, int carriedLbs);
-
-// ---- Turn undead ----
-struct TurnResult {
-    std::string raw;         // "7" | "T" | "no effect"
-    bool possible = false;   // cleric can attempt
-    bool autoTurned = false; // 'T'
-    int needed = 0;          // 2d6 target (if numeric)
+// A spell cast: 1d20 + castBonus (Spirit + Sorcery) vs the spell's Challenge.
+// On failure the caster gains 1 Strain; backlash triggers if total strain would
+// exceed the caster's safe limit.
+struct CastResult {
     int roll = 0;
-    bool turned = false;
+    int bonus = 0;
+    int total = 0;
+    int challenge = 0;
+    bool success = false;
+    int strainGained = 0;   // 0 on success, 1 on failure
+    bool backlash = false;  // failure pushed strain past the safe limit
 };
-TurnResult turnUndead(const Repository& repo, Dice& dice, int clericLevel,
-                      const std::string& undeadType);
+CastResult castSpell(Dice& dice, int castBonus, int challenge,
+                     int currentStrain, int strainLimitValue);
 
-// ---- XP ----
-int monsterXp(const Repository& repo, const MonsterDef& m);
+// Caster's bonus for a spell roll: Spirit + Sorcery training (+2 when trained).
+int spellCastBonus(const Character& c);
 
-// ---- Wandering monsters ----
-struct WanderingResult {
-    bool any = false;
-    std::string monster;
-    int count = 0;
-};
-WanderingResult rollWandering(const Repository& repo, Dice& dice,
-                              const std::string& environment, int partyLevel);
+// ---- Advancement -----------------------------------------------------------
 
-// ---- Treasure ----
-struct TreasureResult {
-    int copper = 0, silver = 0, electrum = 0, gold = 0, platinum = 0;
-    std::vector<int> gems;       // each value in gp
-    std::vector<int> jewelry;    // each value in gp
-    int maps = 0;
-    std::vector<std::string> magicItems;
-    int totalGpValue() const;
-};
-TreasureResult rollTreasure(const Repository& repo, Dice& dice, const std::string& code,
-                            int individuals = 0);
+// AP a fight awards, split evenly (rounded down) among `survivors` participants.
+int apPerSurvivor(int totalAp, int survivors);
 
 } // namespace gns

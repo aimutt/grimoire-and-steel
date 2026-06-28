@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Grimoire & Steel Character Sheets v0.5</title>
+<style>
+  @page { size: letter; margin: 0.45in; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #1d1712;
+    background: #f8f3e8;
+    margin: 0;
+  }
+  .sheet {
+    box-sizing: border-box;
+    min-height: 9.8in;
+    border: 6px double #2b2118;
+    padding: 0.18in;
+    margin: 0 0 0.35in 0;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,0.04), rgba(255,255,255,0.05)),
+      #fbf6e9;
+    page-break-after: always;
+  }
+  .title {
+    text-align: center;
+    border-bottom: 3px double #2b2118;
+    margin-bottom: 0.1in;
+    padding-bottom: 0.06in;
+    letter-spacing: 1px;
+  }
+  h1 { margin: 0; font-size: 25px; }
+  h2 { margin: 2px 0 0 0; font-size: 16px; font-variant: small-caps; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.08in;
+  }
+  .box {
+    border: 1.5px solid #2b2118;
+    padding: 0.06in;
+    background: rgba(255,255,255,0.35);
+  }
+  .wide { grid-column: 1 / span 2; }
+  h3 {
+    margin: 0 0 0.04in 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid #2b2118;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { border-bottom: 1px dotted #7a695a; padding: 2px 3px; vertical-align: top; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; }
+  .right { text-align: right; }
+  .small { font-size: 10.5px; line-height: 1.25; }
+  .lines { line-height: 1.65; font-size: 11px; }
+  .footer {
+    text-align: center;
+    font-size: 10px;
+    margin-top: 0.08in;
+    border-top: 1px solid #2b2118;
+    padding-top: 0.04in;
+  }
+</style>
+</head>
+<body>
+
+<section class="sheet">
+  <div class="title">
+    <h1>⚔ Grimoire &amp; Steel ⚔</h1>
+    <h2>Character Sheet — Sample</h2>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <h3>Identity</h3>
+      <table>
+        <tr><th>Field</th><th>Value</th></tr>
+        <tr><td>Name</td><td>Garron Stonehand</td></tr>
+        <tr><td>Player</td><td>Sample Player</td></tr>
+        <tr><td>Kin</td><td>Dwarf</td></tr>
+        <tr><td>Calling</td><td>Blade</td></tr>
+        <tr><td>Level</td><td>1</td></tr>
+        <tr><td>AP</td><td>0</td></tr>
+        <tr><td>Background</td><td>Former tunnel guard</td></tr>
+        <tr><td>Goal</td><td>Recover his clan’s stolen battle standard</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Traits & Gifts</h3>
+      <table>
+        <tr><th>Trait</th><th class="right">Bonus</th></tr>
+        <tr><td>Might</td><td class="right">+2</td></tr>
+        <tr><td>Grace</td><td class="right">+0</td></tr>
+        <tr><td>Wits</td><td class="right">-1</td></tr>
+        <tr><td>Spirit</td><td class="right">+1</td></tr>
+      </table>
+      <br>
+      <table>
+        <tr><th>Source</th><th>Gift</th></tr>
+        <tr><td>Dwarf</td><td>Add +1 Life</td></tr>
+        <tr><td>Blade</td><td>Once per fight, add +1d6 damage after hitting</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Training</h3>
+      <table>
+        <tr><th>Training</th><th>Use</th></tr>
+        <tr><td>Axes</td><td>Axe attacks</td></tr>
+        <tr><td>Shields</td><td>Shield fighting and defense</td></tr>
+        <tr><td>Survival</td><td>Travel, tracking, harsh conditions</td></tr>
+      </table>
+      <p class="small"><b>Personality:</b> Loyal, blunt, stubborn.</p>
+    </div>
+
+    <div class="box">
+      <h3>Combat</h3>
+      <table>
+        <tr><th>Stat</th><th class="right">Value</th></tr>
+        <tr><td>Life</td><td class="right">13</td></tr>
+        <tr><td>Defense</td><td class="right">13</td></tr>
+        <tr><td>Armor</td><td class="right">Mail +2</td></tr>
+        <tr><td>Shield</td><td class="right">Yes, +1</td></tr>
+        <tr><td>Main Attack</td><td class="right">Hand axe</td></tr>
+        <tr><td>Attack Bonus</td><td class="right">+4</td></tr>
+        <tr><td>Damage</td><td class="right">1d6</td></tr>
+      </table>
+      <p class="small">Life: 10 + Might + Dwarf Gift = 13<br>Defense: 10 + Grace + Armor + Shield = 13</p>
+    </div>
+
+    <div class="box">
+      <h3>Weapons, Armor & Gear</h3>
+      <table>
+        <tr><th>Item</th><th>Value / Notes</th></tr>
+        <tr><td>Hand axe</td><td>1d6, one-handed</td></tr>
+        <tr><td>Dagger</td><td>1d4, backup</td></tr>
+        <tr><td>Mail armor</td><td>+2 Defense</td></tr>
+        <tr><td>Shield</td><td>+1 Defense</td></tr>
+        <tr><td>Travel pack</td><td>Bedroll, rations, rope, flint, waterskin</td></tr>
+        <tr><td>Clan token</td><td>Stone charm from home</td></tr>
+        <tr><td>Torch</td><td>Useful in dark ruins</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Magic & Notes</h3>
+      <p class="small"><b>Spells:</b> None.</p>
+      <p class="small"><b>Strain Limit:</b> Not used unless the character learns magic.</p>
+      <p class="small"><b>Notes:</b> Sturdy front-line character. Good at melee combat and survival. Weak Wits makes lore, puzzles, and careful searching harder.</p>
+    </div>
+  </div>
+
+  <div class="footer">Grimoire &amp; Steel Rules Bible v0.5</div>
+</section>
+
+<section class="sheet">
+  <div class="title">
+    <h1>⚔ Grimoire &amp; Steel ⚔</h1>
+    <h2>Character Sheet</h2>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <h3>Identity</h3>
+      <table>
+        <tr><th>Field</th><th>Value</th></tr>
+        <tr><td>Name</td><td>&nbsp;</td></tr>
+        <tr><td>Player</td><td>&nbsp;</td></tr>
+        <tr><td>Kin</td><td>&nbsp;</td></tr>
+        <tr><td>Calling</td><td>&nbsp;</td></tr>
+        <tr><td>Level</td><td>&nbsp;</td></tr>
+        <tr><td>AP</td><td>&nbsp;</td></tr>
+        <tr><td>Background</td><td>&nbsp;</td></tr>
+        <tr><td>Goal</td><td>&nbsp;</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Traits & Gifts</h3>
+      <p class="small"><b>Assign:</b> +2, +1, +0, -1</p>
+      <table>
+        <tr><th>Trait</th><th class="right">Bonus</th></tr>
+        <tr><td>Might</td><td>&nbsp;</td></tr>
+        <tr><td>Grace</td><td>&nbsp;</td></tr>
+        <tr><td>Wits</td><td>&nbsp;</td></tr>
+        <tr><td>Spirit</td><td>&nbsp;</td></tr>
+      </table>
+      <br>
+      <table>
+        <tr><th>Source</th><th>Gift</th></tr>
+        <tr><td>Kin</td><td>&nbsp;</td></tr>
+        <tr><td>Calling</td><td>&nbsp;</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Training</h3>
+      <p class="small">A new character begins with three Trainings.</p>
+      <table>
+        <tr><th>Training</th><th>Use</th></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+      </table>
+      <p class="lines"><b>Personality:</b> _______________________________<br>___________________________________________</p>
+    </div>
+
+    <div class="box">
+      <h3>Combat</h3>
+      <table>
+        <tr><th>Stat</th><th class="right">Value</th></tr>
+        <tr><td>Life</td><td>&nbsp;</td></tr>
+        <tr><td>Defense</td><td>&nbsp;</td></tr>
+        <tr><td>Armor</td><td>&nbsp;</td></tr>
+        <tr><td>Shield</td><td>&nbsp;</td></tr>
+        <tr><td>Main Attack</td><td>&nbsp;</td></tr>
+        <tr><td>Attack Bonus</td><td>&nbsp;</td></tr>
+        <tr><td>Damage</td><td>&nbsp;</td></tr>
+      </table>
+      <p class="small">Life: 10 + Might = ______<br>Defense: 10 + Grace + Armor + Shield = ______</p>
+    </div>
+
+    <div class="box">
+      <h3>Weapons, Armor & Gear</h3>
+      <table>
+        <tr><th>Item</th><th>Value / Notes</th></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+      </table>
+    </div>
+
+    <div class="box">
+      <h3>Magic & Notes</h3>
+      <table>
+        <tr><th>Spell</th><th>Effect</th></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+        <tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+      </table>
+      <p class="small">Strain Limit: 3 + Spirit = ______</p>
+      <p class="lines"><b>Notes:</b> ___________________________________<br>___________________________________________<br>___________________________________________<br>___________________________________________</p>
+    </div>
+  </div>
+
+  <div class="footer">Grimoire &amp; Steel Rules Bible v0.5</div>
+</section>
+
+</body>
+</html>

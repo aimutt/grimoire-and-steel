@@ -1,0 +1,254 @@
+[
+  {
+    "section_id": 1,
+    "section_number": null,
+    "title": "Rules Bible — Version 0.5",
+    "heading": "Rules Bible — Version 0.5",
+    "slug": "rules_bible_version_0_5",
+    "body_markdown": "---",
+    "sort_order": 1
+  },
+  {
+    "section_id": 2,
+    "section_number": 1,
+    "title": "What Is Grimoire & Steel?",
+    "heading": "1. What Is Grimoire & Steel?",
+    "slug": "what_is_grimoire_steel",
+    "body_markdown": "**Grimoire & Steel** is a fantasy adventure role-playing game about brave characters, dangerous ruins, wicked sorcery, old kingdoms, hidden treasure, monsters, and desperate battles.\n\nThe game is played by a group of players. Each player controls one **Character**. One person is the **Guide**, who describes the world, controls enemies, presents danger, and decides what happens when the rules do not give a clear answer.\n\nCharacters solve problems by exploring, talking, fighting, sneaking, searching, and using magic.\n\nThe rules are meant to be simple. When the answer is obvious, no roll is needed. When the result is uncertain and failure matters, roll dice.\n\n---",
+    "sort_order": 2
+  },
+  {
+    "section_id": 3,
+    "section_number": 2,
+    "title": "The Core Rule",
+    "heading": "2. The Core Rule",
+    "slug": "the_core_rule",
+    "body_markdown": "When a character attempts something risky, roll:\n\n**1d20 + Trait + Training**\n\nCompare the result to a **Challenge Number**.\n\n| Challenge | Number |\n|---|---:|\n| Easy | 9 |\n| Normal | 12 |\n| Hard | 15 |\n| Very Hard | 18 |\n| Legendary | 21 |\n\nIf the roll equals or beats the number, the character succeeds.\n\nIf the roll is lower, the character fails, succeeds with a cost, or faces a complication. The Guide decides which result best fits the scene.\n\n---",
+    "sort_order": 3
+  },
+  {
+    "section_id": 4,
+    "section_number": 3,
+    "title": "Characters",
+    "heading": "3. Characters",
+    "slug": "characters",
+    "body_markdown": "Each character has:\n\n- A **Name**\n- A **Kin**\n- A **Calling**\n- Four **Traits**\n- Some **Training**\n- Gear\n- Life\n- Defense\n- Advancement Points\n- A few notes about personality and goals\n\nA character should be simple enough to write on one page.\n\n---",
+    "sort_order": 4
+  },
+  {
+    "section_id": 5,
+    "section_number": 4,
+    "title": "Traits",
+    "heading": "4. Traits",
+    "slug": "traits",
+    "body_markdown": "Every character has four Traits.\n\n| Trait | Used For |\n|---|---|\n| **Might** | Strength, toughness, lifting, melee force |\n| **Grace** | Speed, balance, stealth, aim |\n| **Wits** | Knowledge, searching, crafting, tactics |\n| **Spirit** | Courage, willpower, charm, magic |\n\nEach Trait has a bonus.\n\nAt character creation, assign these four bonuses:\n\n**+2, +1, +0, -1**\n\nPut one bonus in each Trait.\n\nExample:\n\n| Trait | Bonus |\n|---|---:|\n| Might | +2 |\n| Grace | +1 |\n| Wits | +0 |\n| Spirit | -1 |\n\n---",
+    "sort_order": 5
+  },
+  {
+    "section_id": 6,
+    "section_number": 5,
+    "title": "Training",
+    "heading": "5. Training",
+    "slug": "training",
+    "body_markdown": "Training shows what a character is good at.\n\nIf a character has useful Training for a task, add **+2** to the roll.\n\nExamples of Training:\n\n- Blades\n- Axes\n- Bows\n- Shields\n- Stealth\n- Locks\n- Lore\n- Healing\n- Survival\n- Persuasion\n- Sorcery\n- Faith\n- Crafting\n\nA new character begins with **three Trainings**.\n\n---",
+    "sort_order": 6
+  },
+  {
+    "section_id": 7,
+    "section_number": 6,
+    "title": "Kin",
+    "heading": "6. Kin",
+    "slug": "kin",
+    "body_markdown": "Kin describes the character’s people. Kin gives flavor and one simple gift.\n\nChoose one:\n\n### Human\n\nAdaptable, ambitious, and found almost everywhere.\n\nGift: Gain one extra Training.\n\n### Dwarf\n\nStubborn, strong-willed, and skilled with stone, metal, and old halls.\n\nGift: Add +1 Life.\n\n### Elf\n\nGraceful, long-lived, and tied to ancient forests, stars, or lost magic.\n\nGift: See well in dim light.\n\n### Halfling\n\nSmall, clever, quiet, and often underestimated.\n\nGift: Once per game session, reroll a failed Grace roll.\n\n---",
+    "sort_order": 7
+  },
+  {
+    "section_id": 8,
+    "section_number": 7,
+    "title": "Callings",
+    "heading": "7. Callings",
+    "slug": "callings",
+    "body_markdown": "A Calling is the character’s main path.\n\nChoose one Calling.\n\n---\n\n### Blade\n\nA Blade is a fighter, guard, mercenary, knight, soldier, holy warrior, or weapon-master.\n\nA Blade may be brutal, noble, disciplined, spiritual, or sworn to a sacred cause.\n\nStarting benefits:\n\n- Training: Blades, Axes, Bows, or Shields\n- Gear: weapon, armor, travel pack\n- Armor allowed: any armor\n- Gift: Once per fight, add +1d6 damage after hitting an enemy\n\n---\n\n### Shadow\n\nA Shadow is a scout, thief, spy, hunter, smuggler, or tomb-breaker.\n\nA Shadow survives through silence, speed, awareness, and careful timing.\n\nStarting benefits:\n\n- Training: Stealth or Locks\n- Gear: light weapon, tools, cloak, travel pack\n- Armor allowed: no armor or light armor\n- Gift: Add +2 when attacking an enemy that has not noticed you\n\n---\n\n### Sage\n\nA Sage is a scholar, healer, alchemist, engineer, advisor, or keeper of old knowledge.\n\nA Sage is not helpless in danger, but relies more on knowledge than brute force.\n\nStarting benefits:\n\n- Training: Lore or Healing\n- Gear: hand axe or short sword, books or tools, travel pack\n- Armor allowed: no armor or light armor only\n- Weapons allowed: dagger, staff, hand axe, short sword, sling, or light crossbow\n- Gift: Once per scene, ask the Guide one useful question about history, monsters, magic, traps, machines, ruins, or strange objects\n\n---\n\n### Mystic\n\nA Mystic is a spellcaster who studies grimoires, spirits, signs, forbidden words, and hidden forces.\n\nMystics are powerful, but magic is never completely safe.\n\nStarting benefits:\n\n- Training: Sorcery\n- Gear: dagger or staff, grimoire, travel pack\n- Armor allowed: no armor\n- Gift: Begin with three spells\n\n---",
+    "sort_order": 8
+  },
+  {
+    "section_id": 9,
+    "section_number": 8,
+    "title": "Life",
+    "heading": "8. Life",
+    "slug": "life",
+    "body_markdown": "Life measures how much harm a character can take before falling.\n\nStarting Life is:\n\n**10 + Might**\n\nMinimum starting Life is 6.\n\nWhen damage reduces a character to **0 Life**, the character is **Down**.\n\nA Down character cannot act. If helped after the fight, the character survives. If struck again while Down, the character dies unless the Guide decides there is a strong reason they survive.\n\n---",
+    "sort_order": 9
+  },
+  {
+    "section_id": 10,
+    "section_number": 9,
+    "title": "Defense",
+    "heading": "9. Defense",
+    "slug": "defense",
+    "body_markdown": "Defense is the number enemies must roll to hit a character.\n\nDefense is:\n\n**10 + Grace + Armor + Shield**\n\nArmor:\n\n| Armor | Bonus |\n|---|---:|\n| No armor | +0 |\n| Light armor | +1 |\n| Mail armor | +2 |\n| Plate armor | +3 |\n\nA shield gives **+1 Defense**.\n\nHeavy armor may make swimming, climbing, sneaking, and running harder.\n\n---",
+    "sort_order": 10
+  },
+  {
+    "section_id": 11,
+    "section_number": 10,
+    "title": "Weapons",
+    "heading": "10. Weapons",
+    "slug": "weapons",
+    "body_markdown": "Weapons are simple.\n\n| Weapon Type | Damage |\n|---|---:|\n| Small weapon | 1d4 |\n| One-handed weapon | 1d6 |\n| Two-handed weapon | 1d8 |\n| Bow or crossbow | 1d6 |\n| Improvised weapon | 1d4 |\n\nExamples:\n\n- Small weapon: dagger, club, hatchet\n- One-handed weapon: sword, axe, mace, spear, short sword, hand axe\n- Two-handed weapon: greatsword, battle axe, war hammer\n- Bow or crossbow: shortbow, longbow, crossbow\n\n---",
+    "sort_order": 11
+  },
+  {
+    "section_id": 12,
+    "section_number": 11,
+    "title": "Magic Weapons",
+    "heading": "11. Magic Weapons",
+    "slug": "magic_weapons",
+    "body_markdown": "Magic weapons exist in Grimoire & Steel.\n\nA magic weapon may have a bonus such as **+1**, **+2**, or **+3**.\n\nA magic weapon adds its bonus to:\n\n- Attack rolls\n- Damage rolls\n\nExample:\n\nA character attacks with a **+1 Sword**.\n\nThe character adds **+1** to the attack roll and **+1** to the damage roll.\n\nA magic weapon may also have a name, history, curse, strange power, or special purpose.\n\nExamples:\n\n- +1 Sword\n- +1 Hand Axe\n- +2 Battle Axe\n- +1 Dagger of Returning\n- +1 Short Sword of Silent Striking\n- +2 Hammer of the Old Halls\n\nMost magic weapons should be rare, valuable, and important.\n\n---",
+    "sort_order": 12
+  },
+  {
+    "section_id": 13,
+    "section_number": 12,
+    "title": "Combat",
+    "heading": "12. Combat",
+    "slug": "combat",
+    "body_markdown": "Combat is played in rounds.\n\nAt the start of a fight, each side rolls **1d6**. The higher roll acts first. If tied, both sides act at nearly the same time, or the Guide decides what makes sense.\n\nOn a character’s turn, the character may:\n\n- Move and take one action\n- Attack\n- Cast a spell\n- Use an item\n- Help an ally\n- Search, open, pull, push, or interact with something\n- Defend\n\nTo attack, roll:\n\n**1d20 + Might or Grace + Training**\n\nUse Might for close combat.  \nUse Grace for ranged combat.\n\nThe target number is the enemy’s Defense.\n\nIf the attack hits, roll weapon damage and subtract it from the enemy’s Life.\n\n### Defending\n\nA character who Defends gains **+2 Defense** until their next turn.\n\n### Helping\n\nA character may help an ally. If the Guide agrees the help matters, the ally gains **+2** on the roll.\n\n---",
+    "sort_order": 13
+  },
+  {
+    "section_id": 14,
+    "section_number": 13,
+    "title": "Rest and Healing",
+    "heading": "13. Rest and Healing",
+    "slug": "rest_and_healing",
+    "body_markdown": "A short rest takes about ten minutes in a safe place.\n\nDuring a short rest, a character may recover:\n\n**1d6 Life**\n\nA character may take one short rest between dangerous scenes.\n\nA full rest requires sleep, food, water, and safety. After a full rest, a character recovers all lost Life.\n\nThe Guide may limit rest in dangerous places.\n\n---",
+    "sort_order": 14
+  },
+  {
+    "section_id": 15,
+    "section_number": 14,
+    "title": "Magic",
+    "heading": "14. Magic",
+    "slug": "magic",
+    "body_markdown": "Magic is powerful but dangerous.\n\nA Mystic uses spells from a grimoire. A spell is a written formula, secret word, symbol, sign, or ritual.\n\nTo cast a spell during danger, roll:\n\n**1d20 + Spirit + Sorcery Training**\n\nThe normal Challenge Number is **12**.\n\nOn success, the spell works.\n\nOn failure, the spell does not work and the caster takes **1 Strain**.\n\nIf the spell is especially difficult, rushed, or used in a dangerous place, the Challenge Number may be 15 or higher.\n\n---",
+    "sort_order": 15
+  },
+  {
+    "section_id": 16,
+    "section_number": 15,
+    "title": "Strain",
+    "heading": "15. Strain",
+    "slug": "strain",
+    "body_markdown": "Strain measures magical exhaustion.\n\nA caster may safely hold Strain equal to:\n\n**3 + Spirit**\n\nMinimum safe Strain is 1.\n\nIf a caster gains Strain above this limit, the caster suffers magical backlash. The Guide chooses one:\n\n- Take 1d6 damage\n- Fall Down\n- Lose the spell until after a full rest\n- Attract unwanted attention\n- Cause a strange magical side effect\n- Damage a nearby object\n- Alert a spirit, monster, or enemy spellcaster\n\nAfter a full rest, all Strain is removed.\n\n---",
+    "sort_order": 16
+  },
+  {
+    "section_id": 17,
+    "section_number": 16,
+    "title": "Simple Spell List",
+    "heading": "16. Simple Spell List",
+    "slug": "simple_spell_list",
+    "body_markdown": "A new Mystic begins with three spells.\n\n### Flame\n\nCreate a small flame, light a torch, burn a rope, ignite oil, or hurl fire at one nearby enemy.\n\nCombat effect: one enemy takes **1d6 fire damage**.\n\n### Fireball\n\nHurl a burning sphere that bursts among enemies.\n\nCombat effect: choose one target point. All creatures close to that point take **1d6 fire damage**.\n\nA character caught in the blast may roll **Grace, Challenge 12** to take half damage.\n\nFireball is loud, bright, and may ignite flammable objects.\n\n### Lightning\n\nRelease a violent stroke of lightning in a straight line.\n\nCombat effect: all creatures in the line take **1d8 lightning damage**.\n\nA creature in the path may roll **Grace, Challenge 12** to take half damage.\n\nLightning may shatter glass, split wood, stun small creatures, or briefly light a dark area.\n\n### Ward\n\nGive yourself or an ally **+2 Defense** until the start of your next turn.\n\n### Heal\n\nRestore **1d6 Life** to a touched creature.\n\nA creature may benefit from Heal once per day.\n\n### Veil\n\nHide yourself or an ally in shadow, mist, or illusion.\n\nEffect: gain **+2** to avoid being noticed for one scene.\n\n### Whisper\n\nSend a short message to someone nearby, even through a door, wall, or crowd.\n\nThe message must be short enough to speak in one breath.\n\n### Sight\n\nNotice magic, hidden writing, spirits, curses, or unnatural danger for one scene.\n\nThe spell does not explain everything, but it reveals that something unusual is present.\n\n### Command\n\nSpeak a forceful word filled with magical pressure.\n\nA weak-minded creature may hesitate, drop something, back away, kneel, pause, or obey a simple one-word order.\n\nThe Guide may require a harder roll against strong, intelligent, or magically protected creatures.\n\n### Unlock\n\nOpen a simple lock, latch, chest, or door.\n\nStrong locks, sealed doors, magical locks, or ancient mechanisms may require a harder roll.\n\nUnlock does not silence traps unless the Guide decides the trap is part of the lock.\n\n---",
+    "sort_order": 17
+  },
+  {
+    "section_id": 18,
+    "section_number": 17,
+    "title": "Monsters",
+    "heading": "17. Monsters",
+    "slug": "monsters",
+    "body_markdown": "Monsters have only a few numbers.\n\nEach monster has:\n\n- Name\n- Description\n- Life\n- Defense\n- Attack bonus\n- Damage\n- Advancement Point value\n- Special rule, if needed\n\nA monster’s **AP value** tells how many Advancement Points are added to the encounter total when the characters defeat it.\n\nDefeating a monster usually means killing it, driving it away, forcing it to surrender, trapping it, or otherwise overcoming it during the adventure.\n\n### Cave Goblin\n\nSmall, cruel, nervous creatures that attack from darkness and flee when the fight turns against them.\n\n| Stat | Value |\n|---|---:|\n| Life | 5 |\n| Defense | 12 |\n| Attack | +2 |\n| Damage | 1d4 |\n| AP | 10 |\n\nSpecial: Cave Goblins gain +2 when hiding in darkness or ruins.\n\n### Skeleton\n\nA rattling corpse held together by old magic.\n\n| Stat | Value |\n|---|---:|\n| Life | 6 |\n| Defense | 12 |\n| Attack | +2 |\n| Damage | 1d6 |\n| AP | 15 |\n\nSpecial: Arrows and small piercing weapons deal -1 damage to Skeletons.\n\n### Wolf\n\nA fast predator that attacks in packs.\n\n| Stat | Value |\n|---|---:|\n| Life | 6 |\n| Defense | 13 |\n| Attack | +3 |\n| Damage | 1d6 |\n| AP | 15 |\n\nSpecial: A Wolf gains +2 to attack when another Wolf is attacking the same target.\n\n### Orc Raider\n\nA brutal warrior that trusts strength, fear, and heavy weapons.\n\n| Stat | Value |\n|---|---:|\n| Life | 10 |\n| Defense | 13 |\n| Attack | +4 |\n| Damage | 1d8 |\n| AP | 25 |\n\nSpecial: Once per fight, an Orc Raider may deal +1d6 damage after hitting.\n\n### Dark Acolyte\n\nA servant of forbidden powers.\n\n| Stat | Value |\n|---|---:|\n| Life | 8 |\n| Defense | 12 |\n| Attack | +3 |\n| Damage | 1d6 |\n| AP | 40 |\n\nSpecial: The Dark Acolyte may cast Flame or Command.\n\n### Ogre\n\nA huge, violent brute with terrible strength.\n\n| Stat | Value |\n|---|---:|\n| Life | 22 |\n| Defense | 12 |\n| Attack | +5 |\n| Damage | 1d10 |\n| AP | 75 |\n\nSpecial: If the Ogre rolls a natural 20 on an attack, the target is knocked down.\n\n---",
+    "sort_order": 18
+  },
+  {
+    "section_id": 19,
+    "section_number": 18,
+    "title": "Treasure",
+    "heading": "18. Treasure",
+    "slug": "treasure",
+    "body_markdown": "Treasure should be useful, interesting, or dangerous.\n\nTreasure may include:\n\n- Coins\n- Jewels\n- Weapons\n- Armor\n- Magic weapons\n- Maps\n- Keys\n- Books\n- Relics\n- Potions\n- Spell pages\n- Strange objects\n- Favors owed by important people\n\nNot every treasure is safe. Some treasure is cursed, stolen, watched, or wanted by powerful enemies.\n\n---",
+    "sort_order": 19
+  },
+  {
+    "section_id": 20,
+    "section_number": 19,
+    "title": "Advancement Points",
+    "heading": "19. Advancement Points",
+    "slug": "advancement_points",
+    "body_markdown": "Characters improve by earning **Advancement Points**, also called **AP**.\n\nCharacters earn AP by:\n\n- Defeating monsters\n- Completing a module successfully\n\nEach monster has an AP value listed in its stats.\n\nAt the end of a fight, add together the AP values of all defeated monsters. Then divide that total evenly among the surviving characters who took part in the encounter.\n\nRound down if the AP does not divide evenly.\n\nExample:\n\nFour characters defeat three Cave Goblins.\n\nEach Cave Goblin is worth 10 AP.\n\nThe total is:\n\n**10 + 10 + 10 = 30 AP**\n\nThe AP is divided among four characters.\n\n**30 ÷ 4 = 7 AP each**\n\nThe leftover AP is ignored.\n\nDefeating a monster usually means killing it, driving it away, forcing it to surrender, trapping it, or otherwise overcoming it during the adventure.\n\n---",
+    "sort_order": 20
+  },
+  {
+    "section_id": 21,
+    "section_number": 20,
+    "title": "Module Completion AP",
+    "heading": "20. Module Completion AP",
+    "slug": "module_completion_ap",
+    "body_markdown": "The Guide decides the module completion award.\n\n| Module Type | AP Award |\n|---|---:|\n| Short module | 50 AP |\n| Standard module | 100 AP |\n| Long or difficult module | 200 AP |\n| Major campaign chapter | 300 AP |\n\nA module is successfully completed when the main goal is accomplished.\n\nExamples:\n\n- Rescue the prisoner\n- Escape the dungeon\n- Defeat the warlock\n- Recover the relic\n- Discover the lost shrine\n- Break the curse\n- Save the village\n\nThe characters do not need to kill every monster or find every treasure to complete a module.\n\nEach surviving character who helped complete the module gains the full module completion AP award.\n\n---",
+    "sort_order": 21
+  },
+  {
+    "section_id": 22,
+    "section_number": 21,
+    "title": "Level Advancement",
+    "heading": "21. Level Advancement",
+    "slug": "level_advancement",
+    "body_markdown": "Characters begin at **Level 1**.\n\nA character gains a level when their total AP reaches the amount required for the next level.\n\nAP is not spent. It is kept as a running total.\n\nTo keep the game simple, all Callings currently use the same AP table.\n\n| Level | Blade AP | Shadow AP | Sage AP | Mystic AP |\n|---:|---:|---:|---:|---:|\n| 1 | 0 | 0 | 0 | 0 |\n| 2 | 100 | 100 | 100 | 100 |\n| 3 | 300 | 300 | 300 | 300 |\n| 4 | 600 | 600 | 600 | 600 |\n| 5 | 1,000 | 1,000 | 1,000 | 1,000 |\n| 6 | 1,500 | 1,500 | 1,500 | 1,500 |\n| 7 | 2,100 | 2,100 | 2,100 | 2,100 |\n| 8 | 2,800 | 2,800 | 2,800 | 2,800 |\n| 9 | 3,600 | 3,600 | 3,600 | 3,600 |\n| 10 | 4,500 | 4,500 | 4,500 | 4,500 |\n\nWhen a character gains a level, choose one improvement:\n\n- Gain +1 Life\n- Gain one new Training\n- Improve one Trait by +1, maximum +3\n- Learn one new spell\n- Gain one new Calling gift, approved by the Guide\n\nA character may not gain more than one level at the end of a single module unless the Guide allows it.\n\n---",
+    "sort_order": 22
+  },
+  {
+    "section_id": 23,
+    "section_number": 22,
+    "title": "Simple Difficulty Advice",
+    "heading": "22. Simple Difficulty Advice",
+    "slug": "simple_difficulty_advice",
+    "body_markdown": "The Guide should not ask for rolls when the task is easy, safe, or obvious.\n\nRoll only when:\n\n- The task is dangerous\n- Time matters\n- Failure would be interesting\n- The character is under pressure\n- The result is uncertain\n\nUse these Challenge Numbers:\n\n| Situation | Number |\n|---|---:|\n| A trained character should usually succeed | 9 |\n| A risky task under pressure | 12 |\n| A difficult task even for a trained character | 15 |\n| A desperate or extreme task | 18 |\n| A nearly impossible deed | 21 |\n\n---",
+    "sort_order": 23
+  },
+  {
+    "section_id": 24,
+    "section_number": 23,
+    "title": "The Guide’s Job",
+    "heading": "23. The Guide’s Job",
+    "slug": "the_guide_s_job",
+    "body_markdown": "The Guide should:\n\n- Describe the world clearly\n- Give the players meaningful choices\n- Make danger understandable\n- Reward clever thinking\n- Keep the game moving\n- Be fair, not cruel\n- Let the dice matter\n- Change the world based on what the characters do\n\nThe Guide should avoid hiding important information behind too many rolls. If something is obvious, tell the players. If something can be discovered by careful play, give clues.\n\n---",
+    "sort_order": 24
+  },
+  {
+    "section_id": 25,
+    "section_number": 24,
+    "title": "Example of Play",
+    "heading": "24. Example of Play",
+    "slug": "example_of_play",
+    "body_markdown": "Guide: “The old stone door is covered with rusted iron bands. You hear scratching on the other side.”\n\nPlayer: “I want to force it open before whatever is behind it gets ready.”\n\nGuide: “That is a Might roll. It is old, but heavy. Challenge 12.”\n\nThe player rolls 1d20 and gets 11. The character has Might +2.\n\nPlayer: “That makes 13.”\n\nGuide: “The door cracks open. Cold air spills out. Three pale shapes turn toward you from the darkness.”\n\nLater, during combat:\n\nPlayer: “I strike the nearest creature with my axe.”\n\nGuide: “Roll Might plus your Axes Training against Defense 12.”\n\nThe player rolls 1d20 and gets 9. The character has Might +2 and Axes Training +2.\n\nPlayer: “That makes 13.”\n\nGuide: “You hit. Roll your weapon damage.”\n\nThe player rolls 1d6 and gets 4.\n\nGuide: “Your axe bites deep. The creature staggers but does not fall. If the party defeats it, its AP value will be added to the encounter total and divided evenly among the characters who took part.”\n\n---",
+    "sort_order": 25
+  },
+  {
+    "section_id": 26,
+    "section_number": 25,
+    "title": "Design Rule",
+    "heading": "25. Design Rule",
+    "slug": "design_rule",
+    "body_markdown": "Grimoire & Steel should stay simple.\n\nWhen adding new rules, use this test:\n\n- Does this make the game more fun?\n- Does this make choices more interesting?\n- Can a new player understand it quickly?\n- Can the Guide run it without stopping the game?\n- Does it feel like Grimoire & Steel?\n\nIf the answer is no, keep the rule out.\n\n---",
+    "sort_order": 26
+  },
+  {
+    "section_id": 27,
+    "section_number": 26,
+    "title": "Compact Sample Character Sheet",
+    "heading": "26. Compact Sample Character Sheet",
+    "slug": "compact_sample_character_sheet",
+    "body_markdown": "The character sheet is designed to be compact. The sample version shows how a first-level character may be filled out.\n\n<div style=\"border:3px double #333; padding:12px; margin:12px 0; font-family:serif;\">\n\n<h1 style=\"text-align:center; margin:0;\">⚔ Grimoire &amp; Steel ⚔</h1>\n<h2 style=\"text-align:center; margin:4px 0 12px 0;\">Character Sheet — Sample</h2>\n\n<table style=\"width:100%; border-collapse:collapse;\">\n<tr>\n<td style=\"width:50%; vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Identity\n\n| Field | Value |\n|---|---|\n| Name | Garron Stonehand |\n| Player | Sample Player |\n| Kin | Dwarf |\n| Calling | Blade |\n| Level | 1 |\n| AP | 0 |\n| Background | Former tunnel guard |\n| Goal | Recover his clan’s stolen battle standard |\n\n</td>\n<td style=\"width:50%; vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Traits\n\n| Trait | Bonus |\n|---|---:|\n| Might | +2 |\n| Grace | +0 |\n| Wits | -1 |\n| Spirit | +1 |\n\n### Gifts\n\n| Source | Gift |\n|---|---|\n| Dwarf | Add +1 Life |\n| Blade | Once per fight, add +1d6 damage after hitting |\n\n</td>\n</tr>\n<tr>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Training\n\n| Training | Use |\n|---|---|\n| Axes | Axe attacks |\n| Shields | Shield fighting and defense |\n| Survival | Travel, tracking, harsh conditions |\n\n### Personality\n\nLoyal, blunt, stubborn.\n\n</td>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Combat\n\n| Stat | Value |\n|---|---:|\n| Life | 13 |\n| Defense | 13 |\n| Armor | Mail +2 |\n| Shield | Yes, +1 |\n| Main Attack | Hand axe |\n| Attack Bonus | +4 |\n| Damage | 1d6 |\n\nLife: **10 + Might + Dwarf Gift = 13**  \nDefense: **10 + Grace + Armor + Shield = 13**\n\n</td>\n</tr>\n<tr>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Weapons\n\n| Weapon | Damage | Notes |\n|---|---:|---|\n| Hand axe | 1d6 | One-handed |\n| Dagger | 1d4 | Backup |\n\n### Armor & Gear\n\n| Item | Notes |\n|---|---|\n| Mail armor | +2 Defense |\n| Shield | +1 Defense |\n| Travel pack | Bedroll, rations, rope, flint, waterskin |\n| Clan token | Stone charm from home |\n| Torch | Useful in dark ruins |\n\n</td>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Magic\n\nThis character does not know any spells.\n\n| Spell | Effect |\n|---|---|\n| None | — |\n\nStrain Limit: Not used unless the character learns magic.\n\n### Notes\n\nA sturdy front-line character. Good at melee combat and survival. Weak Wits makes lore, puzzles, and careful searching harder.\n\n</td>\n</tr>\n</table>\n\n</div>\n\n---",
+    "sort_order": 27
+  },
+  {
+    "section_id": 28,
+    "section_number": 27,
+    "title": "Compact Blank Character Sheet",
+    "heading": "27. Compact Blank Character Sheet",
+    "slug": "compact_blank_character_sheet",
+    "body_markdown": "Use this blank sheet for a new character. It is intentionally compact so it can be printed with fewer pages.\n\n<div style=\"border:3px double #333; padding:12px; margin:12px 0; font-family:serif;\">\n\n<h1 style=\"text-align:center; margin:0;\">⚔ Grimoire &amp; Steel ⚔</h1>\n<h2 style=\"text-align:center; margin:4px 0 12px 0;\">Character Sheet</h2>\n\n<table style=\"width:100%; border-collapse:collapse;\">\n<tr>\n<td style=\"width:50%; vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Identity\n\n| Field | Value |\n|---|---|\n| Name |  |\n| Player |  |\n| Kin |  |\n| Calling |  |\n| Level |  |\n| AP |  |\n| Background |  |\n| Goal |  |\n\n</td>\n<td style=\"width:50%; vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Traits\n\nAssign: **+2, +1, +0, -1**\n\n| Trait | Bonus |\n|---|---:|\n| Might |  |\n| Grace |  |\n| Wits |  |\n| Spirit |  |\n\n### Gifts\n\n| Source | Gift |\n|---|---|\n| Kin |  |\n| Calling |  |\n\n</td>\n</tr>\n<tr>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Training\n\nA new character begins with **three Trainings**.\n\n| Training | Use |\n|---|---|\n|  |  |\n|  |  |\n|  |  |\n|  |  |\n\n### Personality\n\n________________________________________________\n\n________________________________________________\n\n</td>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Combat\n\n| Stat | Value |\n|---|---:|\n| Life |  |\n| Defense |  |\n| Armor |  |\n| Shield |  |\n| Main Attack |  |\n| Attack Bonus |  |\n| Damage |  |\n\nLife: **10 + Might = ______**  \nDefense: **10 + Grace + Armor + Shield = ______**\n\n</td>\n</tr>\n<tr>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Weapons\n\n| Weapon | Damage | Notes |\n|---|---:|---|\n|  |  |  |\n|  |  |  |\n|  |  |  |\n\n### Armor & Gear\n\n| Item | Notes |\n|---|---|\n|  |  |\n|  |  |\n|  |  |\n|  |  |\n|  |  |\n\n</td>\n<td style=\"vertical-align:top; padding:6px; border:1px solid #555;\">\n\n### Magic\n\n| Spell | Effect |\n|---|---|\n|  |  |\n|  |  |\n|  |  |\n\nStrain Limit: **3 + Spirit = ______**\n\n### Notes\n\n________________________________________________\n\n________________________________________________\n\n________________________________________________\n\n________________________________________________\n\n</td>\n</tr>\n</table>\n\n</div>",
+    "sort_order": 28
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "calling_id": 1,
+    "weapon_name": "Any weapon approved by the Guide"
+  },
+  {
+    "calling_id": 2,
+    "weapon_name": "Light weapon"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Dagger"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Hand axe"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Light crossbow"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Short sword"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Sling"
+  },
+  {
+    "calling_id": 3,
+    "weapon_name": "Staff"
+  },
+  {
+    "calling_id": 4,
+    "weapon_name": "Dagger"
+  },
+  {
+    "calling_id": 4,
+    "weapon_name": "Staff"
+  }
+]

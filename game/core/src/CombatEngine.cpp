@@ -1,73 +1,67 @@
 #include "gns/CombatEngine.h"
-#include "gns/Repository.h"   // Repository, MonsterDef, monster()
+#include "gns/Repository.h"   // Repository
 #include "gns/Dice.h"
-#include "gns/Rules.h"        // monsterXp, AttackResult
+#include "gns/Rules.h"        // AttackResult, apPerSurvivor
 #include "gns/Narrator.h"     // factFor
 
 #include <cstddef>
 
 namespace gns {
 
-int applyXpBonus(int amount, int xpBonusPct) {
-    return amount + (amount * xpBonusPct) / 100;
-}
-
 CombatEngine::CombatEngine(const Repository& repo, Dice& dice)
     : repo_(repo), dice_(dice), adj_(repo, dice) {}
 
-int CombatEngine::encounterXp(const Encounter& enc) const {
+int CombatEngine::encounterAp(const Encounter& enc) const {
     int total = 0;
-    for (const auto& c : enc.monsters)
-        if (const MonsterDef* def = repo_.monster(c.name))
-            total += gns::monsterXp(repo_, *def);
+    for (const auto& c : enc.monsters) total += c.apValue;
     return total;
 }
 
 CombatResult CombatEngine::run(Party& party, Encounter& enc, int maxRounds) {
     CombatResult res;
 
-    // Nothing to fight -> immediate victory (no XP, no rounds).
+    // Nothing to fight -> immediate victory (no AP, no rounds).
     if (!enc.occurred || enc.monsters.empty()) {
         res.outcome = CombatOutcome::PartyVictory;
         return res;
     }
 
     auto monstersAlive = [&] {
-        for (const auto& m : enc.monsters) if (m.hp > 0) return true;
+        for (const auto& m : enc.monsters) if (m.life > 0) return true;
         return false;
     };
     auto firstLiveMonster = [&]() -> int {
         for (std::size_t i = 0; i < enc.monsters.size(); ++i)
-            if (enc.monsters[i].hp > 0) return static_cast<int>(i);
+            if (enc.monsters[i].life > 0) return static_cast<int>(i);
         return -1;
     };
     auto firstLivePc = [&]() -> int {
         for (std::size_t i = 0; i < party.members.size(); ++i)
-            if (party.members[i].hp > 0) return static_cast<int>(i);
+            if (party.members[i].life > 0) return static_cast<int>(i);
         return -1;
     };
 
     // Each living PC strikes the first living monster.
     auto partyActs = [&] {
         for (auto& pc : party.members) {
-            if (pc.hp <= 0) continue;
+            if (pc.life <= 0) continue;
             int ti = firstLiveMonster();
             if (ti < 0) return;
             Combatant& target = enc.monsters[ti];
-            AttackResult ar = adj_.characterAttack(pc.level, target.armorClass, pc.weaponName);
-            if (ar.hit) target.hp -= ar.damage;
+            AttackResult ar = adj_.characterAttack(pc, target.defense);
+            if (ar.hit) target.life -= ar.damage;
             res.log.push_back(factFor(ar, pc.name, target.name));
         }
     };
     // Each living monster strikes the first living PC.
     auto monstersAct = [&] {
         for (auto& mon : enc.monsters) {
-            if (mon.hp <= 0) continue;
+            if (mon.life <= 0) continue;
             int ti = firstLivePc();
             if (ti < 0) return;
             Character& target = party.members[ti];
-            AttackResult ar = adj_.monsterAttack(mon.hitDiceNum, target.armorClass, mon.damage);
-            if (ar.hit) target.hp -= ar.damage;
+            AttackResult ar = adj_.monsterAttack(mon.attackBonus, target.defense, mon.damage);
+            if (ar.hit) target.life -= ar.damage;
             res.log.push_back(factFor(ar, mon.name, target.name));
         }
     };
@@ -88,14 +82,13 @@ CombatResult CombatEngine::run(Party& party, Encounter& enc, int maxRounds) {
 
     if (!monstersAlive()) {
         res.outcome = CombatOutcome::PartyVictory;
-        res.xpAwarded = encounterXp(enc);
+        res.apAwarded = encounterAp(enc);
         int survivors = 0;
-        for (const auto& pc : party.members) if (pc.hp > 0) ++survivors;
+        for (const auto& pc : party.members) if (pc.life > 0) ++survivors;
         if (survivors > 0) {
-            res.xpPerSurvivor = res.xpAwarded / survivors;
+            res.apPerSurvivor = apPerSurvivor(res.apAwarded, survivors);
             for (auto& pc : party.members)
-                if (pc.hp > 0)
-                    pc.experiencePoints += applyXpBonus(res.xpPerSurvivor, pc.xpBonusPct);
+                if (pc.life > 0) pc.ap += res.apPerSurvivor;
         }
     } else {
         res.outcome = CombatOutcome::PartyDefeat;

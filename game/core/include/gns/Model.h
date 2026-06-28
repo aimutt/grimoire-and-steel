@@ -3,123 +3,129 @@
 #include <string>
 #include <vector>
 
+// Reference data structures mirroring the Grimoire & Steel gns.db schema. These
+// are loaded once by Repository and consumed by the rules engine. The game treats
+// gns.db as read-only reference data.
+
 namespace gns {
 
-struct Ability {
+// One of the four traits (Might, Grace, Wits, Spirit).
+struct Trait {
     int id = 0;
     std::string name;
-    std::string abbreviation;
+    std::string description;
     int sortOrder = 0;
 };
 
-struct AbilityAdjustment {
-    std::string appliesTo;   // "Prime Requisite" | "Constitution" | "Dexterity"
-    int scoreLow = 0, scoreHigh = 0;
-    int modifier = 0;
-    std::string effect;
-};
-
-struct Race {
+// An ancestry: each kin has a single gift.
+struct Kin {
     int id = 0;
     std::string name;
-    std::string restrictions;
-    std::string specialAbility;
-    double carryModifier = 1.0;
-    int baseMovementFt = 120;
+    std::string description;
+    std::string giftName;
+    std::string giftDescription;
+    int sortOrder = 0;
 };
 
-struct CharacterClass {
+// A training tag; grants +2 to applicable rolls.
+struct Training {
     int id = 0;
     std::string name;
-    std::optional<int> parentId;             // sub-class -> base class
-    std::optional<int> primeRequisiteAbilityId;
-    std::string restrictions;
-    std::string specialAbilities;
+    std::string description;
+    int sortOrder = 0;
 };
 
-struct ClassLevel {
-    int classId = 0;
-    int level = 0;
-    std::string title;
-    int experiencePoints = 0;
-    std::string hitDice;   // e.g. "1d8"
-    std::string spells;    // e.g. "1 first level" / "None"
-};
-
-struct SavingThrow {
-    std::string classGroup;
-    int vsSpellStaff = 0, vsMagicWand = 0, vsDeathPoison = 0, vsStone = 0, vsDragonBreath = 0;
-};
-
-struct StrengthCapacity {
-    int score = 0;
-    int baseLbs = 0;
-    int maxLbs = 0;
-};
-
-struct WeaponDef {
+// A class ("calling"). Carries its starting choices and signature gift, plus the
+// training/weapon options offered at creation (loaded from the join tables).
+struct Calling {
     int id = 0;
     std::string name;
-    std::string category;
-    int costGp = 0;
-    int weightLbs = 0;
-    std::string damage;       // "1d8 (1-8)"
-    int damageMin = 0, damageMax = 0;
-    bool twoHanded = false;
-    bool clericUsable = false;
-    std::optional<int> rangeShort, rangeMedium, rangeLong;
+    std::string description;
+    std::string startingGear;
+    std::string armorAllowed;
+    std::string giftName;
+    std::string giftDescription;
+    int sortOrder = 0;
+    std::vector<std::string> trainingOptions;   // training names
+    std::vector<std::string> weaponOptions;     // weapon names
 };
 
-struct ArmorDef {
+// A weapon class with its damage die (e.g. "One-handed weapon" -> "1d6").
+struct WeaponCategory {
     int id = 0;
     std::string name;
-    std::optional<int> armorClass;   // AC when worn (none for shields)
-    std::optional<int> acModifier;   // e.g. -1 for shield
-    int costGp = 0;
-    int weightLbs = 0;
-    bool isShield = false;
+    std::string damageDie;   // e.g. "1d6"
+    std::string examples;
+    int sortOrder = 0;
 };
 
+// An armor (or shield) option granting a flat Defense bonus.
+struct Armor {
+    int id = 0;
+    std::string name;
+    int defenseBonus = 0;
+    std::string notes;
+    int sortOrder = 0;
+};
+
+// A named difficulty band and its target number for the core 1d20 roll.
+struct ChallengeNumber {
+    std::string name;        // "Easy", "Normal", ...
+    int target = 0;          // target number
+    std::string description;
+    int sortOrder = 0;
+};
+
+// A creature stat block. Life/Defense/attack are fixed numbers (no hit dice).
 struct MonsterDef {
     int id = 0;
     std::string name;
-    std::string hitDiceText;
-    std::optional<int> hitDiceNum;
-    std::string armorClassText;
-    std::optional<int> armorClassNum;
-    std::string alignment;
-    std::string attacks;
-    std::string damage;
-    std::string treasureCode;   // "" if none
-    bool isGroup = false;
-    std::optional<int> parentId;
+    std::string description;
+    int life = 1;
+    int defense = 10;
+    int attackBonus = 0;
+    std::string damage;       // damage expression, e.g. "1d8"
+    int apValue = 0;          // advancement points awarded
+    std::string specialRule;
 };
 
-struct MonsterXpRow {
-    std::string hitDice;   // "1+1", "Under 1", ...
-    int value = 0;
-    int specialBonus = 0;
+// A spell. All current spells share Challenge 12; some have a combat effect.
+struct SpellDef {
+    int id = 0;
+    std::string name;
+    std::string description;
+    std::string combatEffect;          // empty if non-combat
+    std::optional<int> challengeNumber;
+    std::string notes;
 };
 
-struct WanderingEntry {
-    int environmentId = 0;
-    std::string environment;
-    int monsterId = 0;
-    std::string monster;
-    int levelMin = 1, levelMax = 3;
-    int numberMin = 1, numberMax = 1;
-    int weight = 1;
+// An example enchanted weapon (+1..+3).
+struct MagicWeaponExample {
+    int id = 0;
+    std::string name;
+    int bonus = 0;
+    std::string description;
 };
 
-struct TurnUndeadEntry {
-    int clericLevel = 0;
-    std::string undeadType;
-    std::string result;   // number, "T", or "no effect"
+// One row of a calling's cumulative AP advancement table.
+struct AdvancementLevel {
+    int callingId = 0;
+    int level = 0;
+    int apRequired = 0;
 };
 
-struct TreasureTypeRow {
-    std::string code;
-    std::string copper, silver, electrum, gold, platinum, gemsJewelry, mapsMagic;
+// Advancement points granted for completing a module of a given size.
+struct ModuleCompletionAward {
+    std::string moduleType;
+    int apAward = 0;
+    std::string description;
+    int sortOrder = 0;
+};
+
+// A choice available when a character gains a level.
+struct LevelImprovementOption {
+    std::string description;
+    int sortOrder = 0;
 };
 
 } // namespace gns

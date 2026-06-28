@@ -1,0 +1,37 @@
+[
+  {
+    "armor_id": 1,
+    "name": "No armor",
+    "defense_bonus": 0,
+    "notes": null,
+    "sort_order": 1
+  },
+  {
+    "armor_id": 2,
+    "name": "Light armor",
+    "defense_bonus": 1,
+    "notes": null,
+    "sort_order": 2
+  },
+  {
+    "armor_id": 3,
+    "name": "Mail armor",
+    "defense_bonus": 2,
+    "notes": null,
+    "sort_order": 3
+  },
+  {
+    "armor_id": 4,
+    "name": "Plate armor",
+    "defense_bonus": 3,
+    "notes": null,
+    "sort_order": 4
+  },
+  {
+    "armor_id": 5,
+    "name": "Shield",
+    "defense_bonus": 1,
+    "notes": "A shield gives +1 Defense.",
+    "sort_order": 5
+  }
+]

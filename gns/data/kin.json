@@ -1,0 +1,34 @@
+[
+  {
+    "kin_id": 1,
+    "name": "Human",
+    "description": "Adaptable, ambitious, and found almost everywhere.",
+    "gift_name": "Adaptable",
+    "gift_description": "Gain one extra Training.",
+    "sort_order": 1
+  },
+  {
+    "kin_id": 2,
+    "name": "Dwarf",
+    "description": "Stubborn, strong-willed, and skilled with stone, metal, and old halls.",
+    "gift_name": "Stout",
+    "gift_description": "Add +1 Life.",
+    "sort_order": 2
+  },
+  {
+    "kin_id": 3,
+    "name": "Elf",
+    "description": "Graceful, long-lived, and tied to ancient forests, stars, or lost magic.",
+    "gift_name": "Dim Sight",
+    "gift_description": "See well in dim light.",
+    "sort_order": 3
+  },
+  {
+    "kin_id": 4,
+    "name": "Halfling",
+    "description": "Small, clever, quiet, and often underestimated.",
+    "gift_name": "Quick Luck",
+    "gift_description": "Once per game session, reroll a failed Grace roll.",
+    "sort_order": 4
+  }
+]

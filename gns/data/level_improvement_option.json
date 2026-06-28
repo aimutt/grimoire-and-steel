@@ -1,0 +1,27 @@
+[
+  {
+    "option_id": 1,
+    "description": "Gain +1 Life.",
+    "sort_order": 1
+  },
+  {
+    "option_id": 2,
+    "description": "Gain one new Training.",
+    "sort_order": 2
+  },
+  {
+    "option_id": 3,
+    "description": "Improve one Trait by +1, maximum +3.",
+    "sort_order": 3
+  },
+  {
+    "option_id": 4,
+    "description": "Learn one new spell.",
+    "sort_order": 4
+  },
+  {
+    "option_id": 5,
+    "description": "Gain one new Calling gift, approved by the Guide.",
+    "sort_order": 5
+  }
+]

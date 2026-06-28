@@ -7,34 +7,35 @@ RulesAdjudicator::RulesAdjudicator(const Repository& repo, Dice& dice)
     : repo_(repo), dice_(dice) {}
 
 // ---- Combat -----------------------------------------------------------------
-// gns:: qualification routes to the free functions in Rules.h (the member names
-// match, so an unqualified call would recurse).
 
-AttackResult RulesAdjudicator::characterAttack(int level, int targetAc,
-                                               const std::string& weapon) {
-    return gns::characterAttack(repo_, dice_, level, targetAc, weapon);
+AttackResult RulesAdjudicator::characterAttack(const Character& c, int targetDefense,
+                                               bool ranged) {
+    int bonus = ranged ? rangedAttackBonus(c) : meleeAttackBonus(c);
+    return resolveAttack(dice_, bonus, targetDefense, c.weaponDamageDie, /*damageBonus=*/0);
 }
 
-AttackResult RulesAdjudicator::monsterAttack(int hitDice, int targetAc,
-                                             const std::string& damageExpr) {
-    return gns::monsterAttack(repo_, dice_, hitDice, targetAc, damageExpr);
+AttackResult RulesAdjudicator::monsterAttack(int attackBonus, int targetDefense,
+                                             const std::string& damage) {
+    return resolveAttack(dice_, attackBonus, targetDefense, damage, /*damageBonus=*/0);
 }
 
-// ---- Saving throw -----------------------------------------------------------
+// ---- Spellcasting -----------------------------------------------------------
 
-RulesAdjudicator::SaveOutcome RulesAdjudicator::savingThrow(const Character& c, SaveCategory cat) {
-    SaveOutcome o;
-    o.needed = saveNeeded(c, cat);
-    o.roll = dice_.d20();
-    o.success = o.roll >= o.needed;
-    return o;
+CastResult RulesAdjudicator::castSpell(const Character& c, int challenge) {
+    return gns::castSpell(dice_, spellCastBonus(c), challenge, c.strain, strainLimit(c));
 }
 
-// ---- Authored-chance checks -------------------------------------------------
+// ---- Generic checks ---------------------------------------------------------
 
 bool RulesAdjudicator::check(int chancePct) {
     return dice_.percent(chancePct);
 }
+
+CheckResult RulesAdjudicator::resolve(int bonus, int challenge) {
+    return resolveCheck(dice_, bonus, challenge);
+}
+
+// ---- Authored-chance area checks --------------------------------------------
 
 RulesAdjudicator::CheckOutcome RulesAdjudicator::trapCheck(const Area& a) {
     CheckOutcome o;
@@ -55,24 +56,6 @@ RulesAdjudicator::CheckOutcome RulesAdjudicator::hiddenCheck(const Area& a) {
     o.occurred = dice_.percent(a.hiddenChancePct);
     if (o.occurred) o.description = a.hiddenDescription;
     return o;
-}
-
-// ---- Encounter / reward forwards --------------------------------------------
-
-WanderingResult RulesAdjudicator::wandering(const std::string& environment, int partyLevel) {
-    return rollWandering(repo_, dice_, environment, partyLevel);
-}
-
-TreasureResult RulesAdjudicator::treasure(const std::string& code, int individuals) {
-    return rollTreasure(repo_, dice_, code, individuals);
-}
-
-TurnResult RulesAdjudicator::turnUndead(int clericLevel, const std::string& undeadType) {
-    return gns::turnUndead(repo_, dice_, clericLevel, undeadType);
-}
-
-int RulesAdjudicator::monsterXp(const MonsterDef& m) {
-    return gns::monsterXp(repo_, m);
 }
 
 } // namespace gns

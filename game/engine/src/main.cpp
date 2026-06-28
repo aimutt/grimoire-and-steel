@@ -92,8 +92,8 @@ int main(int, char**) {
     std::vector<gns::SpellBrief> spells;
     try {
         db = std::make_unique<gns::Database>(dbPath());
-        monsterCount = gns::countRows(*db, "monsters");
-        spellCount = gns::countRows(*db, "all_spells");
+        monsterCount = gns::countRows(*db, "monster");
+        spellCount = gns::countRows(*db, "spell");
         monsters = gns::topMonsters(*db, 25);
         spells = gns::allSpells(*db);
     } catch (const std::exception& e) {
@@ -220,16 +220,16 @@ int main(int, char**) {
             ImGui::TextUnformatted("First 25 monsters:");
             if (ImGui::BeginTable("monsters", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders)) {
                 ImGui::TableSetupColumn("Name");
-                ImGui::TableSetupColumn("HD");
-                ImGui::TableSetupColumn("AC");
-                ImGui::TableSetupColumn("Alignment");
+                ImGui::TableSetupColumn("Life");
+                ImGui::TableSetupColumn("Defense");
+                ImGui::TableSetupColumn("Damage");
                 ImGui::TableHeadersRow();
                 for (auto& m : monsters) {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::TextUnformatted(m.name.c_str());
-                    ImGui::TableNextColumn(); ImGui::TextUnformatted(m.hitDice.c_str());
-                    ImGui::TableNextColumn(); ImGui::TextUnformatted(m.armorClass.c_str());
-                    ImGui::TableNextColumn(); ImGui::TextUnformatted(m.alignment.c_str());
+                    ImGui::TableNextColumn(); ImGui::Text("%d", m.life);
+                    ImGui::TableNextColumn(); ImGui::Text("%d", m.defense);
+                    ImGui::TableNextColumn(); ImGui::TextUnformatted(m.damage.c_str());
                 }
                 ImGui::EndTable();
             }
@@ -239,20 +239,20 @@ int main(int, char**) {
         ImGui::SetNextWindowPos(ImVec2(440, 30), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(640, 690), ImGuiCond_FirstUseEver);
         ImGui::Begin("Spells");
-        if (dbErr.empty() && ImGui::BeginTable("spells", 4,
+        if (dbErr.empty() && ImGui::BeginTable("spells", 3,
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY)) {
             ImGui::TableSetupColumn("Name");
-            ImGui::TableSetupColumn("Lvl");
-            ImGui::TableSetupColumn("Class");
-            ImGui::TableSetupColumn("Range");
+            ImGui::TableSetupColumn("Challenge");
+            ImGui::TableSetupColumn("Combat effect");
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
             for (auto& s : spells) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(s.name.c_str());
-                ImGui::TableNextColumn(); ImGui::Text("%d", s.level);
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(s.spellClass.c_str());
-                ImGui::TableNextColumn(); ImGui::TextUnformatted(s.range.c_str());
+                ImGui::TableNextColumn();
+                if (s.challengeNumber > 0) ImGui::Text("%d", s.challengeNumber);
+                else ImGui::TextUnformatted("-");
+                ImGui::TableNextColumn(); ImGui::TextUnformatted(s.combatEffect.c_str());
             }
             ImGui::EndTable();
         }

@@ -1,0 +1,6 @@
+# gns/ Flask browser dependencies.
+#   py -m pip install --user -r gns/requirements.txt
+Flask>=2.0
+# Optional: nicer rendering of the rules-bible markdown sections. The app falls
+# back to a plain <pre> block if this is not installed.
+markdown>=3.4

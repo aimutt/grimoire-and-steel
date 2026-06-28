@@ -1,15 +1,12 @@
 #include "gns/EncounterDirector.h"
 #include "gns/Repository.h"   // Repository, MonsterDef (via Model.h)
 #include "gns/Dice.h"
-#include "gns/Rules.h"        // rollWandering / WanderingResult
 
 #include <algorithm>
-#include <cctype>
-#include <optional>
 
 namespace gns {
 
-// ---- Reaction (canonical Basic D&D 2d6 table) -------------------------------
+// ---- Reaction (2d6 social roll) ---------------------------------------------
 
 Reaction reactionFor2d6(int total) {
     if (total <= 2)  return Reaction::Hostile;
@@ -30,41 +27,10 @@ const char* reactionText(Reaction r) {
     return "neutral";
 }
 
-// ---- helpers ----------------------------------------------------------------
-
-namespace {
-// Parse a monster hit-dice line ("1", "1+1", "2-1", "3+2") into a d8 count + a
-// signed modifier. Prefers the pre-parsed numeric hit dice when present.
-void parseHitDice(const std::string& text, const std::optional<int>& hdNum,
-                  int& count, int& plus) {
-    count = 0;
-    plus = 0;
-    if (hdNum.has_value()) {
-        count = *hdNum;
-    } else {
-        std::size_t i = 0;
-        while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i]))) ++i;
-        if (i > 0) { try { count = std::stoi(text.substr(0, i)); } catch (...) { count = 0; } }
-    }
-    std::size_t s = text.find_first_of("+-");
-    if (s != std::string::npos) {
-        try { plus = std::stoi(text.substr(s)); } catch (...) { plus = 0; }
-    }
-}
-} // namespace
-
 // ---- EncounterDirector ------------------------------------------------------
 
 EncounterDirector::EncounterDirector(const Repository& repo, Dice& dice)
     : repo_(repo), dice_(dice) {}
-
-int EncounterDirector::rollMonsterHp(const MonsterDef& def) {
-    int count = 0, plus = 0;
-    parseHitDice(def.hitDiceText, def.hitDiceNum, count, plus);
-    int hp = (count <= 0) ? dice_.roll(1, 4)            // sub-1 HD monster
-                          : dice_.roll(count, 8, plus); // N d8 + modifier
-    return std::max(1, hp);
-}
 
 void EncounterDirector::appendMonsters(Encounter& e, const std::string& monsterType,
                                        int count) {
@@ -74,29 +40,30 @@ void EncounterDirector::appendMonsters(Encounter& e, const std::string& monsterT
         Combatant c;
         if (def) {
             c.name = def->name;
-            c.armorClass = def->armorClassNum.value_or(9);
-            c.hitDiceNum = def->hitDiceNum.value_or(1);
+            c.defense = def->defense;
+            c.attackBonus = def->attackBonus;
             c.damage = def->damage;
-            c.maxHp = rollMonsterHp(*def);
+            c.apValue = def->apValue;
+            c.specialRule = def->specialRule;
+            c.maxLife = std::max(1, def->life);
         } else {
             // Free-text / unknown type: usable defaults so combat can proceed.
             c.name = monsterType;
-            c.armorClass = 9;
-            c.hitDiceNum = 1;
+            c.defense = 10;
+            c.attackBonus = 1;
             c.damage = "1d6";
-            c.maxHp = std::max(1, dice_.roll(1, 8));
+            c.apValue = 0;
+            c.maxLife = 6;
         }
-        c.hp = c.maxHp;
+        c.life = c.maxLife;
         e.monsters.push_back(c);
     }
 }
 
-Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int count,
-                                           bool fromWandering) {
+Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int count) {
     Encounter e;
     e.occurred = true;
     e.monsterType = monsterType;
-    e.fromWandering = fromWandering;
     e.known = (repo_.monster(monsterType) != nullptr);
     appendMonsters(e, monsterType, count);
     e.reaction = rollReaction();
@@ -106,24 +73,17 @@ Encounter EncounterDirector::makeEncounter(const std::string& monsterType, int c
 Encounter EncounterDirector::checkArea(const Area& area) {
     if (!dice_.percent(area.monsterChancePct)) return Encounter{};   // occurred = false
     if (area.monsters.empty())
-        return makeEncounter(area.monsterType, 1, /*fromWandering=*/false);
+        return makeEncounter(area.monsterType, 1);
 
     // Multiple types: spawn each row's count into one encounter.
     Encounter e;
     e.occurred = true;
-    e.fromWandering = false;
     e.monsterType = area.monsters.front().type;        // representative label
     e.known = (repo_.monster(e.monsterType) != nullptr);
     for (const auto& am : area.monsters)
         appendMonsters(e, am.type, am.count);
     e.reaction = rollReaction();
     return e;
-}
-
-Encounter EncounterDirector::checkWandering(const std::string& environment, int partyLevel) {
-    WanderingResult w = rollWandering(repo_, dice_, environment, partyLevel);
-    if (!w.any) return Encounter{};
-    return makeEncounter(w.monster, w.count, /*fromWandering=*/true);
 }
 
 Reaction EncounterDirector::rollReaction() {

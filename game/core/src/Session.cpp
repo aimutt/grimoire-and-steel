@@ -9,7 +9,7 @@ namespace gns {
 bool Party::isWiped() const {
     if (members.empty()) return false;
     for (const auto& c : members)
-        if (c.hp > 0) return false;
+        if (c.life > 0) return false;
     return true;
 }
 

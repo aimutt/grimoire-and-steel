@@ -1,0 +1,80 @@
+[
+  {
+    "training_id": 1,
+    "name": "Blades",
+    "description": "Weapon training for swords and similar bladed weapons.",
+    "sort_order": 1
+  },
+  {
+    "training_id": 2,
+    "name": "Axes",
+    "description": "Weapon training for hand axes, battle axes, and similar weapons.",
+    "sort_order": 2
+  },
+  {
+    "training_id": 3,
+    "name": "Bows",
+    "description": "Training with bows and crossbows.",
+    "sort_order": 3
+  },
+  {
+    "training_id": 4,
+    "name": "Shields",
+    "description": "Training with shield use and defensive fighting.",
+    "sort_order": 4
+  },
+  {
+    "training_id": 5,
+    "name": "Stealth",
+    "description": "Training in hiding, moving quietly, and ambush.",
+    "sort_order": 5
+  },
+  {
+    "training_id": 6,
+    "name": "Locks",
+    "description": "Training in opening locks and handling simple mechanisms.",
+    "sort_order": 6
+  },
+  {
+    "training_id": 7,
+    "name": "Lore",
+    "description": "Training in history, monsters, magic, traps, ruins, and old knowledge.",
+    "sort_order": 7
+  },
+  {
+    "training_id": 8,
+    "name": "Healing",
+    "description": "Training in treating wounds and caring for the injured.",
+    "sort_order": 8
+  },
+  {
+    "training_id": 9,
+    "name": "Survival",
+    "description": "Training in travel, tracking, and harsh conditions.",
+    "sort_order": 9
+  },
+  {
+    "training_id": 10,
+    "name": "Persuasion",
+    "description": "Training in social influence, bargaining, and charm.",
+    "sort_order": 10
+  },
+  {
+    "training_id": 11,
+    "name": "Sorcery",
+    "description": "Training in casting spells from grimoires and hidden signs.",
+    "sort_order": 11
+  },
+  {
+    "training_id": 12,
+    "name": "Faith",
+    "description": "Training in sacred rites, vows, courage, and spiritual force.",
+    "sort_order": 12
+  },
+  {
+    "training_id": 13,
+    "name": "Crafting",
+    "description": "Training in making, repairing, and understanding worked objects.",
+    "sort_order": 13
+  }
+]

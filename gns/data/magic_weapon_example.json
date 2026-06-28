@@ -1,0 +1,38 @@
+[
+  {
+    "magic_weapon_id": 1,
+    "name": "+1 Sword",
+    "bonus": 1,
+    "description": "Adds +1 to attack rolls and +1 to damage rolls."
+  },
+  {
+    "magic_weapon_id": 2,
+    "name": "+1 Hand Axe",
+    "bonus": 1,
+    "description": "Adds +1 to attack rolls and +1 to damage rolls."
+  },
+  {
+    "magic_weapon_id": 3,
+    "name": "+2 Battle Axe",
+    "bonus": 2,
+    "description": "Adds +2 to attack rolls and +2 to damage rolls."
+  },
+  {
+    "magic_weapon_id": 4,
+    "name": "+1 Dagger of Returning",
+    "bonus": 1,
+    "description": "Adds +1 to attack and damage; may return to the wielder if the Guide allows."
+  },
+  {
+    "magic_weapon_id": 5,
+    "name": "+1 Short Sword of Silent Striking",
+    "bonus": 1,
+    "description": "Adds +1 to attack and damage; suited to stealthy attacks."
+  },
+  {
+    "magic_weapon_id": 6,
+    "name": "+2 Hammer of the Old Halls",
+    "bonus": 2,
+    "description": "Adds +2 to attack and damage; carries old dwarven history."
+  }
+]

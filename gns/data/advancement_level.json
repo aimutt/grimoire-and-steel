@@ -1,0 +1,242 @@
+[
+  {
+    "advancement_id": 1,
+    "calling_id": 1,
+    "level": 1,
+    "ap_required": 0
+  },
+  {
+    "advancement_id": 2,
+    "calling_id": 1,
+    "level": 2,
+    "ap_required": 100
+  },
+  {
+    "advancement_id": 3,
+    "calling_id": 1,
+    "level": 3,
+    "ap_required": 300
+  },
+  {
+    "advancement_id": 4,
+    "calling_id": 1,
+    "level": 4,
+    "ap_required": 600
+  },
+  {
+    "advancement_id": 5,
+    "calling_id": 1,
+    "level": 5,
+    "ap_required": 1000
+  },
+  {
+    "advancement_id": 6,
+    "calling_id": 1,
+    "level": 6,
+    "ap_required": 1500
+  },
+  {
+    "advancement_id": 7,
+    "calling_id": 1,
+    "level": 7,
+    "ap_required": 2100
+  },
+  {
+    "advancement_id": 8,
+    "calling_id": 1,
+    "level": 8,
+    "ap_required": 2800
+  },
+  {
+    "advancement_id": 9,
+    "calling_id": 1,
+    "level": 9,
+    "ap_required": 3600
+  },
+  {
+    "advancement_id": 10,
+    "calling_id": 1,
+    "level": 10,
+    "ap_required": 4500
+  },
+  {
+    "advancement_id": 11,
+    "calling_id": 2,
+    "level": 1,
+    "ap_required": 0
+  },
+  {
+    "advancement_id": 12,
+    "calling_id": 2,
+    "level": 2,
+    "ap_required": 100
+  },
+  {
+    "advancement_id": 13,
+    "calling_id": 2,
+    "level": 3,
+    "ap_required": 300
+  },
+  {
+    "advancement_id": 14,
+    "calling_id": 2,
+    "level": 4,
+    "ap_required": 600
+  },
+  {
+    "advancement_id": 15,
+    "calling_id": 2,
+    "level": 5,
+    "ap_required": 1000
+  },
+  {
+    "advancement_id": 16,
+    "calling_id": 2,
+    "level": 6,
+    "ap_required": 1500
+  },
+  {
+    "advancement_id": 17,
+    "calling_id": 2,
+    "level": 7,
+    "ap_required": 2100
+  },
+  {
+    "advancement_id": 18,
+    "calling_id": 2,
+    "level": 8,
+    "ap_required": 2800
+  },
+  {
+    "advancement_id": 19,
+    "calling_id": 2,
+    "level": 9,
+    "ap_required": 3600
+  },
+  {
+    "advancement_id": 20,
+    "calling_id": 2,
+    "level": 10,
+    "ap_required": 4500
+  },
+  {
+    "advancement_id": 21,
+    "calling_id": 3,
+    "level": 1,
+    "ap_required": 0
+  },
+  {
+    "advancement_id": 22,
+    "calling_id": 3,
+    "level": 2,
+    "ap_required": 100
+  },
+  {
+    "advancement_id": 23,
+    "calling_id": 3,
+    "level": 3,
+    "ap_required": 300
+  },
+  {
+    "advancement_id": 24,
+    "calling_id": 3,
+    "level": 4,
+    "ap_required": 600
+  },
+  {
+    "advancement_id": 25,
+    "calling_id": 3,
+    "level": 5,
+    "ap_required": 1000
+  },
+  {
+    "advancement_id": 26,
+    "calling_id": 3,
+    "level": 6,
+    "ap_required": 1500
+  },
+  {
+    "advancement_id": 27,
+    "calling_id": 3,
+    "level": 7,
+    "ap_required": 2100
+  },
+  {
+    "advancement_id": 28,
+    "calling_id": 3,
+    "level": 8,
+    "ap_required": 2800
+  },
+  {
+    "advancement_id": 29,
+    "calling_id": 3,
+    "level": 9,
+    "ap_required": 3600
+  },
+  {
+    "advancement_id": 30,
+    "calling_id": 3,
+    "level": 10,
+    "ap_required": 4500
+  },
+  {
+    "advancement_id": 31,
+    "calling_id": 4,
+    "level": 1,
+    "ap_required": 0
+  },
+  {
+    "advancement_id": 32,
+    "calling_id": 4,
+    "level": 2,
+    "ap_required": 100
+  },
+  {
+    "advancement_id": 33,
+    "calling_id": 4,
+    "level": 3,
+    "ap_required": 300
+  },
+  {
+    "advancement_id": 34,
+    "calling_id": 4,
+    "level": 4,
+    "ap_required": 600
+  },
+  {
+    "advancement_id": 35,
+    "calling_id": 4,
+    "level": 5,
+    "ap_required": 1000
+  },
+  {
+    "advancement_id": 36,
+    "calling_id": 4,
+    "level": 6,
+    "ap_required": 1500
+  },
+  {
+    "advancement_id": 37,
+    "calling_id": 4,
+    "level": 7,
+    "ap_required": 2100
+  },
+  {
+    "advancement_id": 38,
+    "calling_id": 4,
+    "level": 8,
+    "ap_required": 2800
+  },
+  {
+    "advancement_id": 39,
+    "calling_id": 4,
+    "level": 9,
+    "ap_required": 3600
+  },
+  {
+    "advancement_id": 40,
+    "calling_id": 4,
+    "level": 10,
+    "ap_required": 4500
+  }
+]
