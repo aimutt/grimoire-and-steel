@@ -1,0 +1,42 @@
+[
+  {
+    "calling_id": 1,
+    "name": "Blade",
+    "description": "A fighter, guard, mercenary, knight, soldier, holy warrior, or weapon-master. A Blade may be brutal, noble, disciplined, spiritual, or sworn to a sacred cause.",
+    "starting_gear": "weapon, armor, travel pack",
+    "armor_allowed": "Any armor",
+    "gift_name": "Battle Strike",
+    "gift_description": "Once per fight, add +1d6 damage after hitting an enemy.",
+    "sort_order": 1
+  },
+  {
+    "calling_id": 2,
+    "name": "Shadow",
+    "description": "A scout, thief, spy, hunter, smuggler, or tomb-breaker. A Shadow survives through silence, speed, awareness, and careful timing.",
+    "starting_gear": "light weapon, tools, cloak, travel pack",
+    "armor_allowed": "No armor or light armor",
+    "gift_name": "Unseen Strike",
+    "gift_description": "Add +2 when attacking an enemy that has not noticed you.",
+    "sort_order": 2
+  },
+  {
+    "calling_id": 3,
+    "name": "Sage",
+    "description": "A scholar, healer, alchemist, engineer, advisor, or keeper of old knowledge. A Sage is not helpless in danger, but relies more on knowledge than brute force.",
+    "starting_gear": "hand axe or short sword, books or tools, travel pack",
+    "armor_allowed": "No armor or light armor only",
+    "gift_name": "Useful Question",
+    "gift_description": "Once per scene, ask the Guide one useful question about history, monsters, magic, traps, machines, ruins, or strange objects.",
+    "sort_order": 3
+  },
+  {
+    "calling_id": 4,
+    "name": "Mystic",
+    "description": "A spellcaster who studies grimoires, spirits, signs, forbidden words, and hidden forces. Mystics are powerful, but magic is never completely safe.",
+    "starting_gear": "dagger or staff, grimoire, travel pack",
+    "armor_allowed": "No armor",
+    "gift_name": "Spellcaster",
+    "gift_description": "Begin with three spells.",
+    "sort_order": 4
+  }
+]

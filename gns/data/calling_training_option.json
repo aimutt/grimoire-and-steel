@@ -1,0 +1,38 @@
+[
+  {
+    "calling_id": 1,
+    "training_id": 1
+  },
+  {
+    "calling_id": 1,
+    "training_id": 2
+  },
+  {
+    "calling_id": 1,
+    "training_id": 3
+  },
+  {
+    "calling_id": 1,
+    "training_id": 4
+  },
+  {
+    "calling_id": 2,
+    "training_id": 5
+  },
+  {
+    "calling_id": 2,
+    "training_id": 6
+  },
+  {
+    "calling_id": 3,
+    "training_id": 7
+  },
+  {
+    "calling_id": 3,
+    "training_id": 8
+  },
+  {
+    "calling_id": 4,
+    "training_id": 11
+  }
+]

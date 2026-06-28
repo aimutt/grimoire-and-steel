@@ -1,0 +1,37 @@
+[
+  {
+    "weapon_category_id": 1,
+    "name": "Small weapon",
+    "damage_die": "1d4",
+    "examples": "dagger, club, hatchet",
+    "sort_order": 1
+  },
+  {
+    "weapon_category_id": 2,
+    "name": "One-handed weapon",
+    "damage_die": "1d6",
+    "examples": "sword, axe, mace, spear, short sword, hand axe",
+    "sort_order": 2
+  },
+  {
+    "weapon_category_id": 3,
+    "name": "Two-handed weapon",
+    "damage_die": "1d8",
+    "examples": "greatsword, battle axe, war hammer",
+    "sort_order": 3
+  },
+  {
+    "weapon_category_id": 4,
+    "name": "Bow or crossbow",
+    "damage_die": "1d6",
+    "examples": "shortbow, longbow, crossbow",
+    "sort_order": 4
+  },
+  {
+    "weapon_category_id": 5,
+    "name": "Improvised weapon",
+    "damage_die": "1d4",
+    "examples": "chair leg, rock, bottle, farming tool",
+    "sort_order": 5
+  }
+]

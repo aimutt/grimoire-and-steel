@@ -1,0 +1,12 @@
+[
+  {
+    "game_id": 1,
+    "title": "Grimoire & Steel",
+    "abbreviation": "G&S",
+    "version": "0.5",
+    "source_file": "grimoire_and_steel_rules_bible_v0_5_condensed_sheets.md",
+    "source_sha256": "ac9e2d76f7f9d8aba6588507e2566cc4c0c944ea46075c45b8d0e546b5a50eb0",
+    "created_utc": "2026-06-28T03:18:39+00:00",
+    "notes": "Original rules bible database for the Grimoire & Steel role-playing game."
+  }
+]

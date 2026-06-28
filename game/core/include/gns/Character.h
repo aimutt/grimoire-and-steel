@@ -1,52 +1,70 @@
 #pragma once
 #include <string>
+#include <vector>
 
 namespace gns {
 
 class Repository;
-class Dice;
 
-enum class Abil { STR, INT, WIS, DEX, CON, CHA };
+// The four Grimoire & Steel traits.
+enum class TraitId { Might, Grace, Wits, Spirit };
 
-struct AbilityScores {
-    int str = 10, intel = 10, wis = 10, dex = 10, con = 10, cha = 10;
-    int get(Abil a) const;
-    void set(Abil a, int v);
+// A character's trait bonuses. At creation these are assigned from the spread
+// {+2, +1, +0, -1}; they may rise to a maximum of +3 through advancement.
+struct Traits {
+    int might = 0, grace = 0, wits = 0, spirit = 0;
+    int get(TraitId t) const;
+    void set(TraitId t, int v);
 };
 
+// A playable character. Life replaces hit points; Defense replaces armor class;
+// Advancement Points (AP) replace experience points; Strain tracks spell fatigue.
 struct Character {
     std::string name;
-    std::string race;
-    std::string charClass;
+    std::string kin;        // ancestry name: "Human", "Dwarf", ...
+    std::string calling;    // class name: "Blade", "Shadow", "Sage", "Mystic"
     int level = 1;
-    AbilityScores abilities;
-    int maxHp = 1;
-    int hp = 1;
-    int armorClass = 9;        // 9 = unarmored
-    std::string weaponName;    // equipped weapon (empty = 1d6 unarmed/default in combat)
-    int baseMovementFt = 120;
-    int xpBonusPct = 0;        // prime-requisite earned-XP modifier
-    int experiencePoints = 0;
-    // saving throws (level 1-3)
-    int saveSpellStaff = 0, saveMagicWand = 0, saveDeathPoison = 0,
-        saveStone = 0, saveDragonBreath = 0;
-    std::string classGroup;    // saving-throw / class group
+    Traits traits;
+    std::vector<std::string> trainings;   // training names the character has
+
+    int maxLife = 1;
+    int life = 1;
+    int defense = 10;
+    int ap = 0;             // cumulative advancement points
+    int strain = 0;         // current accumulated strain
+
+    std::vector<std::string> spells;      // known spell names (Mystics)
+
+    // Equipment shaping combat (a small profile so the engine needn't re-derive).
+    std::string armorName = "No armor";
+    bool shield = false;
+    std::string weaponName;               // display / chosen weapon
+    std::string weaponDamageDie = "1d6";  // damage die for attacks
+    int weaponBonus = 0;                   // magic weapon bonus (+1..+3)
 };
 
-// Roll 3d6 for each ability.
-AbilityScores rollAbilities(Dice& dice);
+// --- creation ---------------------------------------------------------------
 
-// Map an ability name ("Strength", ...) to the matching score.
-int scoreForAbility(const AbilityScores& s, const std::string& abilityName);
+// True when the spread is exactly one each of {+2,+1,+0,-1} and none exceed +3.
+bool validTraitSpread(const Traits& t);
+// Trainings a new character of this kin should pick (4 for Human, else 3).
+int requiredTrainingCount(const std::string& kinName);
 
-// Saving-throw class group for a class+race (Dwarf/Halfling have their own group).
-std::string classGroupFor(const Repository& repo, const std::string& className,
-                          const std::string& raceName);
+// Build a level-1 character: Life = max(6, 10 + Might) (+1 for Dwarf);
+// Defense = 10 + Grace + armor bonus (+1 for a shield). No dice are rolled.
+Character makeCharacter(const Repository& repo, const std::string& name,
+                        const std::string& kinName, const std::string& callingName,
+                        const Traits& traits, const std::vector<std::string>& trainings,
+                        const std::string& armorName = "No armor", bool shield = false);
 
-// Build a level-N character: prime-requisite XP bonus, HP (class hit die + CON per die),
-// derived saves and movement.
-Character makeCharacter(const Repository& repo, Dice& dice, const std::string& name,
-                        const std::string& raceName, const std::string& className,
-                        const AbilityScores& scores, int level = 1);
+// --- derived combat values --------------------------------------------------
+
+bool hasTraining(const Character& c, const std::string& trainingName);
+// Melee attack bonus: Might + weapon bonus, +2 when trained with a weapon type.
+int meleeAttackBonus(const Character& c);
+// Ranged attack bonus: Grace + weapon bonus, +2 when trained with a weapon type.
+int rangedAttackBonus(const Character& c);
+// Safe strain limit before backlash: max(1, 3 + Spirit).
+int strainLimit(const Character& c);
 
 } // namespace gns

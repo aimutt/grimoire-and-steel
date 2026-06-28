@@ -1,0 +1,30 @@
+[
+  {
+    "award_id": 1,
+    "module_type": "Short module",
+    "ap_award": 50,
+    "description": "A short adventure or small module.",
+    "sort_order": 1
+  },
+  {
+    "award_id": 2,
+    "module_type": "Standard module",
+    "ap_award": 100,
+    "description": "A standard module with a clear main goal.",
+    "sort_order": 2
+  },
+  {
+    "award_id": 3,
+    "module_type": "Long or difficult module",
+    "ap_award": 200,
+    "description": "A longer or more dangerous module.",
+    "sort_order": 3
+  },
+  {
+    "award_id": 4,
+    "module_type": "Major campaign chapter",
+    "ap_award": 300,
+    "description": "A major chapter of an ongoing campaign.",
+    "sort_order": 4
+  }
+]

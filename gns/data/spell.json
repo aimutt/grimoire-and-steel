@@ -1,0 +1,92 @@
+[
+  {
+    "spell_id": 1,
+    "name": "Flame",
+    "description": "Create a small flame, light a torch, burn a rope, ignite oil, or hurl fire at one nearby enemy.",
+    "combat_effect": "One enemy takes 1d6 fire damage.",
+    "challenge_number": 12,
+    "notes": null,
+    "sort_order": 1
+  },
+  {
+    "spell_id": 2,
+    "name": "Fireball",
+    "description": "Hurl a burning sphere that bursts among enemies.",
+    "combat_effect": "Choose one target point. All creatures close to that point take 1d6 fire damage.",
+    "challenge_number": 12,
+    "notes": "A character caught in the blast may roll Grace, Challenge 12, to take half damage. Fireball is loud, bright, and may ignite flammable objects.",
+    "sort_order": 2
+  },
+  {
+    "spell_id": 3,
+    "name": "Lightning",
+    "description": "Release a violent stroke of lightning in a straight line.",
+    "combat_effect": "All creatures in the line take 1d8 lightning damage.",
+    "challenge_number": 12,
+    "notes": "A creature in the path may roll Grace, Challenge 12, to take half damage. Lightning may shatter glass, split wood, stun small creatures, or briefly light a dark area.",
+    "sort_order": 3
+  },
+  {
+    "spell_id": 4,
+    "name": "Ward",
+    "description": "Give yourself or an ally magical protection.",
+    "combat_effect": "Target gains +2 Defense until the start of your next turn.",
+    "challenge_number": 12,
+    "notes": null,
+    "sort_order": 4
+  },
+  {
+    "spell_id": 5,
+    "name": "Heal",
+    "description": "Restore Life to a touched creature.",
+    "combat_effect": "Touched creature restores 1d6 Life.",
+    "challenge_number": 12,
+    "notes": "A creature may benefit from Heal once per day.",
+    "sort_order": 5
+  },
+  {
+    "spell_id": 6,
+    "name": "Veil",
+    "description": "Hide yourself or an ally in shadow, mist, or illusion.",
+    "combat_effect": "Gain +2 to avoid being noticed for one scene.",
+    "challenge_number": 12,
+    "notes": null,
+    "sort_order": 6
+  },
+  {
+    "spell_id": 7,
+    "name": "Whisper",
+    "description": "Send a short message to someone nearby, even through a door, wall, or crowd.",
+    "combat_effect": null,
+    "challenge_number": 12,
+    "notes": "The message must be short enough to speak in one breath.",
+    "sort_order": 7
+  },
+  {
+    "spell_id": 8,
+    "name": "Sight",
+    "description": "Notice magic, hidden writing, spirits, curses, or unnatural danger for one scene.",
+    "combat_effect": null,
+    "challenge_number": 12,
+    "notes": "The spell does not explain everything, but it reveals that something unusual is present.",
+    "sort_order": 8
+  },
+  {
+    "spell_id": 9,
+    "name": "Command",
+    "description": "Speak a forceful word filled with magical pressure.",
+    "combat_effect": "A weak-minded creature may hesitate, drop something, back away, kneel, pause, or obey a simple one-word order.",
+    "challenge_number": 12,
+    "notes": "The Guide may require a harder roll against strong, intelligent, or magically protected creatures.",
+    "sort_order": 9
+  },
+  {
+    "spell_id": 10,
+    "name": "Unlock",
+    "description": "Open a simple lock, latch, chest, or door.",
+    "combat_effect": null,
+    "challenge_number": 12,
+    "notes": "Strong locks, sealed doors, magical locks, or ancient mechanisms may require a harder roll. Unlock does not silence traps unless the Guide decides the trap is part of the lock.",
+    "sort_order": 10
+  }
+]

@@ -1,118 +1,95 @@
 #include "gns/Character.h"
 #include "gns/Repository.h"
-#include "gns/Dice.h"
 #include <algorithm>
+#include <array>
 
 namespace gns {
 
-int AbilityScores::get(Abil a) const {
-    switch (a) {
-        case Abil::STR: return str;
-        case Abil::INT: return intel;
-        case Abil::WIS: return wis;
-        case Abil::DEX: return dex;
-        case Abil::CON: return con;
-        case Abil::CHA: return cha;
+int Traits::get(TraitId t) const {
+    switch (t) {
+        case TraitId::Might:  return might;
+        case TraitId::Grace:  return grace;
+        case TraitId::Wits:   return wits;
+        case TraitId::Spirit: return spirit;
     }
-    return 10;
-}
-void AbilityScores::set(Abil a, int v) {
-    switch (a) {
-        case Abil::STR: str = v; break;
-        case Abil::INT: intel = v; break;
-        case Abil::WIS: wis = v; break;
-        case Abil::DEX: dex = v; break;
-        case Abil::CON: con = v; break;
-        case Abil::CHA: cha = v; break;
-    }
-}
-
-AbilityScores rollAbilities(Dice& dice) {
-    AbilityScores s;
-    s.str = dice.roll(3, 6);
-    s.intel = dice.roll(3, 6);
-    s.wis = dice.roll(3, 6);
-    s.dex = dice.roll(3, 6);
-    s.con = dice.roll(3, 6);
-    s.cha = dice.roll(3, 6);
-    return s;
-}
-
-int scoreForAbility(const AbilityScores& s, const std::string& name) {
-    if (name == "Strength") return s.str;
-    if (name == "Intelligence") return s.intel;
-    if (name == "Wisdom") return s.wis;
-    if (name == "Dexterity") return s.dex;
-    if (name == "Constitution") return s.con;
-    if (name == "Charisma") return s.cha;
     return 0;
 }
-
-std::string classGroupFor(const Repository& repo, const std::string& className,
-                          const std::string& raceName) {
-    if (raceName == "Dwarf" || raceName == "Halfling")
-        return "Dwarves & Halflings";
-    // Resolve sub-class to its base class.
-    std::string base = className;
-    if (const CharacterClass* c = repo.charClass(className); c && c->parentId) {
-        for (auto& cc : repo.classes())
-            if (cc.id == *c->parentId) { base = cc.name; break; }
+void Traits::set(TraitId t, int v) {
+    switch (t) {
+        case TraitId::Might:  might = v;  break;
+        case TraitId::Grace:  grace = v;  break;
+        case TraitId::Wits:   wits = v;   break;
+        case TraitId::Spirit: spirit = v; break;
     }
-    if (base == "Magic-User") return "Magic-user";
-    if (base == "Cleric") return "Cleric";
-    // Fighter and Thief both map to the fighting-man group.
-    return "Fighting Man, Thief, Hobgoblin";
 }
 
-Character makeCharacter(const Repository& repo, Dice& dice, const std::string& name,
-                        const std::string& raceName, const std::string& className,
-                        const AbilityScores& scores, int level) {
+bool validTraitSpread(const Traits& t) {
+    std::array<int, 4> got{t.might, t.grace, t.wits, t.spirit};
+    std::array<int, 4> want{-1, 0, 1, 2};
+    std::sort(got.begin(), got.end());
+    return got == want;
+}
+
+int requiredTrainingCount(const std::string& kinName) {
+    return kinName == "Human" ? 4 : 3;   // Human's Adaptable gift grants a 4th training
+}
+
+bool hasTraining(const Character& c, const std::string& trainingName) {
+    for (const auto& t : c.trainings)
+        if (t == trainingName) return true;
+    return false;
+}
+
+namespace {
+// The weapon-type trainings that add their +2 to an attack roll.
+bool hasWeaponTraining(const Character& c) {
+    return hasTraining(c, "Blades") || hasTraining(c, "Axes") ||
+           hasTraining(c, "Bows") || hasTraining(c, "Shields");
+}
+} // namespace
+
+int meleeAttackBonus(const Character& c) {
+    return c.traits.might + c.weaponBonus + (hasWeaponTraining(c) ? 2 : 0);
+}
+int rangedAttackBonus(const Character& c) {
+    return c.traits.grace + c.weaponBonus + (hasWeaponTraining(c) ? 2 : 0);
+}
+int strainLimit(const Character& c) {
+    return std::max(1, 3 + c.traits.spirit);
+}
+
+Character makeCharacter(const Repository& repo, const std::string& name,
+                        const std::string& kinName, const std::string& callingName,
+                        const Traits& traits, const std::vector<std::string>& trainings,
+                        const std::string& armorName, bool shield) {
     Character ch;
     ch.name = name;
-    ch.race = raceName;
-    ch.charClass = className;
-    ch.level = level;
-    ch.abilities = scores;
+    ch.kin = kinName;
+    ch.calling = callingName;
+    ch.level = 1;
+    ch.traits = traits;
+    ch.trainings = trainings;
+    ch.armorName = armorName;
+    ch.shield = shield;
 
-    const CharacterClass* cls = repo.charClass(className);
-    const Race* race = repo.race(raceName);
-    ch.baseMovementFt = race ? race->baseMovementFt : 120;
+    // Life = 10 + Might (minimum 6); Dwarves are tougher by +1.
+    int life = std::max(6, 10 + traits.might);
+    if (kinName == "Dwarf") life += 1;
+    ch.maxLife = life;
+    ch.life = life;
 
-    // Prime-requisite earned-XP bonus.
-    if (cls && cls->primeRequisiteAbilityId) {
-        if (const Ability* pa = repo.abilityById(*cls->primeRequisiteAbilityId)) {
-            int s = scoreForAbility(scores, pa->name);
-            ch.xpBonusPct = repo.abilityAdjustment("Prime Requisite", s);
-        }
+    // Defense = 10 + Grace + armor bonus + shield bonus.
+    int armorBonus = 0;
+    if (const Armor* a = repo.armor(armorName)) armorBonus = a->defenseBonus;
+    int shieldBonus = 0;
+    if (shield) {
+        if (const Armor* sh = repo.armor("Shield")) shieldBonus = sh->defenseBonus;
+        else shieldBonus = 1;
     }
+    ch.defense = 10 + traits.grace + armorBonus + shieldBonus;
 
-    // Hit points: roll the class hit die for each level, + CON per-die modifier.
-    int conMod = repo.abilityAdjustment("Constitution", scores.con);
-    int hp = 0;
-    if (cls) {
-        const ClassLevel* cl = repo.classLevel(cls->id, level);
-        DiceExpr e;
-        if (cl && parseDice(cl->hitDice, e) && !e.isRange) {
-            // hitDice is the *total* dice at this level (e.g. "3d8").
-            for (int i = 0; i < e.count; ++i)
-                hp += dice.roll(1, e.sides) + conMod;
-            ch.experiencePoints = cl->experiencePoints;
-        }
-    }
-    ch.maxHp = std::max(1, hp);
-    ch.hp = ch.maxHp;
-
-    // Saving throws.
-    ch.classGroup = classGroupFor(repo, className, raceName);
-    if (const SavingThrow* st = repo.savingThrow(ch.classGroup)) {
-        ch.saveSpellStaff = st->vsSpellStaff;
-        ch.saveMagicWand = st->vsMagicWand;
-        ch.saveDeathPoison = st->vsDeathPoison;
-        ch.saveStone = st->vsStone;
-        ch.saveDragonBreath = st->vsDragonBreath;
-    }
-
-    ch.armorClass = 9;   // unarmored; equipment sets this later
+    ch.ap = 0;
+    ch.strain = 0;
     return ch;
 }
 

@@ -1,0 +1,37 @@
+[
+  {
+    "challenge_id": 1,
+    "name": "Easy",
+    "target_number": 9,
+    "description": "A trained character should usually succeed.",
+    "sort_order": 1
+  },
+  {
+    "challenge_id": 2,
+    "name": "Normal",
+    "target_number": 12,
+    "description": "A risky task under pressure.",
+    "sort_order": 2
+  },
+  {
+    "challenge_id": 3,
+    "name": "Hard",
+    "target_number": 15,
+    "description": "A difficult task even for a trained character.",
+    "sort_order": 3
+  },
+  {
+    "challenge_id": 4,
+    "name": "Very Hard",
+    "target_number": 18,
+    "description": "A desperate or extreme task.",
+    "sort_order": 4
+  },
+  {
+    "challenge_id": 5,
+    "name": "Legendary",
+    "target_number": 21,
+    "description": "A nearly impossible deed.",
+    "sort_order": 5
+  }
+]

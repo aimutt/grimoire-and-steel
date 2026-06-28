@@ -1,0 +1,26 @@
+[
+  {
+    "trait_id": 1,
+    "name": "Might",
+    "description": "Strength, toughness, lifting, melee force",
+    "sort_order": 1
+  },
+  {
+    "trait_id": 2,
+    "name": "Grace",
+    "description": "Speed, balance, stealth, aim",
+    "sort_order": 2
+  },
+  {
+    "trait_id": 3,
+    "name": "Wits",
+    "description": "Knowledge, searching, crafting, tactics",
+    "sort_order": 3
+  },
+  {
+    "trait_id": 4,
+    "name": "Spirit",
+    "description": "Courage, willpower, charm, magic",
+    "sort_order": 4
+  }
+]
