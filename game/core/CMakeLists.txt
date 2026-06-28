@@ -4,6 +4,7 @@ add_library(gns_core STATIC
     src/Dice.cpp
     src/Repository.cpp
     src/Character.cpp
+    src/CharacterIO.cpp
     src/Rules.cpp
     src/ModuleIO.cpp
     src/Session.cpp

@@ -55,6 +55,7 @@ function(gns_copy_runtime tgt)
 endfunction()
 
 add_subdirectory(core)
+add_subdirectory(shared)
 add_subdirectory(engine)
 add_subdirectory(creator)
 

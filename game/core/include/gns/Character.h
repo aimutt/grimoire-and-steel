@@ -41,6 +41,13 @@ struct Character {
     std::string weaponName;               // display / chosen weapon
     std::string weaponDamageDie = "1d6";  // damage die for attacks
     int weaponBonus = 0;                   // magic weapon bonus (+1..+3)
+
+    // Flavor / identity (no rules code reads these; persisted with the character).
+    std::string playerName;
+    std::string background;
+    std::string goal;
+    std::string personality;
+    std::string notes;
 };
 
 // --- creation ---------------------------------------------------------------
