@@ -4,6 +4,7 @@
 #include "gns/Dice.h"
 #include "gns/Repository.h"
 #include "gns/Character.h"
+#include "gns/CharacterIO.h"
 #include "gns/Rules.h"
 #include "gns/Module.h"
 #include "gns/Session.h"
@@ -149,6 +150,54 @@ int main() {
             // Trivial challenge -> always succeeds -> no strain.
             CastResult win = castSpell(dice, 0, 1, 0, 2);
             check("trivial cast succeeds with no strain", win.success && win.strainGained == 0);
+        }
+
+        // ---- Character .gnschar round-trip ----
+        std::printf("== character io ==\n");
+        {
+            // A Mystic with flavor, trainings, spells, and equipment exercises every field.
+            Traits mtr; mtr.might = 0; mtr.grace = 1; mtr.wits = 2; mtr.spirit = -1;
+            Character c = makeCharacter(repo, "Yenna", "Elf", "Mystic", mtr,
+                                        {"Sorcery", "Lore", "Healing"}, "No armor", false);
+            c.playerName = "Sam";
+            c.background = "Hedge witch";
+            c.goal = "Find the lost grimoire";
+            c.personality = "Curious, wary";
+            c.notes = "Owes a debt to the river spirits.";
+            c.weaponName = "Staff";
+            c.weaponDamageDie = "1d4";
+            c.weaponBonus = 1;
+            c.spells = {"Flame", "Heal", "Veil"};
+            c.ap = 250; c.level = 2; c.life = 7; c.strain = 1;
+
+            const std::string path = "gns_character_roundtrip_test.gnschar";
+            std::remove(path.c_str());
+            saveCharacter(c, path);
+            Character r = loadCharacter(path);
+            std::remove(path.c_str());
+
+            check("character identity preserved",
+                  r.name == "Yenna" && r.playerName == "Sam" && r.kin == "Elf" &&
+                  r.calling == "Mystic" && r.level == 2);
+            check("character traits preserved",
+                  r.traits.might == 0 && r.traits.grace == 1 &&
+                  r.traits.wits == 2 && r.traits.spirit == -1);
+            check("character derived stats preserved",
+                  r.maxLife == c.maxLife && r.life == 7 && r.defense == c.defense &&
+                  r.ap == 250 && r.strain == 1);
+            check("character equipment preserved",
+                  r.armorName == "No armor" && r.shield == false &&
+                  r.weaponName == "Staff" && r.weaponDamageDie == "1d4" && r.weaponBonus == 1);
+            check("character flavor preserved",
+                  r.background == "Hedge witch" && r.goal == "Find the lost grimoire" &&
+                  r.personality == "Curious, wary" &&
+                  r.notes == "Owes a debt to the river spirits.");
+            check("character trainings preserved",
+                  r.trainings.size() == 3 && r.trainings[0] == "Sorcery" &&
+                  r.trainings[1] == "Lore" && r.trainings[2] == "Healing");
+            check("character spells preserved",
+                  r.spells.size() == 3 && r.spells[0] == "Flame" &&
+                  r.spells[1] == "Heal" && r.spells[2] == "Veil");
         }
 
         // ---- Module .gnsmod round-trip (M2 I/O) ----
