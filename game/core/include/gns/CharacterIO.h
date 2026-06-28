@@ -12,7 +12,8 @@
 
 namespace gns {
 
-constexpr int kCharacterFormatVersion = 1;
+// v2 added the character `portrait` column (avatar image filename).
+constexpr int kCharacterFormatVersion = 2;
 
 // Write `c` to `path`, fully overwriting any existing file. Throws gns::DbError.
 void saveCharacter(const Character& c, const std::string& path);

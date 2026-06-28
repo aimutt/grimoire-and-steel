@@ -147,6 +147,7 @@ struct Area {
     std::string hiddenDescription;
 
     std::string artworkPath;    // relative path; image preview is deferred
+    std::string musicPath;      // music that plays while the party is in this area
 
     // Shop/market: when isShop, the party may buy & sell here from this supply list.
     bool isShop = false;
@@ -178,6 +179,8 @@ struct Module {
     std::string author;
     std::string summary;
     std::string coverArtPath;   // splash/cover image the engine shows when the module loads
+    std::string splashMusicPath;   // music for the cover/splash screen
+    std::string defaultMusicPath;  // music when the party is not in a defined area
     std::vector<Map> maps;
     std::vector<ControlPoint> controlPoints;
     int startMapId = 0;   // beginning of the adventure
@@ -205,8 +208,9 @@ struct Module {
 // module cover_art column (splash image shown by the engine on load); v9 added the
 // area label_auto column (label auto-tracks map position until edited by hand); v10
 // added the area is_shop column + area_treasures and area_shop_items tables; v11 added
-// shop-item description, stock, and image columns to area_shop_items.
-constexpr int kModuleFormatVersion = 11;
+// shop-item description, stock, and image columns to area_shop_items; v12 added the module
+// splash_music/default_music columns and the area music column.
+constexpr int kModuleFormatVersion = 12;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

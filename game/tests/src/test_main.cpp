@@ -164,6 +164,7 @@ int main() {
             c.goal = "Find the lost grimoire";
             c.personality = "Curious, wary";
             c.notes = "Owes a debt to the river spirits.";
+            c.portraitPath = "portrait05.png";
             c.weaponName = "Staff";
             c.weaponDamageDie = "1d4";
             c.weaponBonus = 1;
@@ -192,6 +193,7 @@ int main() {
                   r.background == "Hedge witch" && r.goal == "Find the lost grimoire" &&
                   r.personality == "Curious, wary" &&
                   r.notes == "Owes a debt to the river spirits.");
+            check("character portrait preserved", r.portraitPath == "portrait05.png");
             check("character trainings preserved",
                   r.trainings.size() == 3 && r.trainings[0] == "Sorcery" &&
                   r.trainings[1] == "Lore" && r.trainings[2] == "Healing");
@@ -208,6 +210,8 @@ int main() {
             m.author = "QA";
             m.summary = "Round-trip fixture.";
             m.coverArtPath = "art/cover.png";   // module splash image (v8)
+            m.splashMusicPath = "audio/splash.mp3";     // module splash/default music (v12)
+            m.defaultMusicPath = "audio/overworld.ogg";
 
             Map map;
             map.id = 1; map.name = "Level 1";
@@ -229,6 +233,7 @@ int main() {
             a1.lockChancePct = 15; a1.lockDescription = "Iron door";
             a1.hiddenChancePct = 40; a1.hiddenDescription = "Loose brick";
             a1.artworkPath = "art/entry.png";
+            a1.musicPath = "audio/entry.ogg";   // per-area music (v12)
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
             a1.monsters = {{"Skeleton", 4}, {"Cave Goblin", 2}};     // multi-type (#23)
@@ -272,6 +277,8 @@ int main() {
             check("module name preserved", r.name == "Tomb of Tests");
             check("module author/summary preserved", r.author == "QA" && r.summary == "Round-trip fixture.");
             check("module cover art preserved", r.coverArtPath == "art/cover.png");
+            check("module music preserved", r.splashMusicPath == "audio/splash.mp3" &&
+                  r.defaultMusicPath == "audio/overworld.ogg");
             check("start/end markers preserved", r.startMapId == 1 && r.startAreaId == 10 && r.endAreaId == 11);
             check("one map preserved", r.maps.size() == 1);
             check("grid dims preserved", r.maps[0].gridW == 4 && r.maps[0].gridH == 3);
@@ -287,6 +294,7 @@ int main() {
                   ra->treasureType == "C" && ra->trapChancePct == 30 &&
                   ra->lockChancePct == 15 && ra->hiddenChancePct == 40 &&
                   ra->artworkPath == "art/entry.png");
+            check("area music preserved", ra && ra->musicPath == "audio/entry.ogg");
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
             check("area fillEnabled=false preserved", ra && ra->fillEnabled == false);

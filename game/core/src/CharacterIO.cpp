@@ -69,7 +69,8 @@ CREATE TABLE character (
     max_life          INTEGER, life INTEGER, defense INTEGER, ap INTEGER, strain INTEGER,
     armor_name        TEXT, shield INTEGER,
     weapon_name       TEXT, weapon_damage_die TEXT, weapon_bonus INTEGER,
-    background        TEXT, goal TEXT, personality TEXT, notes TEXT
+    background        TEXT, goal TEXT, personality TEXT, notes TEXT,
+    portrait          TEXT
 );
 CREATE TABLE character_training (name TEXT);
 CREATE TABLE character_spell (name TEXT);
@@ -99,14 +100,14 @@ void saveCharacter(const Character& c, const std::string& path) {
             "INSERT INTO character(id,name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
-            "background,goal,personality,notes) "
-            "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "background,goal,personality,notes,portrait) "
+            "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         s.bind(c.name).bind(c.playerName).bind(c.kin).bind(c.calling).bind(c.level)
          .bind(c.traits.might).bind(c.traits.grace).bind(c.traits.wits).bind(c.traits.spirit)
          .bind(c.maxLife).bind(c.life).bind(c.defense).bind(c.ap).bind(c.strain)
          .bind(c.armorName).bind(c.shield ? 1 : 0)
          .bind(c.weaponName).bind(c.weaponDamageDie).bind(c.weaponBonus)
-         .bind(c.background).bind(c.goal).bind(c.personality).bind(c.notes);
+         .bind(c.background).bind(c.goal).bind(c.personality).bind(c.notes).bind(c.portraitPath);
         s.run();
     }
     {
@@ -129,12 +130,16 @@ Character loadCharacter(const std::string& path) {
         fail(conn.db, "cannot open '" + path + "'");
 
     Character c;
-    {
-        Stmt s(conn.db,
+    // `portrait` was added in v2; try the newest layout first, fall back for v1 files.
+    auto loadRow = [&](bool withPortrait) {
+        std::string sql =
             "SELECT name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
-            "background,goal,personality,notes FROM character WHERE id=1;");
+            "background,goal,personality,notes";
+        if (withPortrait) sql += ",portrait";
+        sql += " FROM character WHERE id=1;";
+        Stmt s(conn.db, sql.c_str());
         if (sqlite3_step(s.s) != SQLITE_ROW) fail(conn.db, "character row missing");
         c.name            = colText(s.s, 0);
         c.playerName      = colText(s.s, 1);
@@ -159,7 +164,10 @@ Character loadCharacter(const std::string& path) {
         c.goal            = colText(s.s, 20);
         c.personality     = colText(s.s, 21);
         c.notes           = colText(s.s, 22);
-    }
+        if (withPortrait) c.portraitPath = colText(s.s, 23);
+    };
+    try { loadRow(true); }
+    catch (const DbError&) { loadRow(false); }
     // Child lists live in their own tables; tolerate their absence in older files.
     try {
         Stmt s(conn.db, "SELECT name FROM character_training;");

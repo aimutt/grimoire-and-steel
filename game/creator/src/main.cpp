@@ -104,6 +104,22 @@ static std::string imageFileDialog() {
     return "";
 }
 
+// Open dialog filtered to supported audio types. Returns "" if cancelled.
+static std::string audioFileDialog() {
+#ifdef _WIN32
+    char buf[1024] = {0};
+    OPENFILENAMEA ofn = {0};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.lpstrFilter =
+        "Audio (*.mp3;*.ogg;*.wav;*.flac)\0*.mp3;*.ogg;*.wav;*.flac\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = buf;
+    ofn.nMaxFile = sizeof(buf);
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetOpenFileNameA(&ofn)) return buf;
+#endif
+    return "";
+}
+
 // ---------------------------------------------------------------------------
 // Color conversion (model stores RGBA in a uint32; ImGui draws with ImU32 ABGR)
 // ---------------------------------------------------------------------------
@@ -497,6 +513,28 @@ static void drawImagePathField(App& app, const char* id, std::string* path) {
             ImGui::TextDisabled("(image not found or unreadable)");
         }
     }
+}
+
+// A music-file path field: shows the path (with tooltip) + Browse/Clear. No preview/playback;
+// the path is authored here and consumed by the engine later.
+static void drawAudioPathField(App& app, const char* id, std::string* path) {
+    if (!path->empty()) {
+        std::string shown = fitPathTail(*path, ImGui::GetContentRegionAvail().x);
+        ImGui::TextUnformatted(shown.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", path->c_str());
+    } else {
+        ImGui::TextDisabled("No music set.");
+    }
+    ImGui::PushID(id);
+    if (ImGui::SmallButton("Browse")) {
+        std::string p = audioFileDialog();
+        if (!p.empty()) { *path = p; app.dirty = true; }
+    }
+    if (!path->empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear")) { path->clear(); app.dirty = true; }
+    }
+    ImGui::PopID();
 }
 
 // ---------------------------------------------------------------------------
@@ -1565,6 +1603,10 @@ static void drawAreaInspector(App& app, gns::Area& a) {
     ImGui::SeparatorText("Artwork");
     drawImagePathField(app, "area-art", &a.artworkPath);
 
+    ImGui::SeparatorText("Music");
+    ImGui::TextDisabled("Plays while the party is in this area.");
+    drawAudioPathField(app, "area-music", &a.musicPath);
+
     ImGui::SeparatorText("Transitions (exits to other areas)");
     ImGui::TextDisabled("Link this area to an area on another map,\ne.g. stairs leading down to Level 2.");
     int delTrans = -1;
@@ -1624,6 +1666,12 @@ static void drawModuleInspector(App& app) {
     ImGui::SeparatorText("Cover Art");
     ImGui::TextDisabled("Splash image shown by the Game Engine when this module loads.");
     drawImagePathField(app, "cover", &app.mod.coverArtPath);
+
+    ImGui::SeparatorText("Music");
+    ImGui::TextDisabled("Splash music (plays on the cover screen).");
+    drawAudioPathField(app, "splash-music", &app.mod.splashMusicPath);
+    ImGui::TextDisabled("Default map music (plays when the party is not in a defined area).");
+    drawAudioPathField(app, "default-music", &app.mod.defaultMusicPath);
 
     ImGui::SeparatorText("Start / End");
     auto mapCombo = [&](const char* label, int* id) {
