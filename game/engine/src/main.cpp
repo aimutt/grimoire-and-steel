@@ -378,6 +378,9 @@ int main(int, char**) {
     int cursorX = 0, cursorY = 0;            // party token position, in map cells
     int faceX = 0, faceY = 1;                 // facing direction (default south)
     int shopBuyer = 0;                        // which party member is buying/selling
+    bool areaView = false;                    // left region shows the area view, not the map
+    int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
+    int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
 
     auto areaLabel = [](const gns::Area* a) -> std::string {
         if (!a) return "Unknown";
@@ -464,6 +467,7 @@ int main(int, char**) {
         session = std::make_unique<gns::Session>(mod, party, /*seed=*/1234u);
         journal.clear();
         playStatus.clear();
+        areaView = false;
         if (const gns::Area* a = session->currentArea()) {
             // Seat the party token on the start area's centroid.
             if (const gns::Map* sm = session->currentMap()) {
@@ -906,11 +910,395 @@ int main(int, char**) {
         const ImGuiWindowFlags pf = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
+        // ---- Shared Play HUD lambdas (used by both the left region and the right panel) ----
+        // Placeholder avatar colour derived from the character's name.
+        auto nameColor = [](const std::string& s) -> ImU32 {
+            unsigned h = 2166136261u;
+            for (char c : s) { h ^= (unsigned char)c; h *= 16777619u; }
+            return IM_COL32(70 + (h & 0x7F), 70 + ((h >> 8) & 0x7F), 70 + ((h >> 16) & 0x7F), 255);
+        };
+        // Avatar of width `w`; the box is 3:4 portrait (matches the source images, so no
+        // stretching). Draws the portrait texture if available, else a name-hashed placeholder.
+        auto drawAvatar = [&](const gns::Character& pc, float w) {
+            const float h = w * 4.0f / 3.0f;
+            ImDrawList* pdl = ImGui::GetWindowDrawList();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImVec2 q(p.x + w, p.y + h);
+            SDL_Texture* tex = portraitTexture(pc.portraitPath);
+            if (tex) {
+                pdl->AddImageRounded((ImTextureID)tex, p, q,
+                                     ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, 6.0f);
+            } else {
+                pdl->AddRectFilled(p, q, nameColor(pc.name), 6.0f);
+                std::string initial(1, pc.name.empty() ? '?' :
+                                    (char)std::toupper((unsigned char)pc.name[0]));
+                ImVec2 ts = ImGui::CalcTextSize(initial.c_str());
+                pdl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f),
+                             IM_COL32(255, 255, 255, 255), initial.c_str());
+            }
+            pdl->AddRect(p, q, IM_COL32(20, 16, 24, 255), 6.0f, 0, 2.0f);
+            ImGui::Dummy(ImVec2(w, h));
+        };
+        // One card per party member: placeholder avatar + name / kin·calling / Life·Def·AP.
+        auto drawPartyCards = [&](const std::vector<gns::Character>& members) {
+            const float av = 44.0f;
+            for (const auto& pc : members) {
+                drawAvatar(pc, av);
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                ImGui::Text("Life %d/%d   Def %d   AP %d   %d gp",
+                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.gold);
+                ImGui::EndGroup();
+                ImGui::Spacing();
+            }
+        };
+        // Draw an area's artwork scaled to the column (capped at `maxH`). Chooses the image
+        // matching the party's facing direction, else the area's default image, else legacy art.
+        auto drawAreaImage = [&](const gns::Area* a, float maxW, float maxH) {
+            if (!a) return;
+            std::string path;
+            if (!a->images.empty()) {
+                int dir = (faceY < 0) ? 0 : (faceX > 0) ? 1 : (faceY > 0) ? 2 : 3;  // N,E,S,W
+                for (const auto& im : a->images) if (im.direction == dir) { path = im.path; break; }
+                if (path.empty()) {
+                    int di = a->defaultImage;
+                    path = (di >= 0 && di < (int)a->images.size()) ? a->images[di].path
+                                                                   : a->images.front().path;
+                }
+            } else {
+                path = a->artworkPath;
+            }
+            if (path.empty()) return;
+            SDL_Texture* tex = loadCachedImage(path);
+            if (!tex) return;
+            int tw = 0, th = 0;
+            SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
+            if (tw <= 0 || th <= 0) return;
+            float avail = ImGui::GetContentRegionAvail().x;
+            float w = (maxW > 0.0f) ? std::min(maxW, avail) : avail;
+            float scale = w / (float)tw;
+            if (th * scale > maxH) { scale = maxH / (float)th; w = tw * scale; }
+            ImGui::Image((ImTextureID)tex, ImVec2(w, th * scale));
+        };
+        // Wrapped paragraph with extra line leading (each wrapped line is its own item, so
+        // ItemSpacing.y separates them) — far less crowded than a single TextWrapped block.
+        auto drawProse = [&](const std::string& text, float leading) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, leading));
+            float wrapW = ImGui::GetContentRegionAvail().x;
+            if (wrapW < 1.0f) wrapW = 1.0f;
+            size_t i = 0, n = text.size();
+            while (true) {
+                size_t nl = text.find('\n', i);
+                std::string hard = text.substr(i, (nl == std::string::npos ? n : nl) - i);
+                std::string line;
+                size_t w = 0;
+                while (w < hard.size()) {
+                    size_t sp = hard.find(' ', w);
+                    std::string word = hard.substr(w, (sp == std::string::npos ? hard.size() : sp) - w);
+                    std::string cand = line.empty() ? word : line + " " + word;
+                    if (!line.empty() && ImGui::CalcTextSize(cand.c_str()).x > wrapW) {
+                        ImGui::TextUnformatted(line.c_str());
+                        line = word;
+                    } else {
+                        line = cand;
+                    }
+                    w = (sp == std::string::npos ? hard.size() : sp + 1);
+                }
+                if (!line.empty()) ImGui::TextUnformatted(line.c_str());
+                else if (hard.empty()) ImGui::TextUnformatted("");   // preserve blank lines
+                if (nl == std::string::npos) break;
+                i = nl + 1;
+            }
+            ImGui::PopStyleVar();
+        };
+
+        // Which defined area (if any) the party token currently stands on — drives whether the
+        // left region shows the map or the full area/shop view.
+        gns::Area* hereArea = nullptr;
+        if (session) {
+            if (const gns::Map* cmh = session->currentMap())
+                if (cursorX >= 0 && cursorY >= 0 && cursorX < cmh->gridW && cursorY < cmh->gridH) {
+                    int aid = cmh->cellArea[(size_t)cursorY * cmh->gridW + cursorX];
+                    if (aid) hereArea = mod.areaById(aid);
+                }
+        }
+
+        // Full-window area view: replaces the map while the party is "inside" a defined area.
+        // Shows the area art + description; for shops, clickable buy/sell grids with confirm
+        // popups. Clicking an item never buys/sells directly — it opens a Yes/No dialog.
+        auto drawAreaView = [&](gns::Area* a) {
+            if (!a || !session) return;
+            auto& party = session->party().members;
+            if (shopBuyer < 0) shopBuyer = 0;
+            if (shopBuyer >= (int)party.size()) shopBuyer = 0;
+
+            // Up/down arrows cycle the active character while inside an area (map movement is
+            // paused here, so the keys are free); clicking a card on the right does the same.
+            ImGuiIO& io = ImGui::GetIO();
+            if (!io.WantTextInput && !party.empty()) {
+                if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+                    shopBuyer = (shopBuyer + 1) % (int)party.size();
+                if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+                    shopBuyer = (shopBuyer + (int)party.size() - 1) % (int)party.size();
+            }
+
+            ImGui::SeparatorText(areaLabel(a).c_str());
+            // Area art on the left; the description fills the space to its right.
+            float topAvail = ImGui::GetContentRegionAvail().x;
+            float imgW = std::min(560.0f, topAvail * 0.42f);
+            ImGui::BeginGroup();
+            drawAreaImage(a, imgW, 460.0f);
+            ImGui::EndGroup();
+            if (!a->playerText.empty()) {
+                ImGui::SameLine(0.0f, 20.0f);
+                ImGui::BeginGroup();
+                drawProse(a->playerText, 4.0f);
+                ImGui::EndGroup();
+            }
+            ImGui::Spacing();
+
+            if (!a->isShop || party.empty()) return;   // non-shop areas: just art + text
+
+            gns::Character& buyer = party[shopBuyer];
+            int disc = parseDiscountPct(a->dmText, buyer.kin, buyer.calling);
+            if (disc > 0) ImGui::Text("Buying as %s  -  %d gp  (discount %d%%)",
+                                      buyer.name.c_str(), buyer.gold, disc);
+            else ImGui::Text("Buying as %s  -  %d gp", buyer.name.c_str(), buyer.gold);
+            auto priceOf = [&](const gns::ShopItem& it) { return it.costGp - it.costGp * disc / 100; };
+
+            const ImVec2 tileSz(150.0f, 190.0f);
+            // A clickable item tile: name + two info lines over a thumbnail. Click-anywhere via
+            // an InvisibleButton with content painted on top (same drawlist trick as avatars).
+            auto itemTile = [&](const std::string& id, SDL_Texture* tx, const std::string& name,
+                                const std::string& line1, const std::string& line2,
+                                bool enabled, const std::string& tip, bool invalid) -> bool {
+                ImGui::PushID(id.c_str());
+                ImVec2 p0 = ImGui::GetCursorScreenPos();
+                bool pressed = ImGui::InvisibleButton("tile", tileSz);
+                bool hov = ImGui::IsItemHovered();
+                if (hov && !tip.empty()) {
+                    // Wrapped tooltip: a readable multi-row box (title + description) instead of
+                    // one full-window-wide line.
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22.0f);
+                    if (!name.empty()) { ImGui::TextUnformatted(name.c_str()); ImGui::Separator(); }
+                    ImGui::TextUnformatted(tip.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                    ImGui::PopStyleVar();
+                }
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImVec2 p1(p0.x + tileSz.x, p0.y + tileSz.y);
+                // Hovering an "invalid" tile (e.g. gear this shop won't buy) glows red.
+                ImU32 hoverFill = invalid ? IM_COL32(96, 38, 38, 255) : IM_COL32(62, 70, 92, 255);
+                dl->AddRectFilled(p0, p1, (hov && enabled) ? hoverFill
+                                                           : IM_COL32(40, 44, 58, 255), 6.0f);
+                ImU32 borderCol = (hov && invalid) ? IM_COL32(225, 70, 70, 255) : IM_COL32(20, 16, 24, 255);
+                dl->AddRect(p0, p1, borderCol, 6.0f, 0, (hov && invalid) ? 3.0f : 2.0f);
+                float imgS = tileSz.x - 24.0f;
+                ImVec2 ip0(p0.x + 12.0f, p0.y + 10.0f), ip1(ip0.x + imgS, ip0.y + imgS);
+                if (tx) dl->AddImage((ImTextureID)tx, ip0, ip1);
+                else { dl->AddRectFilled(ip0, ip1, IM_COL32(28, 30, 40, 255), 4.0f);
+                       dl->AddRect(ip0, ip1, IM_COL32(70, 74, 90, 255), 4.0f); }
+                float ty = ip1.y + 6.0f;
+                ImU32 tcol = enabled ? IM_COL32(235, 235, 240, 255) : IM_COL32(150, 150, 155, 255);
+                dl->AddText(ImVec2(p0.x + 10.0f, ty), tcol, name.empty() ? "(item)" : name.c_str());
+                if (!line1.empty()) dl->AddText(ImVec2(p0.x + 10.0f, ty + 18.0f),
+                                                IM_COL32(205, 192, 130, 255), line1.c_str());
+                if (!line2.empty()) dl->AddText(ImVec2(p0.x + 10.0f, ty + 34.0f),
+                                                IM_COL32(160, 160, 170, 255), line2.c_str());
+                ImGui::PopID();
+                return pressed && enabled;
+            };
+            // Lay item tiles out in a wrapping grid sized to the current child's width.
+            auto gridPerRow = [&]() {
+                ImGuiStyle& st = ImGui::GetStyle();
+                float availW = ImGui::GetContentRegionAvail().x;
+                return std::max(1, (int)((availW + st.ItemSpacing.x) / (tileSz.x + st.ItemSpacing.x)));
+            };
+
+            // Two side-by-side grids, each with its own scrollbar: the shop's stock on the left,
+            // the active character's items on the right (shown even when empty, for future
+            // drag-and-drop). OpenPopup is deferred to after EndChild so its id matches the modal.
+            bool openBuy = false, openSell = false, openCantSell = false;
+            // Resolve an owned item's art + description from any shop in the module, so a
+            // character's gear shows its image even at a shop that doesn't stock that item.
+            auto ownedItemArt = [&](const std::string& nm, SDL_Texture*& tx, std::string& desc) {
+                tx = nullptr; desc.clear();
+                for (const auto& mp : mod.maps)
+                    for (const auto& ar : mp.areas)
+                        for (const auto& it : ar.shopItems)
+                            if (it.name == nm) {
+                                if (!tx) tx = shopItemTexture(it);
+                                if (desc.empty()) desc = it.description;
+                                if (tx && !desc.empty()) return;
+                            }
+            };
+            float gridH = ImGui::GetContentRegionAvail().y;
+            if (gridH < 200.0f) gridH = 200.0f;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float colW = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
+
+            ImGui::BeginChild("shopcol", ImVec2(colW, gridH), ImGuiChildFlags_Borders);
+            ImGui::SeparatorText("For Sale");
+            if (a->shopItems.empty()) {
+                ImGui::TextDisabled("(nothing for sale)");
+            } else {
+                int perRow = gridPerRow();
+                int placed = 0;
+                for (size_t i = 0; i < a->shopItems.size(); ++i) {
+                    gns::ShopItem& it = a->shopItems[i];
+                    if (placed % perRow != 0) ImGui::SameLine();
+                    int price = priceOf(it);
+                    bool canBuy = it.stock > 0 && buyer.gold >= price;
+                    std::string l1 = std::to_string(price) + (disc > 0 ? " gp*" : " gp");
+                    std::string l2 = "stock " + std::to_string(it.stock);
+                    if (itemTile("buy" + std::to_string(i), shopItemTexture(it), it.name,
+                                 l1, l2, canBuy, it.description, /*invalid=*/false)) {
+                        pendingBuy = (int)i; openBuy = true;
+                    }
+                    ++placed;
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+            ImGui::BeginChild("charcol", ImVec2(colW, gridH), ImGuiChildFlags_Borders);
+            ImGui::SeparatorText((buyer.name + "'s Items").c_str());
+            if (buyer.inventory.empty()) {
+                ImGui::TextDisabled("(no items)");
+            } else {
+                int perRow = gridPerRow();
+                int placed = 0;
+                for (size_t k = 0; k < buyer.inventory.size(); ++k) {
+                    const std::string& nm = buyer.inventory[k];
+                    int cost = 0;
+                    for (const auto& it : a->shopItems)
+                        if (it.name == nm) { cost = it.costGp; break; }
+                    SDL_Texture* tx = nullptr; std::string desc;
+                    ownedItemArt(nm, tx, desc);    // art from any shop in the module
+                    bool sellable = cost > 0;
+                    if (placed % perRow != 0) ImGui::SameLine();
+                    std::string l1 = sellable ? ("sell " + std::to_string(cost / 2) + " gp") : std::string();
+                    std::string l2 = sellable ? std::string() : std::string("not sold here");
+                    // Always clickable: selling here confirms, otherwise explains it can't be sold
+                    // (and the tile glows red on hover to flag it as not sellable here).
+                    if (itemTile("sell" + std::to_string(k), tx, nm, l1, l2, /*enabled=*/true, desc,
+                                 /*invalid=*/!sellable)) {
+                        pendingSell = (int)k;
+                        if (sellable) openSell = true; else openCantSell = true;
+                    }
+                    ++placed;
+                }
+            }
+            ImGui::EndChild();
+
+            if (openBuy)      ImGui::OpenPopup("Confirm Purchase");
+            if (openSell)     ImGui::OpenPopup("Confirm Sale");
+            if (openCantSell) ImGui::OpenPopup("Cannot Sell");
+
+            if (ImGui::BeginPopupModal("Confirm Purchase", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                if (pendingBuy >= 0 && pendingBuy < (int)a->shopItems.size()) {
+                    gns::ShopItem& it = a->shopItems[pendingBuy];
+                    int price = priceOf(it);
+                    ImGui::Text("Do you want to purchase %s for %d GP?",
+                                it.name.empty() ? "this item" : it.name.c_str(), price);
+                    ImGui::Spacing();
+                    bool ok = it.stock > 0 && buyer.gold >= price;
+                    if (!ok) ImGui::BeginDisabled();
+                    if (ImGui::Button("Yes", ImVec2(110, 0))) {
+                        buyer.gold -= price; it.stock -= 1;
+                        buyer.inventory.push_back(it.name);
+                        journal.push_back(buyer.name + " buys " + it.name + " for " +
+                                          std::to_string(price) + " gp.");
+                        pendingBuy = -1; ImGui::CloseCurrentPopup();
+                    }
+                    if (!ok) ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    if (ImGui::Button("No", ImVec2(110, 0))) { pendingBuy = -1; ImGui::CloseCurrentPopup(); }
+                } else { ImGui::CloseCurrentPopup(); }
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginPopupModal("Confirm Sale", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                if (pendingSell >= 0 && pendingSell < (int)buyer.inventory.size()) {
+                    const std::string nm = buyer.inventory[pendingSell];
+                    int cost = 0;
+                    for (const auto& it : a->shopItems) if (it.name == nm) { cost = it.costGp; break; }
+                    int gain = cost / 2;
+                    ImGui::Text("Are you sure you want to sell %s for %d GP?", nm.c_str(), gain);
+                    ImGui::Spacing();
+                    if (ImGui::Button("Yes", ImVec2(110, 0))) {
+                        buyer.gold += gain;
+                        buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
+                        journal.push_back(buyer.name + " sells " + nm + " for " +
+                                          std::to_string(gain) + " gp.");
+                        pendingSell = -1; ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("No", ImVec2(110, 0))) { pendingSell = -1; ImGui::CloseCurrentPopup(); }
+                } else { ImGui::CloseCurrentPopup(); }
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginPopupModal("Cannot Sell", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                if (pendingSell >= 0 && pendingSell < (int)buyer.inventory.size())
+                    ImGui::Text("You cannot sell %s at this shop.", buyer.inventory[pendingSell].c_str());
+                else
+                    ImGui::TextUnformatted("You cannot sell that item at this shop.");
+                ImGui::Spacing();
+                if (ImGui::Button("OK", ImVec2(110, 0))) { pendingSell = -1; ImGui::CloseCurrentPopup(); }
+                ImGui::EndPopup();
+            }
+        };
+
+        // Rich, clickable party cards for the in-session right panel. Clicking a card (or the
+        // up/down arrows while in an area) makes that character active — the highlighted frame
+        // marks the current one, and the active index drives the shop's buyer/seller.
+        auto drawPartyPanel = [&](std::vector<gns::Character>& members) {
+            for (size_t i = 0; i < members.size(); ++i) {
+                gns::Character& pc = members[i];
+                bool active = ((int)i == shopBuyer);
+                ImGui::PushID((int)i);
+                ImGui::PushStyleColor(ImGuiCol_Border, active ? IM_COL32(120, 200, 255, 255)
+                                                              : IM_COL32(70, 70, 84, 255));
+                ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, active ? 2.5f : 1.0f);
+                ImGui::BeginChild("card", ImVec2(0, 150), ImGuiChildFlags_Borders);
+                drawAvatar(pc, 84.0f);
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d",
+                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain);
+                ImGui::Text("Might %+d  Grace %+d  Wits %+d  Spirit %+d",
+                            pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
+                std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
+                weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
+                if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
+                ImGui::Text("Weapon: %s", weap.c_str());
+                ImGui::Text("Armor: %s%s", pc.armorName.empty() ? "None" : pc.armorName.c_str(),
+                            pc.shield ? " + shield" : "");
+                ImGui::Text("Gold: %d gp", pc.gold);
+                ImGui::EndGroup();
+                bool hov = ImGui::IsWindowHovered();
+                ImGui::EndChild();
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
+                if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) shopBuyer = (int)i;
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
+        };
+
         // --- Map canvas (left) ---
         ImGui::SetNextWindowPos(wp);
         ImGui::SetNextWindowSize(ImVec2(ws.x - rightW, ws.y));
         ImGui::Begin("Map", nullptr, pf);
-        if (!session) {
+        if (session && areaView && hereArea) {
+            drawAreaView(hereArea);
+        } else if (!session) {
             ImGui::TextWrapped("%s", haveModule
                 ? "Press \"Start Adventure\" in the Adventure panel."
                 : "Open a module first (File \xE2\x96\xB8 Open Module).");
@@ -964,16 +1352,19 @@ int main(int, char**) {
                 }
                 int curId = session->currentArea() ? session->currentArea()->id : 0;
                 if (target == 0) return;            // undefined cell: HUD shows party details
-                if (target == curId) return;
-                if (session->isAreaEnterable(target)) { enterArea(target); playStatus.clear(); }
-                else {
+                if (!session->isAreaEnterable(target)) {
                     std::string need;
                     if (const gns::Area* ta = mod.areaById(target))
                         for (int cpid : ta->prerequisiteControlPointIds)
                             for (const auto& cp : mod.controlPoints)
                                 if (cp.id == cpid) { if (!need.empty()) need += ", "; need += cp.name; }
                     playStatus = "Locked \xE2\x80\x94 requires: " + (need.empty() ? "an objective" : need);
+                    return;
                 }
+                // Run the enter "beat" (narration/encounter) only on a fresh entry, but always
+                // (re)open the area view — so stepping off and back onto a shop re-opens it.
+                if (target != curId) { enterArea(target); playStatus.clear(); }
+                areaView = true;
             };
 
             // Keyboard: arrow keys glide the party token (and set facing); holding Space turns
@@ -1029,143 +1420,6 @@ int main(int, char**) {
         }
         ImGui::End();
 
-        // Placeholder avatar colour derived from the character's name.
-        auto nameColor = [](const std::string& s) -> ImU32 {
-            unsigned h = 2166136261u;
-            for (char c : s) { h ^= (unsigned char)c; h *= 16777619u; }
-            return IM_COL32(70 + (h & 0x7F), 70 + ((h >> 8) & 0x7F), 70 + ((h >> 16) & 0x7F), 255);
-        };
-        // One card per party member: placeholder avatar + name / kin·calling / Life·Def·AP.
-        // Draw an `av`-sized avatar at the current cursor: the character's portrait if it
-        // loads, else a name-hashed placeholder square with the initial.
-        // Avatar of width `w`; the box is 3:4 portrait (matches the source images, so no
-        // stretching). Draws the portrait texture if available, else a name-hashed placeholder.
-        auto drawAvatar = [&](const gns::Character& pc, float w) {
-            const float h = w * 4.0f / 3.0f;
-            ImDrawList* pdl = ImGui::GetWindowDrawList();
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            ImVec2 q(p.x + w, p.y + h);
-            SDL_Texture* tex = portraitTexture(pc.portraitPath);
-            if (tex) {
-                pdl->AddImageRounded((ImTextureID)tex, p, q,
-                                     ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, 6.0f);
-            } else {
-                pdl->AddRectFilled(p, q, nameColor(pc.name), 6.0f);
-                std::string initial(1, pc.name.empty() ? '?' :
-                                    (char)std::toupper((unsigned char)pc.name[0]));
-                ImVec2 ts = ImGui::CalcTextSize(initial.c_str());
-                pdl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f),
-                             IM_COL32(255, 255, 255, 255), initial.c_str());
-            }
-            pdl->AddRect(p, q, IM_COL32(20, 16, 24, 255), 6.0f, 0, 2.0f);
-            ImGui::Dummy(ImVec2(w, h));
-        };
-        auto drawPartyCards = [&](const std::vector<gns::Character>& members) {
-            const float av = 44.0f;
-            for (const auto& pc : members) {
-                drawAvatar(pc, av);
-                ImGui::SameLine();
-                ImGui::BeginGroup();
-                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
-                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
-                ImGui::Text("Life %d/%d   Def %d   AP %d   %d gp",
-                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.gold);
-                ImGui::EndGroup();
-                ImGui::Spacing();
-            }
-        };
-        // Full character sheet per member — shown in the HUD when the party is on open terrain.
-        auto joinList = [](const std::vector<std::string>& v) {
-            std::string s;
-            for (const auto& x : v) { if (!s.empty()) s += ", "; s += x; }
-            return s.empty() ? std::string("\xE2\x80\x94") : s;
-        };
-        auto drawPartyDetails = [&](const std::vector<gns::Character>& members) {
-            for (size_t i = 0; i < members.size(); ++i) {
-                const gns::Character& pc = members[i];
-                if (i) ImGui::Separator();
-                drawAvatar(pc, 64.0f);
-                ImGui::SameLine();
-                ImGui::BeginGroup();
-                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
-                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
-                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d   %d gp",
-                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain, pc.gold);
-                ImGui::Text("Might %+d  Grace %+d  Wits %+d  Spirit %+d",
-                            pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
-                ImGui::EndGroup();
-                ImGui::TextWrapped("Training: %s", joinList(pc.trainings).c_str());
-                if (!pc.inventory.empty()) ImGui::TextWrapped("Inventory: %s", joinList(pc.inventory).c_str());
-                std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
-                weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
-                if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
-                ImGui::TextWrapped("Weapon: %s", weap.c_str());
-                ImGui::TextWrapped("Armor: %s%s", pc.armorName.c_str(), pc.shield ? " + shield" : "");
-                if (!pc.spells.empty()) ImGui::TextWrapped("Spells: %s", joinList(pc.spells).c_str());
-                ImGui::Spacing();
-            }
-        };
-        // Draw an area's artwork scaled to the column (capped). Chooses the image matching the
-        // party's facing direction, else the area's default image, else the legacy artwork.
-        auto drawAreaImage = [&](const gns::Area* a) {
-            if (!a) return;
-            std::string path;
-            if (!a->images.empty()) {
-                int dir = (faceY < 0) ? 0 : (faceX > 0) ? 1 : (faceY > 0) ? 2 : 3;  // N,E,S,W
-                for (const auto& im : a->images) if (im.direction == dir) { path = im.path; break; }
-                if (path.empty()) {
-                    int di = a->defaultImage;
-                    path = (di >= 0 && di < (int)a->images.size()) ? a->images[di].path
-                                                                   : a->images.front().path;
-                }
-            } else {
-                path = a->artworkPath;
-            }
-            if (path.empty()) return;
-            SDL_Texture* tex = loadCachedImage(path);
-            if (!tex) return;
-            int tw = 0, th = 0;
-            SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
-            if (tw <= 0 || th <= 0) return;
-            float w = ImGui::GetContentRegionAvail().x;
-            float scale = w / (float)tw;
-            const float maxH = 320.0f;
-            if (th * scale > maxH) { scale = maxH / (float)th; w = tw * scale; }
-            ImGui::Image((ImTextureID)tex, ImVec2(w, th * scale));
-        };
-
-        // Wrapped paragraph with extra line leading (each wrapped line is its own item, so
-        // ItemSpacing.y separates them) — far less crowded than a single TextWrapped block.
-        auto drawProse = [&](const std::string& text, float leading) {
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, leading));
-            float wrapW = ImGui::GetContentRegionAvail().x;
-            if (wrapW < 1.0f) wrapW = 1.0f;
-            size_t i = 0, n = text.size();
-            while (true) {
-                size_t nl = text.find('\n', i);
-                std::string hard = text.substr(i, (nl == std::string::npos ? n : nl) - i);
-                std::string line;
-                size_t w = 0;
-                while (w < hard.size()) {
-                    size_t sp = hard.find(' ', w);
-                    std::string word = hard.substr(w, (sp == std::string::npos ? hard.size() : sp) - w);
-                    std::string cand = line.empty() ? word : line + " " + word;
-                    if (!line.empty() && ImGui::CalcTextSize(cand.c_str()).x > wrapW) {
-                        ImGui::TextUnformatted(line.c_str());
-                        line = word;
-                    } else {
-                        line = cand;
-                    }
-                    w = (sp == std::string::npos ? hard.size() : sp + 1);
-                }
-                if (!line.empty()) ImGui::TextUnformatted(line.c_str());
-                else if (hard.empty()) ImGui::TextUnformatted("");   // preserve blank lines
-                if (nl == std::string::npos) break;
-                i = nl + 1;
-            }
-            ImGui::PopStyleVar();
-        };
-
         // --- Adventure panel (right) ---
         ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - rightW, wp.y));
         ImGui::SetNextWindowSize(ImVec2(rightW, ws.y));
@@ -1193,133 +1447,48 @@ int main(int, char**) {
                 }
                 ImGui::TextDisabled("or build a party in Characters mode, then Load it.");
             } else {
-                // Info follows the party token: on a defined area, show the compact party strip
-                // + that area's image/text (+ shop); on open terrain, show the detailed sheet.
-                int cursorAreaId = 0;
-                if (const gns::Map* cm2 = session->currentMap())
-                    if (cursorX >= 0 && cursorY >= 0 && cursorX < cm2->gridW && cursorY < cm2->gridH)
-                        cursorAreaId = cm2->cellArea[(size_t)cursorY * cm2->gridW + cursorX];
-                gns::Area* hereArea = cursorAreaId ? mod.areaById(cursorAreaId) : nullptr;
-                if (!hereArea) {
-                    ImGui::SeparatorText("Party Details");
-                    drawPartyDetails(session->party().members);
-                } else {
-                    ImGui::SeparatorText("Party");
-                    drawPartyCards(session->party().members);
-                    ImGui::SeparatorText(areaLabel(hereArea).c_str());
-                    drawAreaImage(hereArea);
-                    if (!hereArea->playerText.empty()) drawProse(hereArea->playerText, 5.0f);
-
-                    if (hereArea->isShop) {
-                        ImGui::SeparatorText("Shop");
-                        auto& party = session->party().members;
-                        if (shopBuyer >= (int)party.size()) shopBuyer = 0;
-                        if (!party.empty()) {
-                            if (ImGui::BeginCombo("Buyer", party[shopBuyer].name.c_str())) {
-                                for (int i = 0; i < (int)party.size(); ++i)
-                                    if (ImGui::Selectable(party[i].name.c_str(), i == shopBuyer)) shopBuyer = i;
-                                ImGui::EndCombo();
-                            }
-                            gns::Character& buyer = party[shopBuyer];
-                            int disc = parseDiscountPct(hereArea->dmText, buyer.kin, buyer.calling);
-                            if (disc > 0) ImGui::Text("Gold: %d gp   (discount %d%%)", buyer.gold, disc);
-                            else ImGui::Text("Gold: %d gp", buyer.gold);
-
-                            ImGui::SeparatorText("For Sale");
-                            ImGui::BeginChild("forsale", ImVec2(0, 300), ImGuiChildFlags_Borders);
-                            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 12.0f));
-                            if (ImGui::BeginTable("shopitems", 3, ImGuiTableFlags_BordersInnerH |
-                                    ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX |
-                                    ImGuiTableFlags_SizingFixedFit)) {
-                                ImGui::TableSetupColumn("##img", ImGuiTableColumnFlags_WidthFixed, 52.0f);
-                                ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-                                ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
-                                for (auto& it : hereArea->shopItems) {
-                                    ImGui::PushID(&it);
-                                    ImGui::TableNextRow();
-                                    ImGui::TableSetColumnIndex(0);
-                                    if (SDL_Texture* tx = shopItemTexture(it))
-                                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
-                                    ImGui::TableSetColumnIndex(1);
-                                    int price = it.costGp - it.costGp * disc / 100;
-                                    ImGui::TextWrapped("%s", it.name.empty() ? "(item)" : it.name.c_str());
-                                    ImGui::Spacing();
-                                    ImGui::TextDisabled("%d gp%s", price, disc > 0 ? "*" : "");
-                                    ImGui::TextDisabled("stock %d", it.stock);
-                                    ImGui::Spacing();
-                                    bool canBuy = it.stock > 0 && buyer.gold >= price;
-                                    if (!canBuy) ImGui::BeginDisabled();
-                                    if (ImGui::Button("Buy")) {
-                                        buyer.gold -= price; it.stock -= 1;
-                                        buyer.inventory.push_back(it.name);
-                                        journal.push_back(buyer.name + " buys " + it.name + " for " +
-                                                          std::to_string(price) + " gp.");
-                                    }
-                                    if (!canBuy) ImGui::EndDisabled();
-                                    ImGui::TableSetColumnIndex(2);
-                                    if (!it.description.empty())
-                                        drawProse(it.description, 5.0f);
-                                    ImGui::PopID();
-                                }
-                                ImGui::EndTable();
-                            }
-                            ImGui::PopStyleVar();
-                            ImGui::EndChild();   // forsale
-
-                            // The buyer's own items — what they're carrying, with Sell where this
-                            // shop lists the item (returns half its listed cost).
-                            ImGui::Spacing();
-                            ImGui::SeparatorText((buyer.name + "'s Items").c_str());
-                            if (buyer.inventory.empty()) {
-                                ImGui::TextDisabled("(carrying nothing)");
-                            } else if (ImGui::BeginTable("buyeritems", 2, ImGuiTableFlags_RowBg |
-                                           ImGuiTableFlags_SizingFixedFit)) {
-                                ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-                                ImGui::TableSetupColumn("##sell", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-                                int sellIdx = -1, sellGain = 0;
-                                for (size_t k = 0; k < buyer.inventory.size(); ++k) {
-                                    int cost = 0;
-                                    for (const auto& it : hereArea->shopItems)
-                                        if (it.name == buyer.inventory[k]) { cost = it.costGp; break; }
-                                    ImGui::PushID((int)k + 9000);
-                                    ImGui::TableNextRow();
-                                    ImGui::TableSetColumnIndex(0);
-                                    ImGui::TextUnformatted(buyer.inventory[k].c_str());
-                                    ImGui::TableSetColumnIndex(1);
-                                    if (cost > 0) {
-                                        std::string lbl = "Sell +" + std::to_string(cost / 2) + " gp";
-                                        if (ImGui::SmallButton(lbl.c_str())) { sellIdx = (int)k; sellGain = cost / 2; }
-                                    } else {
-                                        ImGui::TextDisabled("not sold here");
-                                    }
-                                    ImGui::PopID();
-                                }
-                                ImGui::EndTable();
-                                if (sellIdx >= 0) {
-                                    journal.push_back(buyer.name + " sells " + buyer.inventory[sellIdx] +
-                                                      " for " + std::to_string(sellGain) + " gp.");
-                                    buyer.gold += sellGain;
-                                    buyer.inventory.erase(buyer.inventory.begin() + sellIdx);
-                                }
-                            }
-                        }
-                    }
+                // Party panel: rich, clickable cards. Clicking a card (or up/down arrows while
+                // in an area) picks the active character; the area/shop content fills the left
+                // region via drawAreaView. `hereArea` is computed once before the windows.
+                ImGui::SeparatorText("Party");
+                drawPartyPanel(session->party().members);
+                if (hereArea && !areaView) {
+                    std::string lbl = "Enter " + areaLabel(hereArea);
+                    if (ImGui::Button(lbl.c_str())) areaView = true;
                 }
 
                 ImGui::Spacing();
                 if (!playStatus.empty())
                     ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s", playStatus.c_str());
-                if (ImGui::Button("Restart")) { session.reset(); journal.clear(); playStatus.clear(); }
-                ImGui::SameLine();
-                ImGui::TextDisabled("Arrow keys move the party \xC2\xB7 Enter to enter an area / take an item");
+                // Restart (confirmed) and Leave grouped together.
+                bool openRestart = false;
+                if (ImGui::Button("Restart")) openRestart = true;
+                if (areaView && hereArea) {
+                    ImGui::SameLine();
+                    if (ImGui::Button(hereArea->isShop ? "Leave Shop" : "Exit")) areaView = false;
+                }
+                if (openRestart) ImGui::OpenPopup("Confirm Restart");
+                if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    ImGui::TextUnformatted("Restart the game? All current progress will be lost.");
+                    ImGui::Spacing();
+                    if (ImGui::Button("Yes, restart", ImVec2(130, 0))) {
+                        session.reset(); journal.clear(); playStatus.clear(); areaView = false;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(110, 0))) ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
+                ImGui::TextDisabled("Arrows move the party \xC2\xB7 Enter to act \xC2\xB7 in a shop Up/Down pick character");
                 ImGui::Separator();
-                ImGui::TextUnformatted("Journal");
-                // Fixed height so the panel above (area/shop) stays scrollable instead of this
-                // child eating all remaining space and clipping the shop off-screen.
-                ImGui::BeginChild("journal", ImVec2(0, 150), ImGuiChildFlags_Borders);
-                for (const auto& line : journal) { ImGui::TextWrapped("%s", line.c_str()); ImGui::Spacing(); }
-                if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
-                ImGui::EndChild();
+                // Journal is collapsed by default — expand to read. Fixed-height scroll child so
+                // it doesn't eat the panel above when open.
+                if (ImGui::CollapsingHeader("Journal")) {
+                    ImGui::BeginChild("journal", ImVec2(0, 150), ImGuiChildFlags_Borders);
+                    for (const auto& line : journal) { ImGui::TextWrapped("%s", line.c_str()); ImGui::Spacing(); }
+                    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
+                    ImGui::EndChild();
+                }
             }
         }
         ImGui::End();
