@@ -25,7 +25,14 @@ string(APPEND _rc "GNSSPLASH RCDATA \"${_splashrc}\"\n")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_assets.rc" "${_rc}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/embedded_assets.h" "${_hdr}")
 
-add_executable(GameEngine src/main.cpp "${CMAKE_CURRENT_BINARY_DIR}/embedded_assets.rc")
+# Shared shop item-art catalog (baked in; same images the Module Creator offers).
+gns_generate_item_rc(
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded_items.rc"
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded_items.h")
+
+add_executable(GameEngine src/main.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded_assets.rc"
+    "${CMAKE_CURRENT_BINARY_DIR}/embedded_items.rc")
 target_include_directories(GameEngine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(GameEngine PRIVATE
     gns_core gns_ui imgui SDL2::SDL2 SDL2::SDL2main SDL2_image::SDL2_image)

@@ -158,7 +158,15 @@ CREATE TABLE areas (
     fill_enabled    INTEGER,
     label_auto      INTEGER,
     is_shop         INTEGER,
-    music           TEXT
+    music           TEXT,
+    hidden          INTEGER
+);
+CREATE TABLE area_images (
+    area_id    INTEGER,
+    slot       INTEGER,
+    path       TEXT,
+    direction  INTEGER,
+    is_default INTEGER
 );
 CREATE TABLE area_monsters (
     area_id INTEGER,
@@ -176,7 +184,8 @@ CREATE TABLE area_shop_items (
     description TEXT,
     cost        INTEGER,
     stock       INTEGER,
-    image       TEXT
+    image       TEXT,
+    image_id    TEXT
 );
 CREATE TABLE area_transitions (
     area_id        INTEGER,
@@ -199,7 +208,8 @@ CREATE TABLE map_objects (
     map_id INTEGER,
     type   INTEGER,
     x      REAL, y REAL,
-    rot    REAL
+    rot    REAL,
+    scale  REAL
 );
 CREATE TABLE map_texts (
     id     INTEGER PRIMARY KEY,
@@ -256,8 +266,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
             "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
-            "artwork_path,fill_enabled,label_auto,is_shop,music) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "artwork_path,fill_enabled,label_auto,is_shop,music,hidden) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt prereqStmt(c.db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt monsterStmt(c.db,
@@ -265,12 +275,14 @@ void saveModule(const Module& mod, const std::string& path) {
         Stmt treasureStmt(c.db,
             "INSERT INTO area_treasures(area_id,type,chance) VALUES(?,?,?);");
         Stmt shopStmt(c.db,
-            "INSERT INTO area_shop_items(area_id,name,description,cost,stock,image) "
-            "VALUES(?,?,?,?,?,?);");
+            "INSERT INTO area_shop_items(area_id,name,description,cost,stock,image,image_id) "
+            "VALUES(?,?,?,?,?,?,?);");
+        Stmt imageStmt(c.db,
+            "INSERT INTO area_images(area_id,slot,path,direction,is_default) VALUES(?,?,?,?,?);");
         Stmt transStmt(c.db,
             "INSERT INTO area_transitions(area_id,target_area_id,label) VALUES(?,?,?);");
         Stmt objStmt(c.db,
-            "INSERT INTO map_objects(id,map_id,type,x,y,rot) VALUES(?,?,?,?,?,?);");
+            "INSERT INTO map_objects(id,map_id,type,x,y,rot,scale) VALUES(?,?,?,?,?,?,?);");
         Stmt textStmt(c.db,
             "INSERT INTO map_texts(id,map_id,x,y,text,color,size) VALUES(?,?,?,?,?,?,?);");
 
@@ -281,7 +293,8 @@ void saveModule(const Module& mod, const std::string& path) {
 
             for (const auto& o : m.objects) {
                 objStmt.bind(o.id).bind(m.id).bind(o.type)
-                       .bind((double)o.x).bind((double)o.y).bind((double)o.rotationDeg);
+                       .bind((double)o.x).bind((double)o.y).bind((double)o.rotationDeg)
+                       .bind((double)o.scale);
                 objStmt.run();
             }
 
@@ -301,8 +314,14 @@ void saveModule(const Module& mod, const std::string& path) {
                         .bind(a.lockChancePct).bind(a.lockDescription)
                         .bind(a.hiddenChancePct).bind(a.hiddenDescription)
                         .bind(a.artworkPath).bind(a.fillEnabled ? 1 : 0).bind(a.labelAuto ? 1 : 0)
-                        .bind(a.isShop ? 1 : 0).bind(a.musicPath);
+                        .bind(a.isShop ? 1 : 0).bind(a.musicPath).bind(a.hidden ? 1 : 0);
                 areaStmt.run();
+
+                for (size_t i = 0; i < a.images.size(); ++i) {
+                    imageStmt.bind(a.id).bind((int)i).bind(a.images[i].path)
+                             .bind(a.images[i].direction).bind((int)i == a.defaultImage ? 1 : 0);
+                    imageStmt.run();
+                }
 
                 for (int cpId : a.prerequisiteControlPointIds) {
                     prereqStmt.bind(a.id).bind(cpId);
@@ -321,7 +340,7 @@ void saveModule(const Module& mod, const std::string& path) {
 
                 for (const auto& si : a.shopItems) {
                     shopStmt.bind(a.id).bind(si.name).bind(si.description)
-                            .bind(si.costGp).bind(si.stock).bind(si.imagePath);
+                            .bind(si.costGp).bind(si.stock).bind(si.imagePath).bind(si.imageId);
                     shopStmt.run();
                 }
 
@@ -401,7 +420,7 @@ Module loadModule(const std::string& path) {
     // the file has; we try the newest layout first and fall back one column at a time so older
     // files still load (older rows default fillEnabled=true, labelAuto=false, isShop=false,
     // music="").
-    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music"};
+    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music", "hidden"};
     auto loadAreas = [&](int opt) {
         std::string sql =
             "SELECT id,map_id,label,name,color,dm_text,player_text,"
@@ -435,10 +454,11 @@ Module loadModule(const std::string& path) {
             a.labelAuto         = opt >= 2 ? (colInt(s.s, 19) != 0) : false;
             a.isShop            = opt >= 3 ? (colInt(s.s, 20) != 0) : false;
             a.musicPath         = opt >= 4 ? colText(s.s, 21) : "";
+            a.hidden            = opt >= 5 ? (colInt(s.s, 22) != 0) : false;
             if (Map* m = mod.mapById(mapId)) m->areas.push_back(std::move(a));
         }
     };
-    for (int opt = 4; ; --opt) {
+    for (int opt = 5; ; --opt) {
         try { loadAreas(opt); break; }
         catch (const DbError&) {
             for (auto& m : mod.maps) m.areas.clear();   // partial read from failed attempt
@@ -479,34 +499,58 @@ Module loadModule(const std::string& path) {
         // no area_treasures table — leave lists empty, migration below fills them
     }
 
-    // area_shop_items was added in v10 (name,cost); v11 added description, stock, image.
-    // Try the full layout, fall back to the v10 layout, then tolerate no table at all.
-    auto loadShop = [&](bool full) {
-        Stmt s(c.db, full
-            ? "SELECT area_id,name,description,cost,stock,image FROM area_shop_items;"
-            : "SELECT area_id,name,cost FROM area_shop_items;");
+    // area_shop_items was added in v10 (name,cost); v11 added description, stock, image; v13
+    // added image_id. `level` 2 = newest, 1 = v11, 0 = v10; fall back tier by tier.
+    auto loadShop = [&](int level) {
+        const char* sql =
+            level >= 2 ? "SELECT area_id,name,description,cost,stock,image,image_id FROM area_shop_items;"
+            : level >= 1 ? "SELECT area_id,name,description,cost,stock,image FROM area_shop_items;"
+                         : "SELECT area_id,name,cost FROM area_shop_items;";
+        Stmt s(c.db, sql);
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             Area* a = mod.areaById(colInt(s.s, 0));
             if (!a) continue;
             ShopItem si;
             si.name = colText(s.s, 1);
-            if (full) {
+            if (level >= 1) {
                 si.description = colText(s.s, 2);
                 si.costGp      = colInt(s.s, 3);
                 si.stock       = colInt(s.s, 4);
                 si.imagePath   = colText(s.s, 5);
+                if (level >= 2) si.imageId = colText(s.s, 6);
             } else {
                 si.costGp = colInt(s.s, 2);
             }
             a->shopItems.push_back(std::move(si));
         }
     };
-    try {
-        loadShop(true);
-    } catch (const DbError&) {
-        for (auto& m : mod.maps) for (auto& a : m.areas) a.shopItems.clear();
-        try { loadShop(false); } catch (const DbError&) {}   // v10 layout, or no table
+    for (int level = 2; ; --level) {
+        try { loadShop(level); break; }
+        catch (const DbError&) {
+            for (auto& m : mod.maps) for (auto& a : m.areas) a.shopItems.clear();
+            if (level == 0) break;   // no table at all — leave empty
+        }
     }
+
+    // area_images was added in v13; tolerate older files. Migration (below) synthesizes a
+    // single default image from the legacy artwork_path when no rows exist.
+    try {
+        Stmt s(c.db, "SELECT area_id,slot,path,direction,is_default FROM area_images ORDER BY area_id,slot;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            if (Area* a = mod.areaById(colInt(s.s, 0))) {
+                if (colInt(s.s, 4) != 0) a->defaultImage = (int)a->images.size();
+                a->images.push_back(AreaImage{colText(s.s, 2), colInt(s.s, 3)});
+            }
+        }
+    } catch (const DbError&) {
+        // no area_images table — migration below handles it
+    }
+    for (auto& m : mod.maps)
+        for (auto& a : m.areas)
+            if (a.images.empty() && !a.artworkPath.empty()) {
+                a.images.push_back(AreaImage{a.artworkPath, -1});
+                a.defaultImage = 0;
+            }
 
     // Migrate legacy single monster/treasure into the lists so old modules behave the same.
     for (auto& m : mod.maps)
@@ -562,12 +606,14 @@ Module loadModule(const std::string& path) {
         }
     }
 
-    // map_objects was added in v2 and gained the rot column in v3. Tolerate older
-    // files: first try with rot, then without it, then assume no table at all.
-    auto loadObjects = [&](bool withRot) {
-        Stmt s(c.db, withRot
-            ? "SELECT id,map_id,type,x,y,rot FROM map_objects ORDER BY id;"
-            : "SELECT id,map_id,type,x,y FROM map_objects ORDER BY id;");
+    // map_objects was added in v2, gained rot in v3, and scale in v13. `level` 2 = with scale,
+    // 1 = with rot, 0 = neither; fall back tier by tier, then tolerate no table at all.
+    auto loadObjects = [&](int level) {
+        const char* sql =
+            level >= 2 ? "SELECT id,map_id,type,x,y,rot,scale FROM map_objects ORDER BY id;"
+            : level >= 1 ? "SELECT id,map_id,type,x,y,rot FROM map_objects ORDER BY id;"
+                         : "SELECT id,map_id,type,x,y FROM map_objects ORDER BY id;";
+        Stmt s(c.db, sql);
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             MapObject o;
             o.id   = colInt(s.s, 0);
@@ -575,15 +621,18 @@ Module loadModule(const std::string& path) {
             o.type = colInt(s.s, 2);
             o.x    = (float)colDouble(s.s, 3);
             o.y    = (float)colDouble(s.s, 4);
-            o.rotationDeg = withRot ? (float)colDouble(s.s, 5) : 0.0f;
+            o.rotationDeg = level >= 1 ? (float)colDouble(s.s, 5) : 0.0f;
+            o.scale = level >= 2 ? (float)colDouble(s.s, 6) : 1.0f;
+            if (o.scale <= 0.0f) o.scale = 1.0f;
             if (Map* m = mod.mapById(mapId)) m->objects.push_back(o);
         }
     };
-    try {
-        loadObjects(true);
-    } catch (const DbError&) {
-        try { loadObjects(false); }   // v2 file: map_objects without rot
-        catch (const DbError&) {}      // v1 file: no map_objects table
+    for (int level = 2; ; --level) {
+        try { loadObjects(level); break; }
+        catch (const DbError&) {
+            for (auto& m : mod.maps) m.objects.clear();
+            if (level == 0) break;   // no map_objects table (v1)
+        }
     }
 
     // map_texts was added in v4; tolerate older files that lack it.

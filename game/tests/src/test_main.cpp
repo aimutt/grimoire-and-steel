@@ -170,6 +170,7 @@ int main() {
             c.weaponBonus = 1;
             c.spells = {"Flame", "Heal", "Veil"};
             c.ap = 250; c.level = 2; c.life = 7; c.strain = 1;
+            c.gold = 275; c.inventory = {"Torch", "Rope (25')"};   // economy (v3)
 
             const std::string path = "gns_character_roundtrip_test.gnschar";
             std::remove(path.c_str());
@@ -194,6 +195,9 @@ int main() {
                   r.personality == "Curious, wary" &&
                   r.notes == "Owes a debt to the river spirits.");
             check("character portrait preserved", r.portraitPath == "portrait05.png");
+            check("character gold + inventory preserved", r.gold == 275 &&
+                  r.inventory.size() == 2 && r.inventory[0] == "Torch" &&
+                  r.inventory[1] == "Rope (25')");
             check("character trainings preserved",
                   r.trainings.size() == 3 && r.trainings[0] == "Sorcery" &&
                   r.trainings[1] == "Lore" && r.trainings[2] == "Healing");
@@ -233,14 +237,17 @@ int main() {
             a1.lockChancePct = 15; a1.lockDescription = "Iron door";
             a1.hiddenChancePct = 40; a1.hiddenDescription = "Loose brick";
             a1.artworkPath = "art/entry.png";
+            a1.images = {{"art/north.png", 0}, {"art/default.png", -1}};   // multi-image (v13)
+            a1.defaultImage = 1;
             a1.musicPath = "audio/entry.ogg";   // per-area music (v12)
+            a1.hidden = true;                                        // hidden at play (v13)
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
             a1.monsters = {{"Skeleton", 4}, {"Cave Goblin", 2}};     // multi-type (#23)
             a1.treasures = {{"C", 50}, {"D", 20}};                   // multi-treasure (v10)
             a1.isShop = true;                                         // shop/market (v10/v11)
-            a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png"},
-                            {"Rations (1 week)", "", 5, 20, ""}};
+            a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png", "battle-axe.png"},
+                            {"Rations (1 week)", "", 5, 20, "", ""}};
             a1.transitions = {{11, "Stairs down to the crypt"}};     // cross-area exit (v7)
             a1.prerequisiteControlPointIds = {1};
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
@@ -249,9 +256,9 @@ int main() {
             map.areas.push_back(a2);
 
             MapObject ob1; ob1.id = 1; ob1.type = static_cast<int>(ObjectType::Table);
-            ob1.x = 1.5f; ob1.y = 0.5f; ob1.rotationDeg = 90.0f;
-            MapObject ob2; ob2.id = 2; ob2.type = static_cast<int>(ObjectType::Chest);
-            ob2.x = 2.25f; ob2.y = 1.75f; ob2.rotationDeg = 45.0f;
+            ob1.x = 1.5f; ob1.y = 0.5f; ob1.rotationDeg = 90.0f; ob1.scale = 1.75f;  // scale (v13)
+            MapObject ob2; ob2.id = 2; ob2.type = static_cast<int>(ObjectType::Compass);  // (v13)
+            ob2.x = 2.25f; ob2.y = 1.75f; ob2.rotationDeg = 45.0f; ob2.scale = 0.5f;
             map.objects.push_back(ob1);
             map.objects.push_back(ob2);
 
@@ -295,6 +302,11 @@ int main() {
                   ra->lockChancePct == 15 && ra->hiddenChancePct == 40 &&
                   ra->artworkPath == "art/entry.png");
             check("area music preserved", ra && ra->musicPath == "audio/entry.ogg");
+            check("area hidden preserved", ra && ra->hidden == true);
+            check("area images preserved", ra && ra->images.size() == 2 &&
+                  ra->images[0].path == "art/north.png" && ra->images[0].direction == 0 &&
+                  ra->images[1].path == "art/default.png" && ra->images[1].direction == -1 &&
+                  ra->defaultImage == 1);
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
             check("area fillEnabled=false preserved", ra && ra->fillEnabled == false);
@@ -309,6 +321,7 @@ int main() {
                   ra->shopItems[0].description == "A fine blade." &&
                   ra->shopItems[0].costGp == 15 && ra->shopItems[0].stock == 3 &&
                   ra->shopItems[0].imagePath == "art/sword.png" &&
+                  ra->shopItems[0].imageId == "battle-axe.png" &&
                   ra->shopItems[1].name == "Rations (1 week)" &&
                   ra->shopItems[1].costGp == 5 && ra->shopItems[1].stock == 20);
             check("area transitions preserved", ra && ra->transitions.size() == 1 &&
@@ -337,11 +350,13 @@ int main() {
                   r.maps[0].objects[0].id == 1 &&
                   r.maps[0].objects[0].type == static_cast<int>(ObjectType::Table) &&
                   r.maps[0].objects[0].x == 1.5f && r.maps[0].objects[0].y == 0.5f &&
-                  r.maps[0].objects[1].type == static_cast<int>(ObjectType::Chest) &&
+                  r.maps[0].objects[1].type == static_cast<int>(ObjectType::Compass) &&
                   r.maps[0].objects[1].x == 2.25f && r.maps[0].objects[1].y == 1.75f);
             check("object rotation preserved", r.maps[0].objects.size() == 2 &&
                   r.maps[0].objects[0].rotationDeg == 90.0f &&
                   r.maps[0].objects[1].rotationDeg == 45.0f);
+            check("object scale preserved", r.maps[0].objects.size() == 2 &&
+                  r.maps[0].objects[0].scale == 1.75f && r.maps[0].objects[1].scale == 0.5f);
         }
 
         // ---- Session / Party / PlayState seating (M4 slice 1) ----

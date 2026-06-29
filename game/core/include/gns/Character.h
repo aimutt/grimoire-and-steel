@@ -32,8 +32,10 @@ struct Character {
     int defense = 10;
     int ap = 0;             // cumulative advancement points
     int strain = 0;         // current accumulated strain
+    int gold = 100;         // gold pieces (starting default; spent at shops)
 
     std::vector<std::string> spells;      // known spell names (Mystics)
+    std::vector<std::string> inventory;   // item names the character carries (bought goods)
 
     // Equipment shaping combat (a small profile so the engine needn't re-derive).
     std::string armorName = "No armor";

@@ -22,6 +22,7 @@
 #include "gns/ui/MapRender.h"
 
 #include "embedded_assets.h"   // generated: kEmbeddedPortraits (filename -> RCDATA id)
+#include "embedded_items.h"    // generated: kItemCatalog (shop item-art baked into the binary)
 
 #include <algorithm>
 #include <cctype>
@@ -156,6 +157,36 @@ static bool callingAllowsShield(const gns::Calling* c) {
            allowed.find("ight") != std::string::npos;   // not Mystic ("No armor")
 }
 
+// Best shop discount % a buyer gets, parsed from a shop area's DM notes. Recognizes tags
+// like "[discount 20%]" (everyone) and "[discount Dwarf 50%]" / "[discount Mystic 10%]"
+// (applies when the word matches the buyer's kin or calling). Returns the largest match.
+static int parseDiscountPct(const std::string& dm, const std::string& kin, const std::string& calling) {
+    auto lower = [](std::string s) { for (char& ch : s) ch = (char)std::tolower((unsigned char)ch); return s; };
+    std::string low = lower(dm), kinl = lower(kin), calll = lower(calling);
+    int best = 0;
+    for (size_t pos = 0; (pos = low.find("[discount", pos)) != std::string::npos; ) {
+        size_t end = low.find(']', pos);
+        if (end == std::string::npos) break;
+        std::string body = low.substr(pos + 9, end - (pos + 9));   // text after "[discount"
+        pos = end + 1;
+        int pct = 0; bool any = false;
+        for (size_t i = 0; i < body.size(); ++i)
+            if (std::isdigit((unsigned char)body[i])) {
+                while (i < body.size() && std::isdigit((unsigned char)body[i])) { pct = pct * 10 + (body[i] - '0'); ++i; any = true; }
+                break;
+            }
+        std::string tgt;
+        for (size_t i = 0; i < body.size(); ++i)
+            if (std::isalpha((unsigned char)body[i])) {
+                size_t j = i; while (j < body.size() && std::isalpha((unsigned char)body[j])) ++j;
+                tgt = body.substr(i, j - i); break;
+            }
+        bool applies = tgt.empty() || tgt == kinl || tgt == calll;
+        if (any && applies && pct > best) best = pct > 100 ? 100 : pct;
+    }
+    return best;
+}
+
 int main(int, char**) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -223,6 +254,7 @@ int main(int, char**) {
         int weaponBonus = 0;
         bool shield = false;
         std::string portraitPath;   // chosen avatar filename ("" = placeholder)
+        int gold = 100;             // starting gold (editable)
     } draft;
     draft.trainingSel.assign(trainingNames.size(), 0);
     draft.spellSel.assign(spellNames.size(), 0);
@@ -298,6 +330,26 @@ int main(int, char**) {
         auto it = portraitRes.find(file);
         return it == portraitRes.end() ? nullptr : loadResourceTexture(it->second);
     };
+    // Texture for a shop item's catalog id (filename) via its embedded resource.
+    auto itemTexture = [&](const std::string& file) -> SDL_Texture* {
+        if (file.empty()) return nullptr;
+        for (const auto& ia : kItemCatalog)
+            if (file == ia.file) return loadResourceTexture(ia.res);
+        return nullptr;
+    };
+    // Best texture for a shop item: the baked-in catalog by id, else by the free-file's
+    // basename (authors who used Browse still get the embedded art), else the free file itself.
+    auto shopItemTexture = [&](const gns::ShopItem& it) -> SDL_Texture* {
+        if (SDL_Texture* t = itemTexture(it.imageId)) return t;
+        if (!it.imagePath.empty()) {
+            std::string base = it.imagePath;
+            size_t s = base.find_last_of("/\\");
+            if (s != std::string::npos) base = base.substr(s + 1);
+            if (SDL_Texture* t = itemTexture(base)) return t;
+            return loadCachedImage(it.imagePath);
+        }
+        return nullptr;
+    };
 
     auto openModule = [&](const std::string& path) {
         try {
@@ -325,6 +377,7 @@ int main(int, char**) {
     std::string playStatus;
     int cursorX = 0, cursorY = 0;            // party token position, in map cells
     int faceX = 0, faceY = 1;                 // facing direction (default south)
+    int shopBuyer = 0;                        // which party member is buying/selling
 
     auto areaLabel = [](const gns::Area* a) -> std::string {
         if (!a) return "Unknown";
@@ -641,6 +694,7 @@ int main(int, char**) {
         ch.personality = draft.personality;
         ch.notes = draft.notes;
         ch.portraitPath = draft.portraitPath;
+        ch.gold = draft.gold;
 
         const bool isMystic = (draft.calling == "Mystic");
         const int needTraining = gns::requiredTrainingCount(draft.kin);
@@ -660,6 +714,8 @@ int main(int, char**) {
             inputText("Player", &draft.player);
             inputText("Background", &draft.background);
             inputText("Goal", &draft.goal);
+            ImGui::SetNextItemWidth(120);
+            if (ImGui::InputInt("Gold", &draft.gold) && draft.gold < 0) draft.gold = 0;
 
             ImGui::SeparatorText("Portrait");
             if (portraitFiles.empty()) {
@@ -869,7 +925,8 @@ int main(int, char**) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             ImVec2 visMin = ImGui::GetWindowPos();
             ImVec2 visMax(visMin.x + ImGui::GetWindowSize().x, visMin.y + ImGui::GetWindowSize().y);
-            gns::ui::renderMapView(dl, m, mod.controlPoints, m.id, origin, cs, visMin, visMax);
+            gns::ui::renderMapView(dl, m, mod.controlPoints, m.id, origin, cs, visMin, visMax,
+                                   /*hideHiddenAreas=*/true);
 
             // Highlight the currently-displayed area for orientation.
             const gns::Area* ca = session->currentArea();
@@ -934,6 +991,7 @@ int main(int, char**) {
                     if (!turnOnly) {                  // and step there unless turning in place
                         cursorX = std::min(m.gridW - 1, std::max(0, cursorX + dx));
                         cursorY = std::min(m.gridH - 1, std::max(0, cursorY + dy));
+                        actOnCell(cursorX, cursorY);  // auto-enter/show the area we stepped onto
                     }
                 }
                 if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
@@ -1010,7 +1068,8 @@ int main(int, char**) {
                 ImGui::BeginGroup();
                 ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
                 ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
-                ImGui::Text("Life %d/%d   Def %d   AP %d", pc.life, pc.maxLife, pc.defense, pc.ap);
+                ImGui::Text("Life %d/%d   Def %d   AP %d   %d gp",
+                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.gold);
                 ImGui::EndGroup();
                 ImGui::Spacing();
             }
@@ -1030,12 +1089,13 @@ int main(int, char**) {
                 ImGui::BeginGroup();
                 ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
                 ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
-                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d",
-                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain);
+                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d   %d gp",
+                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain, pc.gold);
                 ImGui::Text("Might %+d  Grace %+d  Wits %+d  Spirit %+d",
                             pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
                 ImGui::EndGroup();
                 ImGui::TextWrapped("Training: %s", joinList(pc.trainings).c_str());
+                if (!pc.inventory.empty()) ImGui::TextWrapped("Inventory: %s", joinList(pc.inventory).c_str());
                 std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
                 weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
                 if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
@@ -1045,10 +1105,24 @@ int main(int, char**) {
                 ImGui::Spacing();
             }
         };
-        // Draw the current area's artwork scaled to the column (capped height).
+        // Draw an area's artwork scaled to the column (capped). Chooses the image matching the
+        // party's facing direction, else the area's default image, else the legacy artwork.
         auto drawAreaImage = [&](const gns::Area* a) {
-            if (!a || a->artworkPath.empty()) return;
-            SDL_Texture* tex = loadCachedImage(a->artworkPath);
+            if (!a) return;
+            std::string path;
+            if (!a->images.empty()) {
+                int dir = (faceY < 0) ? 0 : (faceX > 0) ? 1 : (faceY > 0) ? 2 : 3;  // N,E,S,W
+                for (const auto& im : a->images) if (im.direction == dir) { path = im.path; break; }
+                if (path.empty()) {
+                    int di = a->defaultImage;
+                    path = (di >= 0 && di < (int)a->images.size()) ? a->images[di].path
+                                                                   : a->images.front().path;
+                }
+            } else {
+                path = a->artworkPath;
+            }
+            if (path.empty()) return;
+            SDL_Texture* tex = loadCachedImage(path);
             if (!tex) return;
             int tw = 0, th = 0;
             SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
@@ -1058,6 +1132,38 @@ int main(int, char**) {
             const float maxH = 320.0f;
             if (th * scale > maxH) { scale = maxH / (float)th; w = tw * scale; }
             ImGui::Image((ImTextureID)tex, ImVec2(w, th * scale));
+        };
+
+        // Wrapped paragraph with extra line leading (each wrapped line is its own item, so
+        // ItemSpacing.y separates them) — far less crowded than a single TextWrapped block.
+        auto drawProse = [&](const std::string& text, float leading) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, leading));
+            float wrapW = ImGui::GetContentRegionAvail().x;
+            if (wrapW < 1.0f) wrapW = 1.0f;
+            size_t i = 0, n = text.size();
+            while (true) {
+                size_t nl = text.find('\n', i);
+                std::string hard = text.substr(i, (nl == std::string::npos ? n : nl) - i);
+                std::string line;
+                size_t w = 0;
+                while (w < hard.size()) {
+                    size_t sp = hard.find(' ', w);
+                    std::string word = hard.substr(w, (sp == std::string::npos ? hard.size() : sp) - w);
+                    std::string cand = line.empty() ? word : line + " " + word;
+                    if (!line.empty() && ImGui::CalcTextSize(cand.c_str()).x > wrapW) {
+                        ImGui::TextUnformatted(line.c_str());
+                        line = word;
+                    } else {
+                        line = cand;
+                    }
+                    w = (sp == std::string::npos ? hard.size() : sp + 1);
+                }
+                if (!line.empty()) ImGui::TextUnformatted(line.c_str());
+                else if (hard.empty()) ImGui::TextUnformatted("");   // preserve blank lines
+                if (nl == std::string::npos) break;
+                i = nl + 1;
+            }
+            ImGui::PopStyleVar();
         };
 
         // --- Adventure panel (right) ---
@@ -1087,23 +1193,117 @@ int main(int, char**) {
                 }
                 ImGui::TextDisabled("or build a party in Characters mode, then Load it.");
             } else {
-                const gns::Area* ca = session->currentArea();
-
-                // On a defined area, show the compact party strip + the area image/text; on
-                // open terrain, show only the detailed party sheet (no stale last-area info).
+                // Info follows the party token: on a defined area, show the compact party strip
+                // + that area's image/text (+ shop); on open terrain, show the detailed sheet.
                 int cursorAreaId = 0;
                 if (const gns::Map* cm2 = session->currentMap())
                     if (cursorX >= 0 && cursorY >= 0 && cursorX < cm2->gridW && cursorY < cm2->gridH)
                         cursorAreaId = cm2->cellArea[(size_t)cursorY * cm2->gridW + cursorX];
-                if (cursorAreaId == 0) {
+                gns::Area* hereArea = cursorAreaId ? mod.areaById(cursorAreaId) : nullptr;
+                if (!hereArea) {
                     ImGui::SeparatorText("Party Details");
                     drawPartyDetails(session->party().members);
                 } else {
                     ImGui::SeparatorText("Party");
                     drawPartyCards(session->party().members);
-                    ImGui::SeparatorText(areaLabel(ca).c_str());
-                    drawAreaImage(ca);
-                    if (ca && !ca->playerText.empty()) ImGui::TextWrapped("%s", ca->playerText.c_str());
+                    ImGui::SeparatorText(areaLabel(hereArea).c_str());
+                    drawAreaImage(hereArea);
+                    if (!hereArea->playerText.empty()) drawProse(hereArea->playerText, 5.0f);
+
+                    if (hereArea->isShop) {
+                        ImGui::SeparatorText("Shop");
+                        auto& party = session->party().members;
+                        if (shopBuyer >= (int)party.size()) shopBuyer = 0;
+                        if (!party.empty()) {
+                            if (ImGui::BeginCombo("Buyer", party[shopBuyer].name.c_str())) {
+                                for (int i = 0; i < (int)party.size(); ++i)
+                                    if (ImGui::Selectable(party[i].name.c_str(), i == shopBuyer)) shopBuyer = i;
+                                ImGui::EndCombo();
+                            }
+                            gns::Character& buyer = party[shopBuyer];
+                            int disc = parseDiscountPct(hereArea->dmText, buyer.kin, buyer.calling);
+                            if (disc > 0) ImGui::Text("Gold: %d gp   (discount %d%%)", buyer.gold, disc);
+                            else ImGui::Text("Gold: %d gp", buyer.gold);
+
+                            ImGui::SeparatorText("For Sale");
+                            ImGui::BeginChild("forsale", ImVec2(0, 300), ImGuiChildFlags_Borders);
+                            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(10.0f, 12.0f));
+                            if (ImGui::BeginTable("shopitems", 3, ImGuiTableFlags_BordersInnerH |
+                                    ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX |
+                                    ImGuiTableFlags_SizingFixedFit)) {
+                                ImGui::TableSetupColumn("##img", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+                                ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+                                ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                                for (auto& it : hereArea->shopItems) {
+                                    ImGui::PushID(&it);
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0);
+                                    if (SDL_Texture* tx = shopItemTexture(it))
+                                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
+                                    ImGui::TableSetColumnIndex(1);
+                                    int price = it.costGp - it.costGp * disc / 100;
+                                    ImGui::TextWrapped("%s", it.name.empty() ? "(item)" : it.name.c_str());
+                                    ImGui::Spacing();
+                                    ImGui::TextDisabled("%d gp%s", price, disc > 0 ? "*" : "");
+                                    ImGui::TextDisabled("stock %d", it.stock);
+                                    ImGui::Spacing();
+                                    bool canBuy = it.stock > 0 && buyer.gold >= price;
+                                    if (!canBuy) ImGui::BeginDisabled();
+                                    if (ImGui::Button("Buy")) {
+                                        buyer.gold -= price; it.stock -= 1;
+                                        buyer.inventory.push_back(it.name);
+                                        journal.push_back(buyer.name + " buys " + it.name + " for " +
+                                                          std::to_string(price) + " gp.");
+                                    }
+                                    if (!canBuy) ImGui::EndDisabled();
+                                    ImGui::TableSetColumnIndex(2);
+                                    if (!it.description.empty())
+                                        drawProse(it.description, 5.0f);
+                                    ImGui::PopID();
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::PopStyleVar();
+                            ImGui::EndChild();   // forsale
+
+                            // The buyer's own items — what they're carrying, with Sell where this
+                            // shop lists the item (returns half its listed cost).
+                            ImGui::Spacing();
+                            ImGui::SeparatorText((buyer.name + "'s Items").c_str());
+                            if (buyer.inventory.empty()) {
+                                ImGui::TextDisabled("(carrying nothing)");
+                            } else if (ImGui::BeginTable("buyeritems", 2, ImGuiTableFlags_RowBg |
+                                           ImGuiTableFlags_SizingFixedFit)) {
+                                ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("##sell", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                                int sellIdx = -1, sellGain = 0;
+                                for (size_t k = 0; k < buyer.inventory.size(); ++k) {
+                                    int cost = 0;
+                                    for (const auto& it : hereArea->shopItems)
+                                        if (it.name == buyer.inventory[k]) { cost = it.costGp; break; }
+                                    ImGui::PushID((int)k + 9000);
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0);
+                                    ImGui::TextUnformatted(buyer.inventory[k].c_str());
+                                    ImGui::TableSetColumnIndex(1);
+                                    if (cost > 0) {
+                                        std::string lbl = "Sell +" + std::to_string(cost / 2) + " gp";
+                                        if (ImGui::SmallButton(lbl.c_str())) { sellIdx = (int)k; sellGain = cost / 2; }
+                                    } else {
+                                        ImGui::TextDisabled("not sold here");
+                                    }
+                                    ImGui::PopID();
+                                }
+                                ImGui::EndTable();
+                                if (sellIdx >= 0) {
+                                    journal.push_back(buyer.name + " sells " + buyer.inventory[sellIdx] +
+                                                      " for " + std::to_string(sellGain) + " gp.");
+                                    buyer.gold += sellGain;
+                                    buyer.inventory.erase(buyer.inventory.begin() + sellIdx);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 ImGui::Spacing();
@@ -1114,7 +1314,9 @@ int main(int, char**) {
                 ImGui::TextDisabled("Arrow keys move the party \xC2\xB7 Enter to enter an area / take an item");
                 ImGui::Separator();
                 ImGui::TextUnformatted("Journal");
-                ImGui::BeginChild("journal", ImVec2(0, 0), ImGuiChildFlags_Borders);
+                // Fixed height so the panel above (area/shop) stays scrollable instead of this
+                // child eating all remaining space and clipping the shop off-screen.
+                ImGui::BeginChild("journal", ImVec2(0, 150), ImGuiChildFlags_Borders);
                 for (const auto& line : journal) { ImGui::TextWrapped("%s", line.c_str()); ImGui::Spacing(); }
                 if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
                 ImGui::EndChild();

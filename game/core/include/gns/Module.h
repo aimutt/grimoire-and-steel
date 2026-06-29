@@ -56,6 +56,7 @@ enum class ObjectType : int {
     StoneBridgeS, StoneBridgeM, StoneBridgeL,
     CaveEntrance,
     SpiralStairs,
+    Compass,
     Count
 };
 
@@ -66,6 +67,7 @@ struct MapObject {
     float x = 0.0f;
     float y = 0.0f;
     float rotationDeg = 0.0f;  // clockwise rotation about the centre
+    float scale = 1.0f;        // size multiplier (enlarge/shrink)
 };
 
 // A free text label placed on a map at a sub-grid position, any colour/size.
@@ -108,7 +110,15 @@ struct ShopItem {
     std::string description; // flavour / details shown to the party
     int costGp = 0;          // price in gold pieces
     int stock = 0;           // number available in stock
-    std::string imagePath;   // optional item image (relative or absolute path)
+    std::string imagePath;   // optional free-file item image (fallback if no imageId)
+    std::string imageId;     // baked-in item-art catalog id (filename), shown in both apps
+};
+
+// One of an area's images. `direction` selects it by the party's facing at play time
+// (-1 = any/default-eligible, 0 = North, 1 = East, 2 = South, 3 = West).
+struct AreaImage {
+    std::string path;
+    int direction = -1;
 };
 
 // A link from one area to another (typically on a different map): e.g. stairs in a
@@ -146,8 +156,12 @@ struct Area {
     int hiddenChancePct = 0;    // chance a party discovers hidden items
     std::string hiddenDescription;
 
-    std::string artworkPath;    // relative path; image preview is deferred
+    std::string artworkPath;    // legacy single image (kept for back-compat/migration)
+    std::vector<AreaImage> images;  // up to 4 images; chosen by facing, else defaultImage
+    int defaultImage = 0;       // index into images shown when no direction matches
     std::string musicPath;      // music that plays while the party is in this area
+
+    bool hidden = false;        // hidden at play time (invisible on the map, still playable)
 
     // Shop/market: when isShop, the party may buy & sell here from this supply list.
     bool isShop = false;
@@ -209,8 +223,10 @@ struct Module {
 // area label_auto column (label auto-tracks map position until edited by hand); v10
 // added the area is_shop column + area_treasures and area_shop_items tables; v11 added
 // shop-item description, stock, and image columns to area_shop_items; v12 added the module
-// splash_music/default_music columns and the area music column.
-constexpr int kModuleFormatVersion = 12;
+// splash_music/default_music columns and the area music column; v13 added the area hidden
+// column, the area_images table (multi-image + per-direction + default), the map_objects scale
+// column, and the area_shop_items image_id column.
+constexpr int kModuleFormatVersion = 13;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);
