@@ -1,9 +1,17 @@
 #include "gns/ui/MapRender.h"
 
+#include <SDL.h>
+#include <SDL_image.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <string>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
 
 namespace gns::ui {
 
@@ -389,6 +397,24 @@ void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float rotDeg,
             }
             break;
         }
+        case gns::ObjectType::Compass: {
+            // Outer ring, N/E/S/W ticks + letters, and a two-tone needle (red N, white S).
+            const ImU32 face = IM_COL32(238, 230, 208, 255);
+            C(0.0f, 0.0f, 0.46f, face); Co(0.0f, 0.0f, 0.46f, line, 2.0f);
+            for (int i = 0; i < 4; ++i) {
+                float a2 = i * 3.14159265f / 2.0f;
+                L(0.40f * std::cos(a2), 0.40f * std::sin(a2),
+                  0.46f * std::cos(a2), 0.46f * std::sin(a2), line, 1.6f);
+            }
+            dl->AddTriangleFilled(P(0.0f, -0.34f), P(-0.12f, 0.0f), P(0.12f, 0.0f),
+                                  IM_COL32(190, 40, 40, 255));     // north needle
+            dl->AddTriangleFilled(P(0.0f, 0.34f), P(-0.12f, 0.0f), P(0.12f, 0.0f),
+                                  IM_COL32(235, 235, 240, 255));   // south needle
+            dl->AddTriangle(P(0.0f, -0.34f), P(-0.12f, 0.0f), P(0.12f, 0.0f), line, 1.0f);
+            dl->AddTriangle(P(0.0f, 0.34f), P(-0.12f, 0.0f), P(0.12f, 0.0f), line, 1.0f);
+            C(0.0f, 0.0f, 0.05f, line);
+            break;
+        }
         default: break;
     }
     if (selected) {
@@ -428,8 +454,14 @@ void drawAreaOutline(ImDrawList* dl, const gns::Map& m, int areaId, ImU32 col, f
 
 void renderMapView(ImDrawList* dl, const gns::Map& m,
                    const std::vector<gns::ControlPoint>& cps, int mapId,
-                   ImVec2 origin, float cs, ImVec2 visMin, ImVec2 visMax) {
+                   ImVec2 origin, float cs, ImVec2 visMin, ImVec2 visMax,
+                   bool hideHiddenAreas) {
     auto cellTL = [&](int x, int y) { return ImVec2(origin.x + x * cs, origin.y + y * cs); };
+    auto isHidden = [&](int areaId) {
+        if (!hideHiddenAreas || areaId == 0) return false;
+        for (const auto& a : m.areas) if (a.id == areaId) return a.hidden;
+        return false;
+    };
 
     // Terrain + area tint + motifs.
     for (int y = 0; y < m.gridH; ++y) {
@@ -445,7 +477,7 @@ void renderMapView(ImDrawList* dl, const gns::Map& m,
             if (areaId != 0)
                 for (const auto& a : m.areas) if (a.id == areaId) { ac = a.color; fill = a.fillEnabled; break; }
             dl->AddRectFilled(p0, p1, rgbaToImU32(terrainColor(terr)));
-            if (areaId != 0 && fill)
+            if (areaId != 0 && fill && !isHidden(areaId))   // hidden areas show no tint at play
                 dl->AddRectFilled(p0, p1, rgbaToImU32(ac, 110));
             if (isStairOrBridge(terr))
                 drawStairBridgeMotif(dl, p0, cs, terr, runDirection(m, x, y, terr));
@@ -485,7 +517,8 @@ void renderMapView(ImDrawList* dl, const gns::Map& m,
         ImVec2 ctr(origin.x + o.x * cs, origin.y + o.y * cs);
         if (ctr.x + cs < visMin.x || ctr.y + cs < visMin.y ||
             ctr.x - cs > visMax.x || ctr.y - cs > visMax.y) continue;
-        drawObjectIcon(dl, ctr, cs * 0.9f, o.type, o.rotationDeg, false);
+        drawObjectIcon(dl, ctr, cs * 0.9f * (o.scale > 0.0f ? o.scale : 1.0f),
+                       o.type, o.rotationDeg, false);
     }
 
     // Free text labels.
@@ -518,11 +551,31 @@ void renderMapView(ImDrawList* dl, const gns::Map& m,
                     std::to_string(cp.id).c_str());
     }
 
-    // Outline no-fill areas in their own colour.
+    // Outline no-fill areas in their own colour (skip hidden areas at play time).
     for (const auto& a : m.areas)
-        if (!a.fillEnabled)
+        if (!a.fillEnabled && !(hideHiddenAreas && a.hidden))
             drawAreaOutline(dl, m, a.id, rgbaToImU32(a.color, 235),
                             std::max(2.0f, cs * 0.10f), origin, cs, visMin, visMax);
+}
+
+SDL_Texture* loadEmbeddedTexture(SDL_Renderer* renderer, const char* resName) {
+#ifdef _WIN32
+    HRSRC h = FindResourceA(nullptr, resName, reinterpret_cast<LPCSTR>(RT_RCDATA));
+    if (!h) return nullptr;
+    HGLOBAL g = LoadResource(nullptr, h);
+    void* data = g ? LockResource(g) : nullptr;
+    DWORD sz = SizeofResource(nullptr, h);
+    if (!data || !sz) return nullptr;
+    SDL_RWops* rw = SDL_RWFromConstMem(data, (int)sz);
+    SDL_Surface* surf = IMG_Load_RW(rw, 1);
+    if (!surf) return nullptr;
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_FreeSurface(surf);
+    return tex;
+#else
+    (void)renderer; (void)resName;
+    return nullptr;
+#endif
 }
 
 } // namespace gns::ui

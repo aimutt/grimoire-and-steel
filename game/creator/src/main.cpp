@@ -20,6 +20,7 @@
 #include "gns/Database.h"
 #include "gns/Repository.h"
 #include "gns/ui/MapRender.h"   // shared map-render helpers (terrainColor, motifs, etc.)
+#include "embedded_items.h"      // generated: kItemCatalog (shop item-art baked into the binary)
 
 #include <algorithm>
 #include <cfloat>
@@ -157,7 +158,7 @@ static const char* kObjectNames[] = {
     "Well", "Stone Wall", "Wooden Wall", "Fence", "Altar",
     "Wooden Bridge (S)", "Wooden Bridge (M)", "Wooden Bridge (L)",
     "Stone Bridge (S)", "Stone Bridge (M)", "Stone Bridge (L)",
-    "Cave Entrance", "Spiral Stairs"};
+    "Cave Entrance", "Spiral Stairs", "Compass"};
 
 // ---------------------------------------------------------------------------
 // Editor state
@@ -437,6 +438,26 @@ static SDL_Texture* artworkTexture(App& app, const std::string& path) {
     return tex;
 }
 
+// Resolve a catalog item filename -> its baked-in resource id (from kItemCatalog).
+static const char* itemResForFile(const std::string& file) {
+    for (const auto& it : kItemCatalog)
+        if (file == it.file) return it.res;
+    return nullptr;
+}
+
+// Lazily load + cache a baked-in catalog item image (keyed by "item:<file>" in artCache).
+static SDL_Texture* itemTexture(App& app, const std::string& file) {
+    if (file.empty() || !app.renderer) return nullptr;
+    std::string key = "item:" + file;
+    auto it = app.artCache.find(key);
+    if (it != app.artCache.end()) return it->second;
+    SDL_Texture* tex = nullptr;
+    if (const char* res = itemResForFile(file))
+        tex = gns::ui::loadEmbeddedTexture(app.renderer, res);
+    app.artCache[key] = tex;
+    return tex;
+}
+
 // The trailing portion of `path` (always keeping the file name) that fits in `width` px,
 // prefixed with an ellipsis when truncated — so small path fields show the file name.
 static std::string fitPathTail(const std::string& path, float width) {
@@ -694,6 +715,10 @@ static void drawToolsWindow(App& app) {
             ImGui::Text("%s", kObjectNames[sel->type]);
             if (ImGui::SliderFloat("Rotation", &sel->rotationDeg, 0.0f, 360.0f, "%.0f\xc2\xb0"))
                 app.dirty = true;
+            if (sel->scale <= 0.0f) sel->scale = 1.0f;
+            if (ImGui::SliderFloat("Scale", &sel->scale, 0.25f, 4.0f, "%.2fx")) app.dirty = true;
+            if (ImGui::Button("1x")) { sel->scale = 1.0f; app.dirty = true; }
+            ImGui::SameLine();
             if (ImGui::Button("-90")) { sel->rotationDeg -= 90.0f; app.dirty = true; }
             ImGui::SameLine();
             if (ImGui::Button("+90")) { sel->rotationDeg += 90.0f; app.dirty = true; }
@@ -1265,7 +1290,8 @@ static void drawCanvasWindow(App& app) {
         if (ctr.x + cs < visMin.x || ctr.y + cs < visMin.y ||
             ctr.x - cs > visMax.x || ctr.y - cs > visMax.y) continue;
         bool showSel = app.tool == Tool::PlaceObject && o.id == app.selectedObjectId;
-        drawObjectIcon(dl, ctr, cs * 0.9f, o.type, o.rotationDeg, showSel);
+        drawObjectIcon(dl, ctr, cs * 0.9f * (o.scale > 0.0f ? o.scale : 1.0f),
+                       o.type, o.rotationDeg, showSel);
     }
 
     // Free text labels (any colour/size), drawn above objects.
@@ -1514,8 +1540,15 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         ImGui::EndPopup();
     }
 
+    if (ImGui::Checkbox("Hide at play time (easter egg)", &a.hidden)) app.dirty = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hidden areas are invisible on the map during play, but the party\n"
+                          "still triggers their info/contents when walking over them.");
+
     ImGui::SeparatorText("Descriptions");
-    ImGui::TextDisabled("DM only");
+    ImGui::TextDisabled("DM only  \xe2\x80\x94  shop discounts: [discount 20%%]  or  [discount Dwarf 50%%]");
     if (InputStrMultiline("##dm", &a.dmText, ImVec2(-1, 70))) app.dirty = true;
     ImGui::TextDisabled("Player");
     if (InputStrMultiline("##player", &a.playerText, ImVec2(-1, 70))) app.dirty = true;
@@ -1590,7 +1623,35 @@ static void drawAreaInspector(App& app, gns::Area& a) {
                 if (ImGui::InputInt("In stock##si", &it.stock)) {
                     if (it.stock < 0) it.stock = 0; app.dirty = true;
                 }
-                ImGui::TextDisabled("Image (optional)");
+                ImGui::TextDisabled("Item art (baked-in catalog, shown in-game)");
+                if (!it.imageId.empty()) {
+                    if (SDL_Texture* tx = itemTexture(app, it.imageId))
+                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(it.imageId.c_str());
+                }
+                if (ImGui::SmallButton("Choose art")) ImGui::OpenPopup("itemart");
+                if (!it.imageId.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear art")) { it.imageId.clear(); app.dirty = true; }
+                }
+                if (ImGui::BeginPopup("itemart")) {
+                    std::string cat;
+                    int col = 0;
+                    for (const auto& ia : kItemCatalog) {
+                        if (cat != ia.category) { cat = ia.category; ImGui::SeparatorText(cat.c_str()); col = 0; }
+                        if (col++ % 5 != 0) ImGui::SameLine();
+                        ImGui::PushID(ia.file);
+                        SDL_Texture* tx = itemTexture(app, ia.file);
+                        bool clicked = tx ? ImGui::ImageButton(ia.file, (ImTextureID)tx, ImVec2(48, 64))
+                                          : ImGui::Button(ia.file, ImVec2(48, 64));
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ia.file);
+                        if (clicked) { it.imageId = ia.file; app.dirty = true; ImGui::CloseCurrentPopup(); }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndPopup();
+                }
+                ImGui::TextDisabled("Or a free-file image (fallback)");
                 drawImagePathField(app, "shopimg", &it.imagePath);
                 if (ImGui::SmallButton("Delete item")) delItem = (int)i;
             }
@@ -1600,8 +1661,44 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         if (ImGui::SmallButton("Add item")) { a.shopItems.push_back(gns::ShopItem{}); app.dirty = true; }
     }
 
-    ImGui::SeparatorText("Artwork");
-    drawImagePathField(app, "area-art", &a.artworkPath);
+    ImGui::SeparatorText("Images (up to 4)");
+    ImGui::TextDisabled("One image = default. Assign directions to swap art by the party's facing.");
+    // Migrate a legacy single artwork into the image list the first time we edit.
+    if (a.images.empty() && !a.artworkPath.empty()) {
+        a.images.push_back(gns::AreaImage{a.artworkPath, -1});
+        a.defaultImage = 0;
+    }
+    static const char* kDirNames[] = {"Any", "North", "East", "South", "West"};
+    int delImg = -1;
+    for (size_t i = 0; i < a.images.size(); ++i) {
+        ImGui::PushID((int)i + 5000);
+        gns::AreaImage& im = a.images[i];
+        bool isDef = ((int)i == a.defaultImage);
+        if (ImGui::RadioButton("Default", isDef)) { a.defaultImage = (int)i; app.dirty = true; }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120);
+        int dirIdx = im.direction + 1;   // -1..3 -> 0..4
+        if (ImGui::Combo("Dir", &dirIdx, kDirNames, IM_ARRAYSIZE(kDirNames))) {
+            im.direction = dirIdx - 1; app.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) delImg = (int)i;
+        drawImagePathField(app, "area-img", &im.path);
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    if (delImg >= 0) {
+        a.images.erase(a.images.begin() + delImg);
+        if (a.defaultImage >= (int)a.images.size()) a.defaultImage = a.images.empty() ? 0 : (int)a.images.size() - 1;
+        app.dirty = true;
+    }
+    if (a.images.size() < 4 && ImGui::SmallButton("Add image")) {
+        a.images.push_back(gns::AreaImage{});
+        app.dirty = true;
+    }
+    // Keep the legacy field in sync with the chosen default (older readers still see one image).
+    a.artworkPath = (a.defaultImage >= 0 && a.defaultImage < (int)a.images.size())
+                        ? a.images[a.defaultImage].path : "";
 
     ImGui::SeparatorText("Music");
     ImGui::TextDisabled("Plays while the party is in this area.");
