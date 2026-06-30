@@ -1858,7 +1858,7 @@ int main(int, char**) {
     SDL_Window* window = SDL_CreateWindow(
         "Grimoire & Steel — Module Creator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 800,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_MAXIMIZED);
     SDL_Renderer* renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_ACCELERATED);
     if (!window || !renderer) {
@@ -1878,6 +1878,12 @@ int main(int, char**) {
     newModule(app);
     loadReference(app);
 
+    // Startup splash: show the baked-in Grimoire & Steel image full-window for ~2s on open
+    // (auto-dismisses, like the Game Engine; a key/click skips it early).
+    SDL_Texture* splashTex = gns::ui::loadEmbeddedTexture(renderer, "GNSSPLASH");
+    Uint32 splashUntil = SDL_GetTicks() + 2000;
+    bool splashDone = (splashTex == nullptr);
+
     bool running = true;
     while (running) {
         SDL_Event ev;
@@ -1889,6 +1895,41 @@ int main(int, char**) {
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+
+        if (!splashDone) {
+            if (SDL_GetTicks() >= splashUntil ||
+                ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                splashDone = true;
+            } else {
+                const ImGuiViewport* vp = ImGui::GetMainViewport();
+                ImGui::SetNextWindowPos(vp->WorkPos);
+                ImGui::SetNextWindowSize(vp->WorkSize);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.03f, 0.05f, 1.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+                ImGui::Begin("##startupsplash", nullptr,
+                             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                             ImGuiWindowFlags_NoScrollbar);
+                ImVec2 win = ImGui::GetWindowSize();
+                int tw = 0, th = 0;
+                SDL_QueryTexture(splashTex, nullptr, nullptr, &tw, &th);
+                float scale = (tw > 0 && th > 0) ? std::min(win.x / tw, win.y / th) : 1.0f;
+                ImVec2 sz(tw * scale, th * scale);
+                ImGui::SetCursorPos(ImVec2((win.x - sz.x) * 0.5f, (win.y - sz.y) * 0.5f));
+                ImGui::Image((ImTextureID)splashTex, sz);
+                ImGui::End();
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
+
+                ImGui::Render();
+                SDL_SetRenderDrawColor(renderer, 10, 8, 12, 255);
+                SDL_RenderClear(renderer);
+                ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
+                SDL_RenderPresent(renderer);
+                continue;   // hold on the splash
+            }
+        }
 
         // Keyboard shortcuts.
         ImGuiIO& io = ImGui::GetIO();
@@ -1917,6 +1958,7 @@ int main(int, char**) {
     }
 
     for (auto& kv : app.artCache) if (kv.second) SDL_DestroyTexture(kv.second);
+    if (splashTex) SDL_DestroyTexture(splashTex);
 
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();

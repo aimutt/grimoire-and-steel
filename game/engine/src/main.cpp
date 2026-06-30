@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -197,7 +198,7 @@ int main(int, char**) {
     SDL_Window* window = SDL_CreateWindow(
         "Grimoire & Steel — Game Engine (M0)",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1100, 720,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_MAXIMIZED);
     SDL_Renderer* renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_ACCELERATED);
     if (!window || !renderer) {
@@ -208,6 +209,29 @@ int main(int, char**) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+
+    // Roomier, modern style — more breathing room and left padding than the ImGui defaults.
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowPadding  = ImVec2(16, 14);
+        style.FramePadding   = ImVec2(8, 5);
+        style.ItemSpacing    = ImVec2(10, 8);
+        style.FrameRounding  = 4.0f;
+        style.WindowRounding = 4.0f;
+    }
+
+    // Load a real proportional font (Segoe UI) at a body + larger heading size, replacing
+    // ImGui's blocky bitmap default. headingFont stays null if the semibold TTF is missing.
+    ImFont* headingFont = nullptr;
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        const char* bodyPath = "C:/Windows/Fonts/segoeui.ttf";
+        const char* headPath = "C:/Windows/Fonts/seguisb.ttf";   // Segoe UI Semibold
+        if (std::filesystem::exists(bodyPath)) io.Fonts->AddFontFromFileTTF(bodyPath, 18.0f);
+        else                                   io.Fonts->AddFontDefault();
+        if (std::filesystem::exists(headPath)) headingFont = io.Fonts->AddFontFromFileTTF(headPath, 23.0f);
+    }
+
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
@@ -276,6 +300,7 @@ int main(int, char**) {
     std::string moduleDir;                              // folder of the open .gnsmod (for relative art)
     SDL_Texture* coverTex = nullptr;
     bool showSplash = false;
+    Uint32 splashUntil = 0;   // module cover-art splash auto-dismisses at this tick
 
     // Cache of area/other artwork textures by resolved path (nullptr = failed, don't retry).
     std::map<std::string, SDL_Texture*> imgCache;
@@ -330,6 +355,14 @@ int main(int, char**) {
         auto it = portraitRes.find(file);
         return it == portraitRes.end() ? nullptr : loadResourceTexture(it->second);
     };
+    // A section heading: padded above/below and drawn in the larger heading font.
+    auto sectionHeader = [&](const char* label) {
+        ImGui::Spacing();
+        if (headingFont) ImGui::PushFont(headingFont);
+        ImGui::SeparatorText(label);
+        if (headingFont) ImGui::PopFont();
+        ImGui::Spacing();
+    };
     // Texture for a shop item's catalog id (filename) via its embedded resource.
     auto itemTexture = [&](const std::string& file) -> SDL_Texture* {
         if (file.empty()) return nullptr;
@@ -365,6 +398,7 @@ int main(int, char**) {
             }
             moduleStatus = "Loaded: " + (mod.name.empty() ? "(untitled)" : mod.name);
             showSplash = true;   // show the cover (or a title card) whenever a game loads
+            splashUntil = SDL_GetTicks() + 3000;   // ...for ~3s, then auto-dismiss
         } catch (const std::exception& e) {
             haveModule = false;
             moduleStatus = std::string("Open failed: ") + e.what();
@@ -381,6 +415,7 @@ int main(int, char**) {
     bool areaView = false;                    // left region shows the area view, not the map
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
     int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
+    int confirmChoice = 0;                    // confirm-popup highlight (0 = No, 1 = Yes)
 
     auto areaLabel = [](const gns::Area* a) -> std::string {
         if (!a) return "Unknown";
@@ -563,15 +598,13 @@ int main(int, char**) {
             ImVec2 ts = ImGui::CalcTextSize(cap.c_str());
             ImGui::SetCursorPosX((win.x - ts.x) * 0.5f);
             ImGui::TextUnformatted(cap.c_str());
-            const char* hint = "Click or press Enter to begin";
-            ImVec2 hs = ImGui::CalcTextSize(hint);
-            ImGui::SetCursorPosX((win.x - hs.x) * 0.5f);
-            ImGui::TextDisabled("%s", hint);
             ImGui::End();
             ImGui::PopStyleVar();
             ImGui::PopStyleColor();
 
-            if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) ||
+            // Auto-dismiss after ~2s (like the startup splash); a key/click skips it early.
+            if (SDL_GetTicks() >= splashUntil ||
+                ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) ||
                 ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 showSplash = false;
@@ -591,7 +624,9 @@ int main(int, char**) {
                     std::string p = openModuleDialog();
                     if (!p.empty()) openModule(p);
                 }
-                if (ImGui::MenuItem("Show Cover", nullptr, false, haveModule)) showSplash = true;
+                if (ImGui::MenuItem("Show Cover", nullptr, false, haveModule)) {
+                    showSplash = true; splashUntil = SDL_GetTicks() + 3000;
+                }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) running = false;
                 ImGui::EndMenu();
@@ -707,32 +742,41 @@ int main(int, char**) {
         const bool spellsOk = !isMystic || chosenSpells.size() == 3;
         const bool canSave = repo && !draft.name.empty() && traitsOk && trainingOk && spellsOk;
 
-        ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(540, 690), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Create Character");
+        // Responsive two-pane layout: Create Character fills the left ~66%, Roster the rest.
+        // Sized from the viewport every frame so it always fills the window (and ignores any
+        // stale size saved in imgui.ini).
+        const ImGuiViewport* charVp = ImGui::GetMainViewport();
+        const float rosterW = std::max(320.0f, charVp->WorkSize.x * 0.34f);
+        const float createW = charVp->WorkSize.x - rosterW;
+        const ImGuiWindowFlags paneFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGui::SetNextWindowPos(charVp->WorkPos);
+        ImGui::SetNextWindowSize(ImVec2(createW, charVp->WorkSize.y));
+        ImGui::Begin("Create Character", nullptr, paneFlags);
         if (!repo) {
             ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "DB error: %s", dbErr.c_str());
         } else {
-            ImGui::SeparatorText("Identity");
-            inputText("Name", &draft.name);
-            inputText("Player", &draft.player);
-            inputText("Background", &draft.background);
-            inputText("Goal", &draft.goal);
+            const float kFieldW = 240.0f;   // shared width for inputs/combos with short content
+            sectionHeader("Identity");
+            ImGui::SetNextItemWidth(kFieldW); inputText("Name", &draft.name);
+            ImGui::SetNextItemWidth(kFieldW); inputText("Background", &draft.background);
+            ImGui::SetNextItemWidth(kFieldW); inputText("Goal", &draft.goal);
             ImGui::SetNextItemWidth(120);
             if (ImGui::InputInt("Gold", &draft.gold) && draft.gold < 0) draft.gold = 0;
 
-            ImGui::SeparatorText("Portrait");
+            sectionHeader("Portrait");
             if (portraitFiles.empty()) {
                 ImGui::TextDisabled("No portraits found in assets/portraits.");
             } else {
-                const float sz = 64.0f;
+                // 3:4 portrait boxes (matches the source images, so no stretching).
+                const float pw = 92.0f, ph = 122.0f;
                 ImGuiStyle& st = ImGui::GetStyle();
                 float availW = ImGui::GetContentRegionAvail().x;
-                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (sz + st.ItemSpacing.x)));
+                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (pw + st.ItemSpacing.x)));
                 int placed = 0;
                 auto rowBreak = [&]() { if (placed % perRow != 0) ImGui::SameLine(); };
                 rowBreak();
-                if (ImGui::Button("None##port", ImVec2(sz, sz))) draft.portraitPath.clear();
+                if (ImGui::Button("None##port", ImVec2(pw, ph))) draft.portraitPath.clear();
                 ++placed;
                 for (size_t i = 0; i < portraitFiles.size(); ++i) {
                     rowBreak();
@@ -741,18 +785,20 @@ int main(int, char**) {
                     std::string id = "##port" + std::to_string(i);
                     SDL_Texture* tex = portraitTexture(portraitFiles[i]);
                     bool clicked = tex
-                        ? ImGui::ImageButton(id.c_str(), (ImTextureID)tex, ImVec2(sz, sz))
-                        : ImGui::Button((std::to_string(i + 1) + id).c_str(), ImVec2(sz, sz));
+                        ? ImGui::ImageButton(id.c_str(), (ImTextureID)tex, ImVec2(pw, ph))
+                        : ImGui::Button((std::to_string(i + 1) + id).c_str(), ImVec2(pw, ph));
                     if (clicked) draft.portraitPath = portraitFiles[i];
                     if (sel) ImGui::PopStyleColor();
                     ++placed;
                 }
             }
 
-            ImGui::SeparatorText("Kin & Calling");
+            sectionHeader("Kin & Calling");
+            ImGui::SetNextItemWidth(kFieldW);
             comboField("Kin", &draft.kin, kinNames);
             if (kin) ImGui::TextWrapped("Gift (%s): %s", kin->giftName.c_str(),
                                         kin->giftDescription.c_str());
+            ImGui::SetNextItemWidth(kFieldW);
             comboField("Calling", &draft.calling, callingNames);
             if (calling) {
                 ImGui::TextWrapped("Gift (%s): %s", calling->giftName.c_str(),
@@ -761,12 +807,13 @@ int main(int, char**) {
                 ImGui::TextWrapped("Starting gear: %s", calling->startingGear.c_str());
             }
 
-            ImGui::SeparatorText("Traits  (assign +2, +1, +0, -1)");
+            sectionHeader("Traits  (assign +2, +1, +0, -1)");
             static const char* traitLabels[4] = {"Might", "Grace", "Wits", "Spirit"};
             static const int traitChoices[4] = {2, 1, 0, -1};
+            ImGui::Columns(2, "traitCols", false);
             for (int t = 0; t < 4; ++t) {
                 ImGui::PushID(t);
-                ImGui::TextUnformatted(traitLabels[t]); ImGui::SameLine(90);
+                ImGui::TextUnformatted(traitLabels[t]); ImGui::SameLine(70);
                 ImGui::SetNextItemWidth(80);
                 std::string cur = (draft.traitVals[t] >= 0 ? "+" : "") +
                                   std::to_string(draft.traitVals[t]);
@@ -780,28 +827,37 @@ int main(int, char**) {
                     ImGui::EndCombo();
                 }
                 ImGui::PopID();
+                ImGui::NextColumn();
             }
+            ImGui::Columns(1);
             if (!traitsOk)
                 ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1),
                                    "Assign each of +2, +1, +0, -1 exactly once.");
 
-            ImGui::SeparatorText("Training");
+            sectionHeader("Training");
             ImGui::Text("Choose %d (%d selected)", needTraining, (int)chosenTrainings.size());
-            for (size_t i = 0; i < trainingNames.size(); ++i) {
-                bool sel = draft.trainingSel[i] != 0;
-                bool offered = calling &&
-                    std::find(calling->trainingOptions.begin(), calling->trainingOptions.end(),
-                              trainingNames[i]) != calling->trainingOptions.end();
-                std::string lbl = trainingNames[i] + (offered ? "  (calling)" : "");
-                if (ImGui::Checkbox(lbl.c_str(), &sel)) draft.trainingSel[i] = sel ? 1 : 0;
+            {
+                int cols = ImGui::GetContentRegionAvail().x > 360 ? 2 : 1;
+                if (cols > 1) ImGui::Columns(cols, "trainingCols", false);
+                for (size_t i = 0; i < trainingNames.size(); ++i) {
+                    bool sel = draft.trainingSel[i] != 0;
+                    bool offered = calling &&
+                        std::find(calling->trainingOptions.begin(), calling->trainingOptions.end(),
+                                  trainingNames[i]) != calling->trainingOptions.end();
+                    std::string lbl = trainingNames[i] + (offered ? "  (calling)" : "");
+                    if (ImGui::Checkbox(lbl.c_str(), &sel)) draft.trainingSel[i] = sel ? 1 : 0;
+                    if (cols > 1) ImGui::NextColumn();
+                }
+                if (cols > 1) ImGui::Columns(1);
             }
 
-            ImGui::SeparatorText("Equipment");
+            sectionHeader("Equipment");
+            ImGui::SetNextItemWidth(kFieldW);
             if (comboField("Weapon type", &draft.weaponCat, weaponCatNames)) {
                 if (const gns::WeaponCategory* w = repo->weaponCategory(draft.weaponCat))
                     draft.weaponName = w->name;   // seed a sensible default name
             }
-            inputText("Main attack", &draft.weaponName);
+            ImGui::SetNextItemWidth(kFieldW); inputText("Main attack", &draft.weaponName);
             ImGui::SetNextItemWidth(120);
             ImGui::SliderInt("Weapon bonus", &draft.weaponBonus, 0, 3);
             std::vector<std::string> armorOpts = allowedArmors(calling, *repo);
@@ -809,13 +865,16 @@ int main(int, char**) {
             if (std::find(armorOpts.begin(), armorOpts.end(), draft.armorName) == armorOpts.end()
                 && !armorOpts.empty())
                 draft.armorName = armorOpts.front();
+            ImGui::SetNextItemWidth(kFieldW);
             comboField("Armor", &draft.armorName, armorOpts);
             if (callingAllowsShield(calling)) ImGui::Checkbox("Shield (+1 Defense)", &draft.shield);
             else draft.shield = false;
 
             if (isMystic) {
-                ImGui::SeparatorText("Spells  (choose 3)");
+                sectionHeader("Spells  (choose 3)");
                 ImGui::Text("%d selected", (int)chosenSpells.size());
+                int cols = ImGui::GetContentRegionAvail().x > 360 ? 2 : 1;
+                if (cols > 1) ImGui::Columns(cols, "spellCols", false);
                 for (size_t i = 0; i < spellNames.size(); ++i) {
                     bool sel = draft.spellSel[i] != 0;
                     bool atLimit = chosenSpells.size() >= 3 && !sel;
@@ -823,10 +882,12 @@ int main(int, char**) {
                     if (ImGui::Checkbox(spellNames[i].c_str(), &sel))
                         draft.spellSel[i] = sel ? 1 : 0;
                     if (atLimit) ImGui::EndDisabled();
+                    if (cols > 1) ImGui::NextColumn();
                 }
+                if (cols > 1) ImGui::Columns(1);
             }
 
-            ImGui::SeparatorText("Derived");
+            sectionHeader("Derived");
             ImGui::Text("Life %d   Defense %d", ch.maxLife, ch.defense);
             ImGui::Text("Melee +%d   Ranged +%d   Strain limit %d",
                         gns::meleeAttackBonus(ch), gns::rangedAttackBonus(ch),
@@ -861,10 +922,10 @@ int main(int, char**) {
         }
         ImGui::End();
 
-        // ----- Roster (loaded characters; the future party) -----
-        ImGui::SetNextWindowPos(ImVec2(560, 30), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(520, 690), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Roster / Party");
+        // ----- Roster (loaded characters; the future party) — right pane -----
+        ImGui::SetNextWindowPos(ImVec2(charVp->WorkPos.x + createW, charVp->WorkPos.y));
+        ImGui::SetNextWindowSize(ImVec2(rosterW, charVp->WorkSize.y));
+        ImGui::Begin("Roster / Party", nullptr, paneFlags);
         if (ImGui::Button("Load Character\xE2\x80\xA6")) {
             std::string p = characterDialog(/*save=*/false);
             if (!p.empty()) {
@@ -1036,8 +1097,10 @@ int main(int, char**) {
 
             // Up/down arrows cycle the active character while inside an area (map movement is
             // paused here, so the keys are free); clicking a card on the right does the same.
+            // While a confirm popup is open it owns the keyboard, so don't cycle behind it.
             ImGuiIO& io = ImGui::GetIO();
-            if (!io.WantTextInput && !party.empty()) {
+            bool popupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+            if (!io.WantTextInput && !party.empty() && !popupOpen) {
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
                     shopBuyer = (shopBuyer + 1) % (int)party.size();
                 if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
@@ -1196,9 +1259,40 @@ int main(int, char**) {
             }
             ImGui::EndChild();
 
-            if (openBuy)      ImGui::OpenPopup("Confirm Purchase");
-            if (openSell)     ImGui::OpenPopup("Confirm Sale");
+            if (openBuy)      { ImGui::OpenPopup("Confirm Purchase"); confirmChoice = 0; }
+            if (openSell)     { ImGui::OpenPopup("Confirm Sale");     confirmChoice = 0; }
             if (openCantSell) ImGui::OpenPopup("Cannot Sell");
+
+            // Yes/No confirm row with keyboard support: "No" starts highlighted; Left moves to
+            // Yes / Right moves back to No, Enter activates the highlighted choice, Escape cancels.
+            // Returns 1 = confirmed, -1 = cancelled, 0 = still deciding. `yesEnabled` greys out Yes.
+            auto confirmButtons = [&](bool yesEnabled) -> int {
+                if (yesEnabled && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) confirmChoice = 1;
+                if (ImGui::IsKeyPressed(ImGuiKey_RightArrow))             confirmChoice = 0;
+                int result = 0;
+                auto choiceButton = [&](const char* label, int idx, bool enabled) -> bool {
+                    bool selected = (confirmChoice == idx);
+                    if (selected) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.47f, 0.78f, 1.0f, 1.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+                    }
+                    if (!enabled) ImGui::BeginDisabled();
+                    bool clicked = ImGui::Button(label, ImVec2(110, 0));
+                    if (!enabled) ImGui::EndDisabled();
+                    if (selected) { ImGui::PopStyleVar(); ImGui::PopStyleColor(2); }
+                    return clicked;
+                };
+                if (choiceButton("Yes", 1, yesEnabled)) result = 1;
+                ImGui::SameLine();
+                if (choiceButton("No", 0, true))        result = -1;
+                if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
+                    if (confirmChoice == 1 && yesEnabled) result = 1;
+                    else if (confirmChoice == 0)          result = -1;
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape)) result = -1;
+                return result;
+            };
 
             if (ImGui::BeginPopupModal("Confirm Purchase", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 if (pendingBuy >= 0 && pendingBuy < (int)a->shopItems.size()) {
@@ -1208,17 +1302,16 @@ int main(int, char**) {
                                 it.name.empty() ? "this item" : it.name.c_str(), price);
                     ImGui::Spacing();
                     bool ok = it.stock > 0 && buyer.gold >= price;
-                    if (!ok) ImGui::BeginDisabled();
-                    if (ImGui::Button("Yes", ImVec2(110, 0))) {
+                    int choice = confirmButtons(/*yesEnabled=*/ok);
+                    if (choice == 1) {
                         buyer.gold -= price; it.stock -= 1;
                         buyer.inventory.push_back(it.name);
                         journal.push_back(buyer.name + " buys " + it.name + " for " +
                                           std::to_string(price) + " gp.");
                         pendingBuy = -1; ImGui::CloseCurrentPopup();
+                    } else if (choice == -1) {
+                        pendingBuy = -1; ImGui::CloseCurrentPopup();
                     }
-                    if (!ok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (ImGui::Button("No", ImVec2(110, 0))) { pendingBuy = -1; ImGui::CloseCurrentPopup(); }
                 } else { ImGui::CloseCurrentPopup(); }
                 ImGui::EndPopup();
             }
@@ -1230,15 +1323,16 @@ int main(int, char**) {
                     int gain = cost / 2;
                     ImGui::Text("Are you sure you want to sell %s for %d GP?", nm.c_str(), gain);
                     ImGui::Spacing();
-                    if (ImGui::Button("Yes", ImVec2(110, 0))) {
+                    int choice = confirmButtons(/*yesEnabled=*/true);
+                    if (choice == 1) {
                         buyer.gold += gain;
                         buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
                         journal.push_back(buyer.name + " sells " + nm + " for " +
                                           std::to_string(gain) + " gp.");
                         pendingSell = -1; ImGui::CloseCurrentPopup();
+                    } else if (choice == -1) {
+                        pendingSell = -1; ImGui::CloseCurrentPopup();
                     }
-                    ImGui::SameLine();
-                    if (ImGui::Button("No", ImVec2(110, 0))) { pendingSell = -1; ImGui::CloseCurrentPopup(); }
                 } else { ImGui::CloseCurrentPopup(); }
                 ImGui::EndPopup();
             }
@@ -1257,6 +1351,12 @@ int main(int, char**) {
         // up/down arrows while in an area) makes that character active — the highlighted frame
         // marks the current one, and the active index drives the shop's buyer/seller.
         auto drawPartyPanel = [&](std::vector<gns::Character>& members) {
+            ImGuiStyle& st = ImGui::GetStyle();
+            const float av = 92.0f;                       // avatar width (3:4 -> avH tall)
+            const float avH = av * 4.0f / 3.0f;
+            // Card is exactly as tall as the avatar (plus the child's padding); the stats are
+            // spread across two columns to its right so they fit without a scrollbar.
+            const float cardH = avH + st.WindowPadding.y * 2.0f + st.CellPadding.y * 2.0f + 4.0f;
             for (size_t i = 0; i < members.size(); ++i) {
                 gns::Character& pc = members[i];
                 bool active = ((int)i == shopBuyer);
@@ -1264,24 +1364,36 @@ int main(int, char**) {
                 ImGui::PushStyleColor(ImGuiCol_Border, active ? IM_COL32(120, 200, 255, 255)
                                                               : IM_COL32(70, 70, 84, 255));
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, active ? 2.5f : 1.0f);
-                ImGui::BeginChild("card", ImVec2(0, 150), ImGuiChildFlags_Borders);
-                drawAvatar(pc, 84.0f);
-                ImGui::SameLine();
-                ImGui::BeginGroup();
-                ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
-                ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
-                ImGui::Text("Life %d/%d   Def %d   AP %d   Strain %d",
-                            pc.life, pc.maxLife, pc.defense, pc.ap, pc.strain);
-                ImGui::Text("Might %+d  Grace %+d  Wits %+d  Spirit %+d",
-                            pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
-                std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
-                weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
-                if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
-                ImGui::Text("Weapon: %s", weap.c_str());
-                ImGui::Text("Armor: %s%s", pc.armorName.empty() ? "None" : pc.armorName.c_str(),
-                            pc.shield ? " + shield" : "");
-                ImGui::Text("Gold: %d gp", pc.gold);
-                ImGui::EndGroup();
+                ImGui::BeginChild("card", ImVec2(0, cardH), ImGuiChildFlags_Borders,
+                                  ImGuiWindowFlags_NoScrollbar);
+                if (ImGui::BeginTable("cardgrid", 3)) {
+                    ImGui::TableSetupColumn("av", ImGuiTableColumnFlags_WidthFixed, av + 4.0f);
+                    ImGui::TableSetupColumn("a",  ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn("b",  ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    drawAvatar(pc, av);
+
+                    ImGui::TableSetColumnIndex(1);   // identity + vitals
+                    ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                    ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                    ImGui::Text("Life %d/%d   Def %d", pc.life, pc.maxLife, pc.defense);
+                    ImGui::Text("AP %d   Strain %d", pc.ap, pc.strain);
+
+                    ImGui::TableSetColumnIndex(2);   // traits + gear
+                    ImGui::Text("Might %+d   Grace %+d", pc.traits.might, pc.traits.grace);
+                    ImGui::Text("Wits %+d   Spirit %+d", pc.traits.wits, pc.traits.spirit);
+                    std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
+                    weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
+                    if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
+                    ImGui::Text("Weapon: %s", weap.c_str());
+                    ImGui::Text("%s%s  \xC2\xB7  %d gp",
+                                pc.armorName.empty() ? "No armor" : pc.armorName.c_str(),
+                                pc.shield ? " + shield" : "", pc.gold);
+
+                    ImGui::EndTable();
+                }
                 bool hov = ImGui::IsWindowHovered();
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
