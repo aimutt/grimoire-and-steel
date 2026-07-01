@@ -13,8 +13,10 @@
 #include "gns/Repository.h"
 #include "gns/Character.h"
 #include "gns/CharacterIO.h"
+#include "gns/SaveIO.h"
 #include "gns/Rules.h"
 #include "gns/Session.h"
+#include "gns/PlotTracker.h"
 #include "gns/EncounterDirector.h"
 #include "gns/CombatEngine.h"
 #include "gns/RulesAdjudicator.h"
@@ -298,7 +300,20 @@ int main(int, char**) {
     bool haveModule = false;
     std::string moduleStatus;
     std::string moduleDir;                              // folder of the open .gnsmod (for relative art)
+    std::string modulePath;                             // full path of the open .gnsmod (for the save sidecar)
+    bool haveSaveFile = false;                          // a .gnssav sits next to the open module
     SDL_Texture* coverTex = nullptr;
+
+    // The single auto-saved progress file: the module path with a .gnssav extension.
+    // TODO: move saves to %APPDATA%\GrimoireAndSteel\saves\ before release (drop the sidecar).
+    auto sidecarPath = [&]() -> std::string {
+        std::string p = modulePath;
+        size_t dot = p.find_last_of('.');
+        size_t slash = p.find_last_of("/\\");
+        if (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+            p = p.substr(0, dot);
+        return p + ".gnssav";
+    };
     bool showSplash = false;
     Uint32 splashUntil = 0;   // module cover-art splash auto-dismisses at this tick
 
@@ -389,6 +404,9 @@ int main(int, char**) {
             mod = gns::loadModule(path);
             haveModule = true;
             moduleDir = dirOf(path);
+            modulePath = path;
+            std::error_code ec;
+            haveSaveFile = std::filesystem::exists(sidecarPath(), ec);
             clearImgCache();   // new module -> drop stale area textures
             if (coverTex) { SDL_DestroyTexture(coverTex); coverTex = nullptr; }
             if (!mod.coverArtPath.empty()) {
@@ -417,6 +435,29 @@ int main(int, char**) {
     int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
     int confirmChoice = 0;                    // confirm-popup highlight (0 = No, 1 = Yes)
 
+    // Write the whole play-session to the sidecar .gnssav. Called after meaningful events
+    // (area entry, a decision, a shop transaction) so relaunching can Continue. Non-fatal on
+    // failure — a save error must never interrupt play.
+    auto autoSave = [&]() {
+        if (!session || modulePath.empty()) return;
+        gns::GameSave gs;
+        gs.modulePath = modulePath;
+        gs.seed       = session->seed();
+        gs.mapId      = session->state().mapId;
+        gs.areaId     = session->state().areaId;
+        gs.turnCount  = session->state().turnCount;
+        gs.mode       = (int)session->state().mode;
+        gs.cursorX = cursorX; gs.cursorY = cursorY; gs.faceX = faceX; gs.faceY = faceY;
+        gs.activeChar = shopBuyer;
+        gs.controlPoints = session->plot().completedIds();
+        gs.flags         = session->plot().flags();
+        gs.resolvedAreas = session->plot().resolvedChoiceAreas();
+        gs.journal = journal;
+        gs.party   = session->party().members;
+        try { gns::saveGame(sidecarPath(), gs); haveSaveFile = true; }
+        catch (const std::exception&) { /* keep playing; a failed autosave is not fatal */ }
+    };
+
     auto areaLabel = [](const gns::Area* a) -> std::string {
         if (!a) return "Unknown";
         if (!a->name.empty()) return a->name;
@@ -430,7 +471,9 @@ int main(int, char**) {
         session->state().areaId = areaId;
         const gns::Area* a = session->currentArea();
         journal.push_back("== " + areaLabel(a) + " ==");
-        if (a && !a->playerText.empty()) journal.push_back(a->playerText);
+        // Show the area's alternate text if a decision flag selects one, else the default text.
+        const std::string entryText = a ? gns::areaDisplayText(*a, session->plot()) : std::string();
+        if (!entryText.empty()) journal.push_back(entryText);
         else journal.push_back("You arrive at " + areaLabel(a) + ".");
 
         // Control Points (objectives) sitting in this area complete automatically;
@@ -458,6 +501,7 @@ int main(int, char**) {
             auto lc = adj.lockCheck(*a);   if (lc.occurred) journal.push_back(lc.description);
             auto hc = adj.hiddenCheck(*a); if (hc.occurred) journal.push_back("You find: " + hc.description);
         }
+        autoSave();   // persist progress after each area beat
     };
 
     // Generate a varied default party of `n` (1-5): distinct names, callings, traits, and
@@ -512,6 +556,34 @@ int main(int, char**) {
             }
             enterArea(a->id);
         }
+    };
+
+    // Resume from the sidecar .gnssav: reload the party + plot + position saved earlier. Does not
+    // re-run the enter beat (no fresh narration), so the journal is exactly as it was saved.
+    auto continueGame = [&]() {
+        if (!repo || !haveModule || modulePath.empty()) return;
+        gns::GameSave gs;
+        try { gs = gns::loadGame(sidecarPath()); }
+        catch (const std::exception& e) {
+            playStatus = std::string("Could not load save: ") + e.what();
+            return;
+        }
+        gns::Party party;
+        party.members = gs.party;
+        roster = gs.party;    // keep the roster in step with the resumed party
+        session = std::make_unique<gns::Session>(mod, party, gs.seed);
+        session->state().mapId     = gs.mapId;
+        session->state().areaId    = gs.areaId;
+        session->state().turnCount = gs.turnCount;
+        session->state().mode      = (gns::PlayMode)gs.mode;
+        session->plot().setCompletedIds(gs.controlPoints);
+        session->plot().setFlags(gs.flags);
+        session->plot().setResolvedChoiceAreas(gs.resolvedAreas);
+        journal = gs.journal;
+        cursorX = gs.cursorX; cursorY = gs.cursorY; faceX = gs.faceX; faceY = gs.faceY;
+        shopBuyer = gs.activeChar;
+        playStatus.clear();
+        areaView = false;
     };
 
     // Startup splash: the baked-in G&S splash, shown briefly on launch (skippable).
@@ -1123,17 +1195,51 @@ int main(int, char**) {
                 drewArt = drawAreaImage(a, imgW, 460.0f);
                 ImGui::EndGroup();
             }
-            if (!a->playerText.empty()) {
+            // Show the alternate text if a decision flag selects one, else the default player text.
+            const std::string bodyText = gns::areaDisplayText(*a, session->plot());
+            if (!bodyText.empty()) {
                 if (drewArt) {
                     ImGui::SameLine(0.0f, 20.0f);
                     ImGui::BeginGroup();
-                    drawProse(a->playerText, 4.0f);
+                    drawProse(bodyText, 4.0f);
                     ImGui::EndGroup();
                 } else {
-                    drawProse(a->playerText, 4.0f);
+                    drawProse(bodyText, 4.0f);
                 }
             }
             ImGui::Spacing();
+
+            // Inline decision: the prompt + a button per choice, shown until the party decides
+            // here. Effects apply to the active character; the pick is recorded so the area stops
+            // prompting and can switch to its alternate text.
+            if (!a->choices.empty() && !session->plot().isChoiceResolved(a->id)) {
+                if (!a->choicePrompt.empty()) { drawProse(a->choicePrompt, 4.0f); ImGui::Spacing(); }
+                for (size_t i = 0; i < a->choices.size(); ++i) {
+                    const gns::AreaChoice& ch = a->choices[i];
+                    std::string label = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
+                    ImGui::PushID((int)i + 7000);
+                    if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
+                        gns::Character& who = party[shopBuyer];
+                        if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
+                        if (ch.completeControlPointId != 0)
+                            session->completeControlPoint(ch.completeControlPointId);
+                        // Gold reward applies to EVERY party member (each gets the full amount);
+                        // items still go to the active character.
+                        if (ch.goldDelta != 0)
+                            for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
+                        if (!ch.grantItemName.empty()) who.inventory.push_back(ch.grantItemName);
+                        if (!ch.takeItemName.empty()) {
+                            auto it = std::find(who.inventory.begin(), who.inventory.end(), ch.takeItemName);
+                            if (it != who.inventory.end()) who.inventory.erase(it);
+                        }
+                        if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
+                        session->plot().resolveChoiceArea(a->id);
+                        autoSave();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::Spacing();
+            }
 
             if (!a->isShop || party.empty()) return;   // non-shop areas: just art + text
 
@@ -1321,6 +1427,7 @@ int main(int, char**) {
                         buyer.inventory.push_back(it.name);
                         journal.push_back(buyer.name + " buys " + it.name + " for " +
                                           std::to_string(price) + " gp.");
+                        autoSave();
                         pendingBuy = -1; ImGui::CloseCurrentPopup();
                     } else if (choice == -1) {
                         pendingBuy = -1; ImGui::CloseCurrentPopup();
@@ -1342,6 +1449,7 @@ int main(int, char**) {
                         buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
                         journal.push_back(buyer.name + " sells " + nm + " for " +
                                           std::to_string(gain) + " gp.");
+                        autoSave();
                         pendingSell = -1; ImGui::CloseCurrentPopup();
                     } else if (choice == -1) {
                         pendingSell = -1; ImGui::CloseCurrentPopup();
@@ -1472,6 +1580,7 @@ int main(int, char**) {
                         if (session->completeControlPoint(cp.id)) {
                             journal.push_back("Acquired: " + cp.name);
                             playStatus = "Acquired " + cp.name + ".";
+                            autoSave();
                         }
                     }
                 }
@@ -1556,6 +1665,14 @@ int main(int, char**) {
             if (!mod.summary.empty()) { ImGui::Spacing(); ImGui::TextWrapped("%s", mod.summary.c_str()); }
             ImGui::Separator();
             if (!session) {
+                // A save sits next to this module: offer to resume it. Starting a New Game
+                // (below) overwrites the sidecar on the first autosave.
+                if (haveSaveFile) {
+                    if (ImGui::Button("Continue adventure")) continueGame();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(saved progress found)");
+                    ImGui::SeparatorText("New Game");
+                }
                 ImGui::TextDisabled("Party from roster: %d character(s)", (int)roster.size());
                 if (!roster.empty()) {
                     if (ImGui::Button("Start Adventure")) startAdventure();
@@ -1598,6 +1715,8 @@ int main(int, char**) {
                     ImGui::Spacing();
                     if (ImGui::Button("Yes, restart", ImVec2(130, 0))) {
                         session.reset(); journal.clear(); playStatus.clear(); areaView = false;
+                        std::error_code ec; std::filesystem::remove(sidecarPath(), ec);
+                        haveSaveFile = false;
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::SameLine();

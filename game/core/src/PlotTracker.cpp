@@ -17,4 +17,10 @@ bool PlotTracker::isAreaEnterable(const Area& area) const {
     return true;
 }
 
+const std::string& areaDisplayText(const Area& area, const PlotTracker& plot) {
+    for (const auto& alt : area.altTexts)
+        if (plot.hasFlag(alt.requiredFlag)) return alt.text;
+    return area.playerText;
+}
+
 } // namespace gns

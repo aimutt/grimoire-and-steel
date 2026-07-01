@@ -8,6 +8,7 @@ add_library(gns_core STATIC
     src/CharacterIO.cpp
     src/Rules.cpp
     src/ModuleIO.cpp
+    src/SaveIO.cpp
     src/Session.cpp
     src/PlotTracker.cpp
     src/Narrator.cpp
