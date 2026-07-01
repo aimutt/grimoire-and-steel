@@ -160,7 +160,8 @@ CREATE TABLE areas (
     label_auto      INTEGER,
     is_shop         INTEGER,
     music           TEXT,
-    hidden          INTEGER
+    hidden          INTEGER,
+    choice_prompt   TEXT
 );
 CREATE TABLE area_images (
     area_id    INTEGER,
@@ -192,6 +193,23 @@ CREATE TABLE area_transitions (
     area_id        INTEGER,
     target_area_id INTEGER,
     label          TEXT
+);
+CREATE TABLE area_choices (
+    area_id    INTEGER,
+    ord        INTEGER,
+    label      TEXT,
+    journal    TEXT,
+    set_flag   TEXT,
+    cp_id      INTEGER,
+    gold       INTEGER,
+    grant_item TEXT,
+    take_item  TEXT
+);
+CREATE TABLE area_alt_texts (
+    area_id INTEGER,
+    ord     INTEGER,
+    flag    TEXT,
+    text    TEXT
 );
 CREATE TABLE control_points (
     id INTEGER PRIMARY KEY,
@@ -252,8 +270,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
             "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
-            "artwork_path,fill_enabled,label_auto,is_shop,music,hidden) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "artwork_path,fill_enabled,label_auto,is_shop,music,hidden,choice_prompt) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt prereqStmt(db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt monsterStmt(db,
@@ -267,6 +285,11 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO area_images(area_id,slot,path,direction,is_default) VALUES(?,?,?,?,?);");
         Stmt transStmt(db,
             "INSERT INTO area_transitions(area_id,target_area_id,label) VALUES(?,?,?);");
+        Stmt choiceStmt(db,
+            "INSERT INTO area_choices(area_id,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item) "
+            "VALUES(?,?,?,?,?,?,?,?,?);");
+        Stmt altTextStmt(db,
+            "INSERT INTO area_alt_texts(area_id,ord,flag,text) VALUES(?,?,?,?);");
         Stmt objStmt(db,
             "INSERT INTO map_objects(id,map_id,type,x,y,rot,scale) VALUES(?,?,?,?,?,?,?);");
         Stmt textStmt(db,
@@ -300,7 +323,8 @@ void saveModule(const Module& mod, const std::string& path) {
                         .bind(a.lockChancePct).bind(a.lockDescription)
                         .bind(a.hiddenChancePct).bind(a.hiddenDescription)
                         .bind(a.artworkPath).bind(a.fillEnabled ? 1 : 0).bind(a.labelAuto ? 1 : 0)
-                        .bind(a.isShop ? 1 : 0).bind(a.musicPath).bind(a.hidden ? 1 : 0);
+                        .bind(a.isShop ? 1 : 0).bind(a.musicPath).bind(a.hidden ? 1 : 0)
+                        .bind(a.choicePrompt);
                 areaStmt.run();
 
                 for (size_t i = 0; i < a.images.size(); ++i) {
@@ -333,6 +357,20 @@ void saveModule(const Module& mod, const std::string& path) {
                 for (const auto& tr : a.transitions) {
                     transStmt.bind(a.id).bind(tr.targetAreaId).bind(tr.label);
                     transStmt.run();
+                }
+
+                for (size_t i = 0; i < a.choices.size(); ++i) {
+                    const auto& ch = a.choices[i];
+                    choiceStmt.bind(a.id).bind((int)i).bind(ch.label).bind(ch.journalEntry)
+                              .bind(ch.setFlag).bind(ch.completeControlPointId).bind(ch.goldDelta)
+                              .bind(ch.grantItemName).bind(ch.takeItemName);
+                    choiceStmt.run();
+                }
+
+                for (size_t i = 0; i < a.altTexts.size(); ++i) {
+                    altTextStmt.bind(a.id).bind((int)i).bind(a.altTexts[i].requiredFlag)
+                               .bind(a.altTexts[i].text);
+                    altTextStmt.run();
                 }
             }
         }
@@ -405,7 +443,8 @@ Module loadModule(const std::string& path) {
     // the file has; we try the newest layout first and fall back one column at a time so older
     // files still load (older rows default fillEnabled=true, labelAuto=false, isShop=false,
     // music="").
-    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music", "hidden"};
+    static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music", "hidden",
+                                         "choice_prompt"};
     auto loadAreas = [&](int opt) {
         std::string sql =
             "SELECT id,map_id,label,name,color,dm_text,player_text,"
@@ -440,10 +479,11 @@ Module loadModule(const std::string& path) {
             a.isShop            = opt >= 3 ? (colInt(s.s, 20) != 0) : false;
             a.musicPath         = opt >= 4 ? colText(s.s, 21) : "";
             a.hidden            = opt >= 5 ? (colInt(s.s, 22) != 0) : false;
+            a.choicePrompt      = opt >= 6 ? colText(s.s, 23) : "";
             if (Map* m = mod.mapById(mapId)) m->areas.push_back(std::move(a));
         }
     };
-    for (int opt = 5; ; --opt) {
+    for (int opt = 6; ; --opt) {
         try { loadAreas(opt); break; }
         catch (const DbError&) {
             for (auto& m : mod.maps) m.areas.clear();   // partial read from failed attempt
@@ -471,6 +511,38 @@ Module loadModule(const std::string& path) {
         }
     } catch (const DbError&) {
         // no area_transitions table — leave lists empty
+    }
+
+    // area_choices was added in v14; tolerate older files that lack it.
+    try {
+        Stmt s(c.db, "SELECT area_id,label,journal,set_flag,cp_id,gold,grant_item,take_item "
+                     "FROM area_choices ORDER BY area_id,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            if (Area* a = mod.areaById(colInt(s.s, 0))) {
+                AreaChoice ch;
+                ch.label                 = colText(s.s, 1);
+                ch.journalEntry          = colText(s.s, 2);
+                ch.setFlag               = colText(s.s, 3);
+                ch.completeControlPointId = colInt(s.s, 4);
+                ch.goldDelta             = colInt(s.s, 5);
+                ch.grantItemName         = colText(s.s, 6);
+                ch.takeItemName          = colText(s.s, 7);
+                a->choices.push_back(std::move(ch));
+            }
+        }
+    } catch (const DbError&) {
+        // no area_choices table — leave lists empty
+    }
+
+    // area_alt_texts was added in v14; tolerate older files that lack it.
+    try {
+        Stmt s(c.db, "SELECT area_id,flag,text FROM area_alt_texts ORDER BY area_id,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            if (Area* a = mod.areaById(colInt(s.s, 0)))
+                a->altTexts.push_back(AreaConditionalText{colText(s.s, 1), colText(s.s, 2)});
+        }
+    } catch (const DbError&) {
+        // no area_alt_texts table — leave lists empty
     }
 
     // area_treasures was added in v10; tolerate older files that lack it.

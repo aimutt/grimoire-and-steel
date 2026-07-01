@@ -5,6 +5,7 @@
 #include "gns/Repository.h"
 #include "gns/Character.h"
 #include "gns/CharacterIO.h"
+#include "gns/SaveIO.h"
 #include "gns/Rules.h"
 #include "gns/Module.h"
 #include "gns/Session.h"
@@ -208,6 +209,60 @@ int main() {
                   r.spells[1] == "Heal" && r.spells[2] == "Veil");
         }
 
+        // ---- GameSave .gnssav round-trip (M4 progress save) ----
+        std::printf("== save io ==\n");
+        {
+            Traits t1; t1.might = 2; t1.grace = 1; t1.wits = 0; t1.spirit = -1;
+            Character c1 = makeCharacter(repo, "Bram", "Human", "Blade", t1,
+                                         {"Blades", "Athletics", "Command", "Survival"}, "Chain", true);
+            c1.gold = 40; c1.inventory = {"Long sword", "Signet Ring"}; c1.ap = 120;
+            Traits t2; t2.might = -1; t2.grace = 0; t2.wits = 1; t2.spirit = 2;
+            Character c2 = makeCharacter(repo, "Lyra", "Elf", "Mystic", t2,
+                                         {"Sorcery", "Lore", "Healing"}, "No armor", false);
+            c2.gold = 90; c2.spells = {"Flame", "Veil"}; c2.inventory = {"Rope (25')"};
+
+            GameSave gs;
+            gs.modulePath = "modules/GoblinKingsHollow.gnsmod";
+            gs.seed = 0xFEEDFACEC0FFEEULL;
+            gs.mapId = 1; gs.areaId = 10; gs.turnCount = 7; gs.mode = 2;
+            gs.cursorX = 4; gs.cursorY = 3; gs.faceX = 0; gs.faceY = -1; gs.activeChar = 1;
+            gs.controlPoints = {1, 3};
+            gs.flags = {"helped_mayor", "found_map"};
+            gs.resolvedAreas = {10, 12};
+            gs.journal = {"Entered the tavern.", "Agreed to rescue the family."};
+            gs.party = {c1, c2};
+
+            const std::string path = "gns_save_roundtrip_test.gnssav";
+            std::remove(path.c_str());
+            saveGame(path, gs);
+            GameSave r = loadGame(path);
+            std::remove(path.c_str());
+
+            check("save meta preserved",
+                  r.modulePath == "modules/GoblinKingsHollow.gnsmod" &&
+                  r.seed == 0xFEEDFACEC0FFEEULL && r.mapId == 1 && r.areaId == 10 &&
+                  r.turnCount == 7 && r.mode == 2);
+            check("save cursor/facing/active preserved",
+                  r.cursorX == 4 && r.cursorY == 3 && r.faceX == 0 && r.faceY == -1 &&
+                  r.activeChar == 1);
+            check("save plot state preserved",
+                  r.controlPoints == gs.controlPoints && r.flags == gs.flags &&
+                  r.resolvedAreas == gs.resolvedAreas);
+            check("save journal preserved",
+                  r.journal.size() == 2 && r.journal[0] == "Entered the tavern." &&
+                  r.journal[1] == "Agreed to rescue the family.");
+            check("save party size + order preserved",
+                  r.party.size() == 2 && r.party[0].name == "Bram" && r.party[1].name == "Lyra");
+            check("save party gold/inventory preserved",
+                  r.party[0].gold == 40 && r.party[0].inventory.size() == 2 &&
+                  r.party[0].inventory[0] == "Long sword" &&
+                  r.party[0].inventory[1] == "Signet Ring" &&
+                  r.party[1].gold == 90 && r.party[1].ap == c2.ap);
+            check("save party spells/trainings preserved",
+                  r.party[0].trainings.size() == 4 && r.party[1].spells.size() == 2 &&
+                  r.party[1].spells[0] == "Flame");
+        }
+
         // ---- Module .gnsmod round-trip (M2 I/O) ----
         std::printf("== module io ==\n");
         {
@@ -251,6 +306,13 @@ int main() {
             a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png", "battle-axe.png"},
                             {"Rations (1 week)", "", 5, 20, "", ""}};
             a1.transitions = {{11, "Stairs down to the crypt"}};     // cross-area exit (v7)
+            a1.choicePrompt = "The mayor's wife begs for your help.";   // decisions (v14)
+            a1.choices = {
+                {"We'll help you.", "Agreed to rescue the family.", "helped_mayor", 1, 50,
+                 "Signet Ring", ""},
+                {"Not our problem.", "Declined the plea.", "refused_mayor", 0, 0, "", "Old Map"},
+            };
+            a1.altTexts = {{"helped_mayor", "You've agreed to help - see your journal."}};
             a1.prerequisiteControlPointIds = {1};
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
             a2.monsterType = "Ogre";   // legacy single field, empty list -> migrated on load
@@ -329,11 +391,28 @@ int main() {
             check("area transitions preserved", ra && ra->transitions.size() == 1 &&
                   ra->transitions[0].targetAreaId == 11 &&
                   ra->transitions[0].label == "Stairs down to the crypt");
+            check("area choice prompt preserved", ra &&
+                  ra->choicePrompt == "The mayor's wife begs for your help.");
+            check("area choices preserved", ra && ra->choices.size() == 2 &&
+                  ra->choices[0].label == "We'll help you." &&
+                  ra->choices[0].journalEntry == "Agreed to rescue the family." &&
+                  ra->choices[0].setFlag == "helped_mayor" &&
+                  ra->choices[0].completeControlPointId == 1 &&
+                  ra->choices[0].goldDelta == 50 &&
+                  ra->choices[0].grantItemName == "Signet Ring" &&
+                  ra->choices[0].takeItemName.empty() &&
+                  ra->choices[1].setFlag == "refused_mayor" &&
+                  ra->choices[1].takeItemName == "Old Map");
+            check("area alt texts preserved", ra && ra->altTexts.size() == 1 &&
+                  ra->altTexts[0].requiredFlag == "helped_mayor" &&
+                  ra->altTexts[0].text == "You've agreed to help - see your journal.");
             check("area labelAuto=false preserved", ra && ra->labelAuto == false);
             const Area* rb = r.areaById(11);
             check("area default fillEnabled=true", rb && rb->fillEnabled == true);
             check("area default labelAuto=true preserved", rb && rb->labelAuto == true);
             check("area default isShop=false", rb && rb->isShop == false && rb->shopItems.empty());
+            check("area default choices empty", rb && rb->choices.empty() && rb->altTexts.empty() &&
+                  rb->choicePrompt.empty());
             check("legacy monsterType migrated to list", rb && rb->monsters.size() == 1 &&
                   rb->monsters[0].type == "Ogre" && rb->monsters[0].count == 1);
             check("control point preserved", r.controlPoints.size() == 1 &&
@@ -504,6 +583,29 @@ int main() {
             check("ungated area enterable on a bare tracker", pt.isAreaEnterable(*m.areaById(10)));
             pt.setCompletedIds({1});
             check("restored tracker opens the crypt", pt.isAreaEnterable(*m.areaById(11)));
+
+            // decision flags + resolved areas + alt-text selection (v14)
+            check("fresh tracker has no flags", !pt.hasFlag("helped_mayor"));
+            pt.setFlag("helped_mayor");
+            check("flag recorded", pt.hasFlag("helped_mayor") && pt.flags().count("helped_mayor") == 1);
+            check("area not resolved by default", !pt.isChoiceResolved(10));
+            pt.resolveChoiceArea(10);
+            check("area marked resolved", pt.isChoiceResolved(10) &&
+                  pt.resolvedChoiceAreas().count(10) == 1);
+            pt.setFlags({"refused_mayor"});
+            check("flags restored wholesale", pt.hasFlag("refused_mayor") && !pt.hasFlag("helped_mayor"));
+            pt.setResolvedChoiceAreas({20});
+            check("resolved areas restored wholesale", pt.isChoiceResolved(20) && !pt.isChoiceResolved(10));
+
+            Area tav; tav.id = 30;
+            tav.playerText = "The mayor's wife begs for help.";
+            tav.altTexts = {{"helped_mayor", "You've agreed to help."}};
+            PlotTracker pt2;
+            check("alt text falls back to default when flag unset",
+                  areaDisplayText(tav, pt2) == "The mayor's wife begs for help.");
+            pt2.setFlag("helped_mayor");
+            check("alt text used when its flag is set",
+                  areaDisplayText(tav, pt2) == "You've agreed to help.");
         }
 
         // ---- Narrator: authored text + provider seam (M4 slice 3) ----

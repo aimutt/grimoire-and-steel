@@ -50,6 +50,7 @@ secrets.*
 # --- Local app/editor state & saves ---
 imgui.ini
 *.gnssav
+*.gnslayout
 *_roundtrip_test.gnsmod
 
 # --- Local notes (keep private) ---

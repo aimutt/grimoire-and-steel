@@ -129,6 +129,28 @@ struct AreaTransition {
     std::string label;      // optional, e.g. "Stairs down to the crypt"
 };
 
+// A single decision the party can make at an area (cap 3 per area). Every effect field is
+// optional -- an empty/zero field means "no effect". Presented inline in the engine's area
+// view; the chosen option's effects are applied to the active character and recorded in the
+// play-session's PlotTracker so the choice sticks across re-entry and into a save file.
+struct AreaChoice {
+    std::string label;              // button text, e.g. "We'll help you."
+    std::string journalEntry;       // appended to the journal when chosen
+    std::string setFlag;            // decision flag recorded in PlotTracker (drives alt text)
+    int completeControlPointId = 0; // 0 = none; else marks a Control Point complete (unlocks gated areas)
+    int goldDelta = 0;              // +/- gold applied to EVERY party member (each gets the full amount)
+    std::string grantItemName;      // added to the active character's inventory (empty = none)
+    std::string takeItemName;       // removed from the active character's inventory (empty = none)
+};
+
+// Player-facing text shown *instead of* Area::playerText when its flag is set. First match
+// (in list order) wins; if none match, Area::playerText (the default) is shown. Empty text is
+// allowed (e.g. show nothing once a decision is made -- the journal keeps the full record).
+struct AreaConditionalText {
+    std::string requiredFlag;
+    std::string text;
+};
+
 // A described region of a map (a set of fine cells sharing an id).
 struct Area {
     int id = 0;
@@ -169,6 +191,13 @@ struct Area {
 
     // Exits from this area to other areas (often on another map).
     std::vector<AreaTransition> transitions;
+
+    // Player decisions offered on entry (cap 3). When present and unresolved, the engine shows
+    // choicePrompt plus a button per choice inline in the area view; the picked choice's effects
+    // are applied and recorded so the area stops prompting once decided.
+    std::string choicePrompt;                    // question shown above the choice buttons
+    std::vector<AreaChoice> choices;             // <= 3
+    std::vector<AreaConditionalText> altTexts;   // flag-gated alternates for playerText
 
     // Control points that must be completed before a party may enter this area.
     std::vector<int> prerequisiteControlPointIds;
@@ -225,8 +254,9 @@ struct Module {
 // shop-item description, stock, and image columns to area_shop_items; v12 added the module
 // splash_music/default_music columns and the area music column; v13 added the area hidden
 // column, the area_images table (multi-image + per-direction + default), the map_objects scale
-// column, and the area_shop_items image_id column.
-constexpr int kModuleFormatVersion = 13;
+// column, and the area_shop_items image_id column; v14 added the area choice_prompt column and
+// the area_choices and area_alt_texts tables (per-area decisions + flag-gated alternate text).
+constexpr int kModuleFormatVersion = 14;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

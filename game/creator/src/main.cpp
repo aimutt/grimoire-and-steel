@@ -26,6 +26,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -168,7 +169,9 @@ enum class Tool { Select, PaintTerrain, AssignArea, Erase, PlaceControlPoint, Pl
 // Fixed three-pane layout: each panel is pinned to a dedicated region every frame
 // (this build of ImGui has no docking branch), so panels never float or stack.
 static constexpr float kLeftPaneW = 300.0f;
-static constexpr float kRightPaneW = 360.0f;
+static constexpr float kRightPaneW = 420.0f;    // default Inspector width (drag the divider to change)
+static constexpr float kRightPaneMin = 320.0f;  // narrowest the Inspector may be dragged
+static constexpr float kMapMinW = 240.0f;       // keep at least this much map when widening the Inspector
 static const ImGuiWindowFlags kPaneFlags =
     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -223,6 +226,14 @@ struct App {
     float cellPx = 22.0f;      // zoom (pixels per cell)
     bool fitRequested = false;  // canvas fits whole map next frame
 
+    float rightPaneW = kRightPaneW;   // Inspector width (drag the map/Inspector divider to change)
+    bool draggingSplitter = false;    // a map/Inspector divider drag is in progress
+    bool splitterHot = false;         // mouse is over the divider (or dragging it) this frame
+    // Per-module editor layout, persisted to a .gnslayout sidecar. -1 = "not yet written this
+    // session" (so a change is detected and saved once the values settle after a drag/zoom).
+    float lastSavedRightPaneW = -1.0f;
+    float lastSavedCellPx = -1.0f;
+
     // Undo history (whole-module snapshots).
     std::vector<gns::Module> undo;
 
@@ -264,6 +275,50 @@ static std::string coarseLabel(const gns::Map& m, int cx, int cy) {
 static std::string baseName(const std::string& path) {
     size_t p = path.find_last_of("/\\");
     return p == std::string::npos ? path : path.substr(p + 1);
+}
+
+// Per-module editor layout is kept in a small sidecar next to the .gnsmod (this is local, per-user
+// UI state — the Inspector width and map zoom — not adventure content, so it does NOT belong in the
+// module file or its format version). The sidecar shares the module's name with a .gnslayout
+// extension and is safe to delete. (App is defined above.)
+static std::string layoutSidecarPath(const std::string& modulePath) {
+    std::string p = modulePath;
+    size_t dot = p.find_last_of('.');
+    size_t slash = p.find_last_of("/\\");
+    if (dot != std::string::npos && (slash == std::string::npos || dot > slash))
+        p = p.substr(0, dot);
+    return p + ".gnslayout";
+}
+static void writeEditorLayout(App& app) {
+    if (app.path.empty()) return;
+    std::ofstream f(layoutSidecarPath(app.path), std::ios::trunc);
+    if (!f) return;
+    f << "# Grimoire & Steel Module Creator - per-module editor layout (safe to delete)\n";
+    f << "right_pane_w " << app.rightPaneW << "\n";
+    f << "cell_px " << app.cellPx << "\n";
+    app.lastSavedRightPaneW = app.rightPaneW;
+    app.lastSavedCellPx = app.cellPx;
+}
+static void readEditorLayout(App& app) {
+    if (app.path.empty()) return;
+    std::ifstream f(layoutSidecarPath(app.path));
+    if (!f) return;   // no sidecar yet: keep whatever the panes currently use
+    std::string key;
+    while (f >> key) {
+        if (key == "right_pane_w") { float v; if (f >> v) app.rightPaneW = v; }
+        else if (key == "cell_px")  { float v; if (f >> v) app.cellPx = v; }
+        else { std::string rest; std::getline(f, rest); }   // skip comments / unknown keys
+    }
+    app.cellPx = std::clamp(app.cellPx, 2.0f, 64.0f);   // rightPaneW is clamped each frame by the splitter
+    // Treat the loaded values as already-saved so we don't immediately rewrite the file.
+    app.lastSavedRightPaneW = app.rightPaneW;
+    app.lastSavedCellPx = app.cellPx;
+}
+// Write the sidecar once the layout has settled (not mid-drag) and actually changed.
+static void persistEditorLayoutIfChanged(App& app) {
+    if (app.path.empty() || app.draggingSplitter) return;
+    if (app.rightPaneW != app.lastSavedRightPaneW || app.cellPx != app.lastSavedCellPx)
+        writeEditorLayout(app);
 }
 
 // Re-derive each auto-labelled area's coordinate label (e.g. "A1") from its centroid +
@@ -571,6 +626,7 @@ static void doSave(App& app) {
     try {
         gns::saveModule(app.mod, app.path);
         app.dirty = false;
+        writeEditorLayout(app);   // also persist the editor layout (covers Save As to a new path)
         gStatus = "Saved " + baseName(app.path);
     } catch (const std::exception& e) {
         // Keep dirty=true and surface a modal — a failed save must never look like nothing
@@ -594,6 +650,7 @@ static void doOpen(App& app) {
         app.mod = gns::loadModule(p);
         app.path = p;
         app.dirty = false;
+        readEditorLayout(app);   // restore this module's Inspector width + map zoom, if saved before
         app.currentMapId = app.mod.maps.empty() ? 0 : app.mod.maps.front().id;
         app.selectedAreaId = 0;
         app.selectedObjectId = 0;
@@ -994,7 +1051,7 @@ static void applyBrush(App& app, gns::Map& m, int cx, int cy) {
 
 static void drawCanvasWindow(App& app) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    float centerW = std::max(80.0f, vp->WorkSize.x - kLeftPaneW - kRightPaneW);
+    float centerW = std::max(80.0f, vp->WorkSize.x - kLeftPaneW - app.rightPaneW);
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + kLeftPaneW, vp->WorkPos.y), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(centerW, vp->WorkSize.y), ImGuiCond_Always);
 
@@ -1039,6 +1096,10 @@ static void drawCanvasWindow(App& app) {
     bool hovered = ImGui::IsItemHovered();
     bool active = ImGui::IsItemActive();
     ImGuiIO& io = ImGui::GetIO();
+
+    // Suppress all canvas mouse work while the map/Inspector divider is being grabbed, so dragging
+    // the seam (which sits at the map's right edge) never paints or pans.
+    if (app.splitterHot) { hovered = false; active = false; }
 
     // Middle/right-drag pans by moving the scroll; Ctrl+wheel zooms (plain wheel scrolls).
     if (active && (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ||
@@ -1560,6 +1621,94 @@ static void drawAreaInspector(App& app, gns::Area& a) {
     ImGui::TextDisabled("Player");
     if (InputStrMultiline("##player", &a.playerText, ImVec2(-1, 70))) app.dirty = true;
 
+    ImGui::SeparatorText("Choices (decisions, up to 3)");
+    ImGui::TextDisabled("A prompt + up to 3 options shown to the party on entry.\nEvery effect is optional.");
+    ImGui::TextDisabled("Prompt (the question)");
+    if (InputStrMultiline("##choiceprompt", &a.choicePrompt, ImVec2(-1, 50))) app.dirty = true;
+    int delChoice = -1;
+    for (size_t i = 0; i < a.choices.size(); ++i) {
+        gns::AreaChoice& ch = a.choices[i];
+        ImGui::PushID((int)i + 6000);
+        std::string hdr = "Choice " + std::to_string(i + 1) + ": " +
+                          (ch.label.empty() ? "(no label)" : ch.label) + "###choice";
+        if (ImGui::CollapsingHeader(hdr.c_str())) {
+            // Captions sit ABOVE each field (not as ImGui labels to the right) so nothing gets
+            // clipped when the Inspector is narrow.
+            ImGui::TextDisabled("Button label (what the player clicks)");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chlabel", &ch.label)) app.dirty = true;
+            ImGui::TextDisabled("Journal entry (logged when chosen)");
+            if (InputStrMultiline("##chjournal", &ch.journalEntry, ImVec2(-1, 50))) app.dirty = true;
+            ImGui::TextDisabled("Set flag (optional) — a name that records this decision");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A one-word tag you invent, e.g. \"helped_mayor\". Type the same\n"
+                                  "tag under \"Alternate player text\" below to show different text\n"
+                                  "after this choice is made.");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chflag", &ch.setFlag)) app.dirty = true;
+            // Complete a control point (unlocks areas gated on it) — single-select combo.
+            ImGui::TextDisabled("Complete control point (optional) — unlocks areas gated on it");
+            {
+                std::string cur = "(none)";
+                if (ch.completeControlPointId != 0) {
+                    cur = "#" + std::to_string(ch.completeControlPointId);
+                    for (const auto& cp : app.mod.controlPoints)
+                        if (cp.id == ch.completeControlPointId) { cur += " " + cp.name; break; }
+                }
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::BeginCombo("##chcp", cur.c_str())) {
+                    if (ImGui::Selectable("(none)", ch.completeControlPointId == 0)) {
+                        ch.completeControlPointId = 0; app.dirty = true;
+                    }
+                    for (const auto& cp : app.mod.controlPoints) {
+                        std::string lbl = "#" + std::to_string(cp.id) + " " + cp.name;
+                        if (ImGui::Selectable(lbl.c_str(), ch.completeControlPointId == cp.id)) {
+                            ch.completeControlPointId = cp.id; app.dirty = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::TextDisabled("Gold given (+) or taken (-) - each party member gets this amount");
+            ImGui::SetNextItemWidth(140);
+            if (ImGui::InputInt("##chgold", &ch.goldDelta)) app.dirty = true;
+            ImGui::TextDisabled("Grant item (optional) — item name added to the active character");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chgrant", &ch.grantItemName)) app.dirty = true;
+            ImGui::TextDisabled("Take item (optional) — item name removed from the active character");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
+            if (ImGui::SmallButton("Delete choice")) delChoice = (int)i;
+        }
+        ImGui::PopID();
+    }
+    if (delChoice >= 0) { a.choices.erase(a.choices.begin() + delChoice); app.dirty = true; }
+    if (a.choices.size() < 3) {
+        if (ImGui::SmallButton("Add choice")) { a.choices.push_back(gns::AreaChoice{}); app.dirty = true; }
+    } else {
+        ImGui::TextDisabled("Maximum of 3 choices.");
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Alternate player text — shown instead of the default when its flag is set.\n"
+                        "First match wins; empty text shows nothing (the journal keeps the record).");
+    int delAlt = -1;
+    for (size_t i = 0; i < a.altTexts.size(); ++i) {
+        ImGui::PushID((int)i + 6500);
+        ImGui::SetNextItemWidth(160);
+        if (InputStr("Flag##alt", &a.altTexts[i].requiredFlag)) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delAlt = (int)i;
+        if (InputStrMultiline("##alttext", &a.altTexts[i].text, ImVec2(-1, 45))) app.dirty = true;
+        ImGui::PopID();
+    }
+    if (delAlt >= 0) { a.altTexts.erase(a.altTexts.begin() + delAlt); app.dirty = true; }
+    if (ImGui::SmallButton("Add alternate text")) {
+        a.altTexts.push_back(gns::AreaConditionalText{}); app.dirty = true;
+    }
+
     ImGui::SeparatorText("Statistics");
     if (ImGui::SliderInt("Monster %", &a.monsterChancePct, 0, 100)) app.dirty = true;
     // Monsters: one or more types, each with a count, spawned together on entry (#23).
@@ -1815,11 +1964,55 @@ static void drawControlPointsSection(App& app) {
     if (deleteId) deleteControlPoint(app, deleteId);
 }
 
+// Draggable vertical divider between the map canvas and the Inspector. Handled manually against
+// the global mouse (not via a tiny ImGui window — those are floored to Style.WindowMinSize, ~32px,
+// so a thin grab strip is impossible). Call this ONCE per frame *before* the panes are drawn so the
+// new width takes effect the same frame and `splitterHot` can suppress canvas painting at the seam.
+static void updatePaneSplitter(App& app) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGuiIO& io = ImGui::GetIO();
+    float seamX = vp->WorkPos.x + vp->WorkSize.x - app.rightPaneW;   // left edge of the Inspector
+    const float band = 5.0f;                                         // grab tolerance either side
+    bool overSeam = io.MousePos.x >= seamX - band && io.MousePos.x <= seamX + band &&
+                    io.MousePos.y >= vp->WorkPos.y && io.MousePos.y <= vp->WorkPos.y + vp->WorkSize.y;
+    bool popup = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+
+    // Begin a drag on a fresh left-press over the seam (unless a widget/popup already has the mouse).
+    if (overSeam && !app.draggingSplitter && !popup && !ImGui::IsAnyItemActive() &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        app.draggingSplitter = true;
+    if (app.draggingSplitter) {
+        app.rightPaneW -= io.MouseDelta.x;   // drag left -> wider Inspector, narrower map
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) app.draggingSplitter = false;
+    }
+    float maxRight = std::max(kRightPaneMin, vp->WorkSize.x - kLeftPaneW - kMapMinW);
+    app.rightPaneW = std::clamp(app.rightPaneW, kRightPaneMin, maxRight);
+
+    app.splitterHot = overSeam || app.draggingSplitter;
+    if (app.splitterHot) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+    // Handle drawn on the foreground so it sits above every pane: a full-height bar + grip dots,
+    // brighter when hot.
+    float sx = vp->WorkPos.x + vp->WorkSize.x - app.rightPaneW;   // recompute after clamp/drag
+    ImU32 col = app.splitterHot ? IM_COL32(140, 180, 240, 245) : IM_COL32(96, 102, 120, 170);
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddLine(ImVec2(sx, vp->WorkPos.y), ImVec2(sx, vp->WorkPos.y + vp->WorkSize.y), col, 2.0f);
+    float midY = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
+    for (int k = -3; k <= 3; ++k) dl->AddCircleFilled(ImVec2(sx, midY + k * 6.0f), 1.8f, col);
+}
+
 static void drawInspectorWindow(App& app) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - kRightPaneW, vp->WorkPos.y), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(kRightPaneW, vp->WorkSize.y), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - app.rightPaneW, vp->WorkPos.y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(app.rightPaneW, vp->WorkSize.y), ImGuiCond_Always);
+    // Roomier padding/spacing than the global style so the many fields don't feel cramped and
+    // read more like a form. WindowPadding must be set before Begin; the rest after.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
     ImGui::Begin("Inspector", nullptr, kPaneFlags);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 7.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7.0f, 4.0f));
+    // Indent the content slightly off the left border for a cleaner left margin.
+    ImGui::Indent(2.0f);
     gns::Area* a = app.mod.areaById(app.selectedAreaId);
     if (a) {
         // Per-area markers live in drawAreaInspector; no module-wide list here so
@@ -1830,7 +2023,10 @@ static void drawInspectorWindow(App& app) {
         ImGui::Separator();
         drawControlPointsSection(app);
     }
+    ImGui::Unindent(2.0f);
+    ImGui::PopStyleVar(2);
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 // Save failures used to show only as a small menu-bar status line, easy to miss. Pop a
@@ -1971,12 +2167,14 @@ int main(int, char**) {
             app.cellPx = std::clamp(app.cellPx * 0.9f, 2.0f, 64.0f);                            // #9
 
         drawMenuBar(app);
+        updatePaneSplitter(app);   // resolve the map/Inspector divider before the panes size themselves
         drawToolsWindow(app);
         drawCanvasWindow(app);
         drawInspectorWindow(app);
         drawImageDetailsWindow(app);
         drawSaveErrorModal(app);
         drawExitModal(app, running);
+        persistEditorLayoutIfChanged(app);   // save Inspector width / map zoom once a drag settles
 
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 20, 24, 32, 255);
