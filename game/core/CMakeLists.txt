@@ -1,5 +1,6 @@
 add_library(gns_core STATIC
     src/Database.cpp
+    src/AtomicDb.cpp
     src/Content.cpp
     src/Dice.cpp
     src/Repository.cpp

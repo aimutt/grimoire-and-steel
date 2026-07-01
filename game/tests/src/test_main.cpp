@@ -13,6 +13,8 @@
 #include "gns/RulesAdjudicator.h"
 #include "gns/EncounterDirector.h"
 #include "gns/CombatEngine.h"
+#include "gns/AtomicDb.h"
+#include "sqlite3.h"
 
 #include <cstdio>
 #include <exception>
@@ -357,6 +359,58 @@ int main() {
                   r.maps[0].objects[1].rotationDeg == 45.0f);
             check("object scale preserved", r.maps[0].objects.size() == 2 &&
                   r.maps[0].objects[0].scale == 1.75f && r.maps[0].objects[1].scale == 0.5f);
+        }
+
+        // ---- Atomic, non-destructive save (data-loss guardrail) ----
+        // A save must never destroy the existing file the way the old in-place DROP+CREATE
+        // did: it writes a temp file, then swaps it in (keeping a .bak). If the write throws,
+        // the original stays intact and no .tmp is left behind.
+        std::printf("== atomic save ==\n");
+        {
+            auto exists = [](const std::string& p) {
+                if (FILE* f = std::fopen(p.c_str(), "rb")) { std::fclose(f); return true; }
+                return false;
+            };
+
+            Module m;
+            m.name = "Original";
+            Map map; map.id = 1; map.name = "M"; map.gridW = 2; map.gridH = 2;
+            map.cells.assign(4, static_cast<int>(Terrain::Empty));
+            map.cellArea.assign(4, 0);
+            Area a; a.id = 1; a.label = "A1"; a.name = "Start"; map.areas.push_back(a);
+            m.maps.push_back(map);
+            m.startMapId = 1; m.startAreaId = 1; m.endAreaId = 1;
+
+            const std::string path = "gns_atomic_test.gnsmod";
+            const std::string tmp  = path + ".tmp";
+            const std::string bak  = path + ".bak";
+            std::remove(path.c_str()); std::remove(tmp.c_str()); std::remove(bak.c_str());
+
+            saveModule(m, path);
+            check("atomic first save leaves no .tmp", !exists(tmp));
+            check("atomic first save is loadable", loadModule(path).name == "Original");
+
+            Module m2 = m; m2.name = "Updated";
+            saveModule(m2, path);
+            check("overwrite leaves no .tmp", !exists(tmp));
+            check("overwrite kept previous file as .bak", exists(bak));
+            check("overwrite loads new content", loadModule(path).name == "Updated");
+
+            // The guardrail: a save that throws part-way must leave the original untouched.
+            bool threw = false;
+            try {
+                writeDatabaseAtomically(path, [](sqlite3* db) {
+                    char* e = nullptr;
+                    sqlite3_exec(db, "CREATE TABLE partial(x);", nullptr, nullptr, &e);
+                    if (e) sqlite3_free(e);
+                    throw DbError("simulated mid-save failure");
+                });
+            } catch (const std::exception&) { threw = true; }
+            check("failed save reports the error", threw);
+            check("failed save leaves no .tmp", !exists(tmp));
+            check("failed save leaves the original intact", loadModule(path).name == "Updated");
+
+            std::remove(path.c_str()); std::remove(tmp.c_str()); std::remove(bak.c_str());
         }
 
         // ---- Session / Party / PlayState seating (M4 slice 1) ----

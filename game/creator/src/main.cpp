@@ -230,6 +230,8 @@ struct App {
     int confirmRemoveMapId = 0;   // map awaiting delete confirmation (0 = none)
     bool wantClose = false;       // close requested; confirm if dirty
     int renameMapId = 0;          // map whose name is being edited inline (0 = none)
+    bool showSaveError = false;   // a save threw; surface it in a modal (don't fail silently)
+    std::string saveErrorMsg;     // detail for the save-error modal
 
     // gns.db reference pickers (optional).
     bool haveRepo = false;
@@ -571,7 +573,12 @@ static void doSave(App& app) {
         app.dirty = false;
         gStatus = "Saved " + baseName(app.path);
     } catch (const std::exception& e) {
+        // Keep dirty=true and surface a modal — a failed save must never look like nothing
+        // happened. The save is atomic, so the previous file on disk is still intact and the
+        // current edits are still in memory.
         gStatus = std::string("Save failed: ") + e.what();
+        app.saveErrorMsg = e.what();
+        app.showSaveError = true;
     }
 }
 static void doSaveAs(App& app) {
@@ -1826,6 +1833,26 @@ static void drawInspectorWindow(App& app) {
     ImGui::End();
 }
 
+// Save failures used to show only as a small menu-bar status line, easy to miss. Pop a
+// modal so the user knows the save didn't happen (and that nothing was lost).
+static void drawSaveErrorModal(App& app) {
+    if (!app.showSaveError) return;
+    ImGui::OpenPopup("Save Failed");
+    if (ImGui::BeginPopupModal("Save Failed", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("The module could not be saved:");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::TextWrapped("%s", app.saveErrorMsg.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Your changes are still open and the previous saved file on\n"
+                               "disk is intact. Try saving again, or use File ▸ Save As.");
+        ImGui::Spacing();
+        if (ImGui::Button("OK")) { app.showSaveError = false; ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+}
+
 // Unsaved-changes confirmation when closing (#3).
 static void drawExitModal(App& app, bool& running) {
     if (!app.wantClose) return;
@@ -1948,6 +1975,7 @@ int main(int, char**) {
         drawCanvasWindow(app);
         drawInspectorWindow(app);
         drawImageDetailsWindow(app);
+        drawSaveErrorModal(app);
         drawExitModal(app, running);
 
         ImGui::Render();

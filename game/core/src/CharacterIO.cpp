@@ -1,5 +1,6 @@
 #include "gns/CharacterIO.h"
 #include "gns/Database.h"   // gns::DbError
+#include "gns/AtomicDb.h"   // gns::writeDatabaseAtomically
 #include "sqlite3.h"
 
 #include <string>
@@ -83,23 +84,15 @@ CREATE TABLE character_item (name TEXT);
 // ---- save -------------------------------------------------------------------
 
 void saveCharacter(const Character& c, const std::string& path) {
-    Conn conn;
-    if (sqlite3_open_v2(path.c_str(), &conn.db,
-                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
-        fail(conn.db, "cannot create '" + path + "'");
-
-    exec(conn.db, "PRAGMA foreign_keys=OFF;");
-    exec(conn.db,
-         "DROP TABLE IF EXISTS character_item;"
-         "DROP TABLE IF EXISTS character_spell;"
-         "DROP TABLE IF EXISTS character_training;"
-         "DROP TABLE IF EXISTS character;");
-    exec(conn.db, kSchema);
-    exec(conn.db, ("PRAGMA user_version=" + std::to_string(kCharacterFormatVersion) + ";").c_str());
-    exec(conn.db, "BEGIN;");
+  // Atomic, non-destructive write: build a fresh temp file in one transaction, then swap it
+  // in (keeping a .bak). A failure leaves the existing .gnschar untouched. See ModuleIO.cpp /
+  // writeDatabaseAtomically for the shared guardrail.
+  writeDatabaseAtomically(path, [&](sqlite3* db) {
+    exec(db, kSchema);
+    exec(db, ("PRAGMA user_version=" + std::to_string(kCharacterFormatVersion) + ";").c_str());
 
     {
-        Stmt s(conn.db,
+        Stmt s(db,
             "INSERT INTO character(id,name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
@@ -115,19 +108,18 @@ void saveCharacter(const Character& c, const std::string& path) {
         s.run();
     }
     {
-        Stmt s(conn.db, "INSERT INTO character_training(name) VALUES(?);");
+        Stmt s(db, "INSERT INTO character_training(name) VALUES(?);");
         for (const auto& t : c.trainings) { s.bind(t); s.run(); }
     }
     {
-        Stmt s(conn.db, "INSERT INTO character_spell(name) VALUES(?);");
+        Stmt s(db, "INSERT INTO character_spell(name) VALUES(?);");
         for (const auto& sp : c.spells) { s.bind(sp); s.run(); }
     }
     {
-        Stmt s(conn.db, "INSERT INTO character_item(name) VALUES(?);");
+        Stmt s(db, "INSERT INTO character_item(name) VALUES(?);");
         for (const auto& it : c.inventory) { s.bind(it); s.run(); }
     }
-
-    exec(conn.db, "COMMIT;");
+  });
 }
 
 // ---- load -------------------------------------------------------------------

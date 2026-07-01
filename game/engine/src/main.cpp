@@ -1017,8 +1017,11 @@ int main(int, char**) {
         };
         // Draw an area's artwork scaled to the column (capped at `maxH`). Chooses the image
         // matching the party's facing direction, else the area's default image, else legacy art.
-        auto drawAreaImage = [&](const gns::Area* a, float maxW, float maxH) {
-            if (!a) return;
+        // Draws the area's facing-selected artwork; returns true iff it actually rendered an
+        // image. A defined area with text but no art is normal (art is optional), so callers
+        // use the return value to fall back to a full-width text layout.
+        auto drawAreaImage = [&](const gns::Area* a, float maxW, float maxH) -> bool {
+            if (!a) return false;
             std::string path;
             if (!a->images.empty()) {
                 int dir = (faceY < 0) ? 0 : (faceX > 0) ? 1 : (faceY > 0) ? 2 : 3;  // N,E,S,W
@@ -1031,17 +1034,18 @@ int main(int, char**) {
             } else {
                 path = a->artworkPath;
             }
-            if (path.empty()) return;
+            if (path.empty()) return false;
             SDL_Texture* tex = loadCachedImage(path);
-            if (!tex) return;
+            if (!tex) return false;
             int tw = 0, th = 0;
             SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
-            if (tw <= 0 || th <= 0) return;
+            if (tw <= 0 || th <= 0) return false;
             float avail = ImGui::GetContentRegionAvail().x;
             float w = (maxW > 0.0f) ? std::min(maxW, avail) : avail;
             float scale = w / (float)tw;
             if (th * scale > maxH) { scale = maxH / (float)th; w = tw * scale; }
             ImGui::Image((ImTextureID)tex, ImVec2(w, th * scale));
+            return true;
         };
         // Wrapped paragraph with extra line leading (each wrapped line is its own item, so
         // ItemSpacing.y separates them) — far less crowded than a single TextWrapped block.
@@ -1108,17 +1112,26 @@ int main(int, char**) {
             }
 
             ImGui::SeparatorText(areaLabel(a).c_str());
-            // Area art on the left; the description fills the space to its right.
+            // Area art on the left with the description filling the space to its right. When the
+            // area has no artwork the description simply spans the full width — a defined area
+            // must always show its text (art is optional).
             float topAvail = ImGui::GetContentRegionAvail().x;
             float imgW = std::min(560.0f, topAvail * 0.42f);
-            ImGui::BeginGroup();
-            drawAreaImage(a, imgW, 460.0f);
-            ImGui::EndGroup();
-            if (!a->playerText.empty()) {
-                ImGui::SameLine(0.0f, 20.0f);
+            bool drewArt = false;
+            {
                 ImGui::BeginGroup();
-                drawProse(a->playerText, 4.0f);
+                drewArt = drawAreaImage(a, imgW, 460.0f);
                 ImGui::EndGroup();
+            }
+            if (!a->playerText.empty()) {
+                if (drewArt) {
+                    ImGui::SameLine(0.0f, 20.0f);
+                    ImGui::BeginGroup();
+                    drawProse(a->playerText, 4.0f);
+                    ImGui::EndGroup();
+                } else {
+                    drawProse(a->playerText, 4.0f);
+                }
             }
             ImGui::Spacing();
 
