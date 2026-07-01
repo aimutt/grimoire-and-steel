@@ -1,5 +1,6 @@
 #include "gns/Module.h"
 #include "gns/Database.h"   // gns::DbError
+#include "gns/AtomicDb.h"   // gns::writeDatabaseAtomically
 #include "sqlite3.h"
 
 #include <algorithm>
@@ -226,31 +227,16 @@ CREATE TABLE map_texts (
 // ---- save -------------------------------------------------------------------
 
 void saveModule(const Module& mod, const std::string& path) {
-    Conn c;
-    int rc = sqlite3_open_v2(path.c_str(), &c.db,
-                             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
-    if (rc != SQLITE_OK) fail(c.db, "cannot create '" + path + "'");
-
-    // Start clean: drop any prior content so save is a full overwrite.
-    exec(c.db, "PRAGMA foreign_keys=OFF;");
-    exec(c.db,
-         "DROP TABLE IF EXISTS map_texts;"
-         "DROP TABLE IF EXISTS map_objects;"
-         "DROP TABLE IF EXISTS area_shop_items;"
-         "DROP TABLE IF EXISTS area_treasures;"
-         "DROP TABLE IF EXISTS area_transitions;"
-         "DROP TABLE IF EXISTS area_monsters;"
-         "DROP TABLE IF EXISTS area_prerequisites;"
-         "DROP TABLE IF EXISTS control_points;"
-         "DROP TABLE IF EXISTS areas;"
-         "DROP TABLE IF EXISTS maps;"
-         "DROP TABLE IF EXISTS module;");
-    exec(c.db, kSchema);
-    exec(c.db, ("PRAGMA user_version=" + std::to_string(kModuleFormatVersion) + ";").c_str());
-    exec(c.db, "BEGIN;");
+  // Written to a temp file inside one transaction, then atomically swapped in (see
+  // writeDatabaseAtomically). A failure here never damages the existing file: the temp is
+  // discarded and `path` is left untouched. Because the target is always a fresh file there
+  // is no destructive DROP — we just CREATE the schema and INSERT.
+  writeDatabaseAtomically(path, [&](sqlite3* db) {
+    exec(db, kSchema);
+    exec(db, ("PRAGMA user_version=" + std::to_string(kModuleFormatVersion) + ";").c_str());
 
     {
-        Stmt s(c.db, "INSERT INTO module(id,name,author,summary,"
+        Stmt s(db, "INSERT INTO module(id,name,author,summary,"
                      "start_map_id,start_area_id,end_area_id,cover_art,splash_music,default_music) "
                      "VALUES(1,?,?,?,?,?,?,?,?,?);");
         s.bind(mod.name).bind(mod.author).bind(mod.summary)
@@ -260,30 +246,30 @@ void saveModule(const Module& mod, const std::string& path) {
     }
 
     {
-        Stmt mapStmt(c.db, "INSERT INTO maps(id,name,grid_w,grid_h,overlay_w,overlay_h,"
+        Stmt mapStmt(db, "INSERT INTO maps(id,name,grid_w,grid_h,overlay_w,overlay_h,"
                            "cells,cell_area) VALUES(?,?,?,?,?,?,?,?);");
-        Stmt areaStmt(c.db,
+        Stmt areaStmt(db,
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
             "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
             "artwork_path,fill_enabled,label_auto,is_shop,music,hidden) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
-        Stmt prereqStmt(c.db,
+        Stmt prereqStmt(db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
-        Stmt monsterStmt(c.db,
+        Stmt monsterStmt(db,
             "INSERT INTO area_monsters(area_id,type,count) VALUES(?,?,?);");
-        Stmt treasureStmt(c.db,
+        Stmt treasureStmt(db,
             "INSERT INTO area_treasures(area_id,type,chance) VALUES(?,?,?);");
-        Stmt shopStmt(c.db,
+        Stmt shopStmt(db,
             "INSERT INTO area_shop_items(area_id,name,description,cost,stock,image,image_id) "
             "VALUES(?,?,?,?,?,?,?);");
-        Stmt imageStmt(c.db,
+        Stmt imageStmt(db,
             "INSERT INTO area_images(area_id,slot,path,direction,is_default) VALUES(?,?,?,?,?);");
-        Stmt transStmt(c.db,
+        Stmt transStmt(db,
             "INSERT INTO area_transitions(area_id,target_area_id,label) VALUES(?,?,?);");
-        Stmt objStmt(c.db,
+        Stmt objStmt(db,
             "INSERT INTO map_objects(id,map_id,type,x,y,rot,scale) VALUES(?,?,?,?,?,?,?);");
-        Stmt textStmt(c.db,
+        Stmt textStmt(db,
             "INSERT INTO map_texts(id,map_id,x,y,text,color,size) VALUES(?,?,?,?,?,?,?);");
 
         for (const auto& m : mod.maps) {
@@ -353,16 +339,15 @@ void saveModule(const Module& mod, const std::string& path) {
     }
 
     {
-        Stmt s(c.db, "INSERT INTO control_points(id,name,description,map_id,area_id,kind,x,y) "
-                     "VALUES(?,?,?,?,?,?,?,?);");
+        Stmt s(db, "INSERT INTO control_points(id,name,description,map_id,area_id,kind,x,y) "
+                   "VALUES(?,?,?,?,?,?,?,?);");
         for (const auto& cp : mod.controlPoints) {
             s.bind(cp.id).bind(cp.name).bind(cp.description).bind(cp.mapId).bind(cp.areaId)
              .bind(cp.kind).bind((double)cp.x).bind((double)cp.y);
             s.run();
         }
     }
-
-    exec(c.db, "COMMIT;");
+  });
 }
 
 // ---- load -------------------------------------------------------------------
