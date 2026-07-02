@@ -435,6 +435,45 @@ int main(int, char**) {
     int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
     int confirmChoice = 0;                    // confirm-popup highlight (0 = No, 1 = Yes)
 
+    // ---- Draggable pane divider (both modes) ----
+    // The right pane's width, per mode (<=0 = "not yet initialized"; seeded on first use from the
+    // viewport). Dragging the seam adjusts these, mirroring the Module Creator's splitter so the
+    // Characters portrait grid / Roster (and the Play map / Adventure panel) can be resized.
+    float charsRightW = -1.0f, playRightW = -1.0f;
+    bool draggingSplitter = false;            // a splitter drag is in progress
+
+    // Draggable vertical divider between the left and right panes. Handled against the global
+    // mouse and drawn on the foreground draw list (not a tiny ImGui window, which ImGui floors to
+    // ~32px) — the same approach as the Creator's updatePaneSplitter. Call ONCE per frame before
+    // the panes are drawn; mutates `rightW` (clamped). Returns true while the seam is hot.
+    auto verticalSplitter = [&](float& rightW, float minRight, float minLeft) -> bool {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGuiIO& io = ImGui::GetIO();
+        float seamX = vp->WorkPos.x + vp->WorkSize.x - rightW;
+        const float band = 5.0f;
+        bool overSeam = io.MousePos.x >= seamX - band && io.MousePos.x <= seamX + band &&
+                        io.MousePos.y >= vp->WorkPos.y && io.MousePos.y <= vp->WorkPos.y + vp->WorkSize.y;
+        bool popup = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+        if (overSeam && !draggingSplitter && !popup && !ImGui::IsAnyItemActive() &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            draggingSplitter = true;
+        if (draggingSplitter) {
+            rightW -= io.MouseDelta.x;   // drag left -> wider right pane, narrower left
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) draggingSplitter = false;
+        }
+        float maxRight = std::max(minRight, vp->WorkSize.x - minLeft);
+        rightW = std::clamp(rightW, minRight, maxRight);
+        bool hot = overSeam || draggingSplitter;
+        if (hot) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        float sx = vp->WorkPos.x + vp->WorkSize.x - rightW;   // recompute after clamp/drag
+        ImU32 col = hot ? IM_COL32(140, 180, 240, 245) : IM_COL32(96, 102, 120, 170);
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        dl->AddLine(ImVec2(sx, vp->WorkPos.y), ImVec2(sx, vp->WorkPos.y + vp->WorkSize.y), col, 2.0f);
+        float midY = vp->WorkPos.y + vp->WorkSize.y * 0.5f;
+        for (int k = -3; k <= 3; ++k) dl->AddCircleFilled(ImVec2(sx, midY + k * 6.0f), 1.8f, col);
+        return hot;
+    };
+
     // Write the whole play-session to the sidecar .gnssav. Called after meaningful events
     // (area entry, a decision, a shop transaction) so relaunching can Continue. Non-fatal on
     // failure — a save error must never interrupt play.
@@ -716,6 +755,14 @@ int main(int, char**) {
                 ImGui::Separator();
                 ImGui::TextDisabled("%s", moduleStatus.c_str());
             }
+            // A prominent, green Play button once a module is loaded — the clear "how do I
+            // start?" affordance (Play mode's Adventure panel then guides party setup).
+            if (haveModule && repo) {
+                ImGui::Separator();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.90f, 0.35f, 1.0f));
+                if (ImGui::Button(mode == Mode::Play ? "PLAYING" : "PLAY")) mode = Mode::Play;
+                ImGui::PopStyleColor();
+            }
             ImGui::EndMainMenuBar();
         }
 
@@ -814,11 +861,13 @@ int main(int, char**) {
         const bool spellsOk = !isMystic || chosenSpells.size() == 3;
         const bool canSave = repo && !draft.name.empty() && traitsOk && trainingOk && spellsOk;
 
-        // Responsive two-pane layout: Create Character fills the left ~66%, Roster the rest.
-        // Sized from the viewport every frame so it always fills the window (and ignores any
-        // stale size saved in imgui.ini).
+        // Two-pane layout: Create Character on the left, Roster on the right, split by a
+        // draggable divider (like the Module Creator). The seam width seeds from ~34% of the
+        // viewport on first use, then follows the user's drag.
         const ImGuiViewport* charVp = ImGui::GetMainViewport();
-        const float rosterW = std::max(320.0f, charVp->WorkSize.x * 0.34f);
+        if (charsRightW <= 0.0f) charsRightW = std::max(340.0f, charVp->WorkSize.x * 0.34f);
+        verticalSplitter(charsRightW, /*minRight=*/300.0f, /*minLeft=*/360.0f);
+        const float rosterW = charsRightW;
         const float createW = charVp->WorkSize.x - rosterW;
         const ImGuiWindowFlags paneFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
                                            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -840,11 +889,14 @@ int main(int, char**) {
             if (portraitFiles.empty()) {
                 ImGui::TextDisabled("No portraits found in assets/portraits.");
             } else {
-                // 3:4 portrait boxes (matches the source images, so no stretching).
+                // 3:4 portrait boxes (matches the source images, so no stretching). ImageButton
+                // adds FramePadding around the image, so a portrait tile is actually
+                // pw + 2*FramePadding.x wide — size the wrap on that or the last column clips.
                 const float pw = 92.0f, ph = 122.0f;
                 ImGuiStyle& st = ImGui::GetStyle();
+                float tileW = pw + st.FramePadding.x * 2.0f;
                 float availW = ImGui::GetContentRegionAvail().x;
-                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (pw + st.ItemSpacing.x)));
+                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (tileW + st.ItemSpacing.x)));
                 int placed = 0;
                 auto rowBreak = [&]() { if (placed % perRow != 0) ImGui::SameLine(); };
                 rowBreak();
@@ -966,7 +1018,8 @@ int main(int, char**) {
                         gns::strainLimit(ch));
             if (isMystic) ImGui::Text("Spell cast bonus +%d", gns::spellCastBonus(ch));
 
-            inputTextMultiline("Notes", &draft.notes, ImVec2(-1, 50));
+            ImGui::TextUnformatted("Notes");
+            inputTextMultiline("##notes", &draft.notes, ImVec2(-1, 50));
 
             ImGui::Separator();
             if (!canSave) ImGui::BeginDisabled();
@@ -1039,7 +1092,10 @@ int main(int, char**) {
         // ===================== Play mode =====================
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImVec2 wp = vp->WorkPos, ws = vp->WorkSize;
-        const float rightW = 600.0f;
+        // Map on the left, Adventure panel on the right, split by a draggable divider.
+        if (playRightW <= 0.0f) playRightW = 600.0f;
+        bool splitterHot = verticalSplitter(playRightW, /*minRight=*/360.0f, /*minLeft=*/400.0f);
+        const float rightW = playRightW;
         const ImGuiWindowFlags pf = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                     ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
@@ -1184,62 +1240,69 @@ int main(int, char**) {
             }
 
             ImGui::SeparatorText(areaLabel(a).c_str());
-            // Area art on the left with the description filling the space to its right. When the
-            // area has no artwork the description simply spans the full width — a defined area
-            // must always show its text (art is optional).
+            // Left column = the area art with, beneath it, a compact bordered "dialog" box for
+            // any open decision. The description fills the space to the right. When the area has
+            // neither art nor a decision the description simply spans the full width — a defined
+            // area must always show its text (art is optional).
             float topAvail = ImGui::GetContentRegionAvail().x;
             float imgW = std::min(560.0f, topAvail * 0.42f);
+            const bool hasDecision = !a->choices.empty() && !session->plot().isChoiceResolved(a->id);
             bool drewArt = false;
             {
                 ImGui::BeginGroup();
                 drewArt = drawAreaImage(a, imgW, 460.0f);
+                // The decision dialog: a bordered, tinted box holding the prompt + a button per
+                // choice, sized to the art column so it stays confined to the lower-left rather
+                // than sprawling across the whole region. Effects apply to the active character;
+                // the pick is recorded so the area stops prompting and shows its alternate text.
+                if (hasDecision) {
+                    float boxW = drewArt ? imgW : std::min(420.0f, topAvail * 0.42f);
+                    ImGui::Spacing();
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.13f, 0.18f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.47f, 0.78f, 1.0f, 0.7f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.5f);
+                    ImGui::BeginChild("decision", ImVec2(boxW, 0.0f),
+                                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+                    if (!a->choicePrompt.empty()) { drawProse(a->choicePrompt, 4.0f); ImGui::Spacing(); }
+                    for (size_t i = 0; i < a->choices.size(); ++i) {
+                        const gns::AreaChoice& ch = a->choices[i];
+                        std::string label = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
+                        ImGui::PushID((int)i + 7000);
+                        if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
+                            gns::Character& who = party[shopBuyer];
+                            if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
+                            if (ch.completeControlPointId != 0)
+                                session->completeControlPoint(ch.completeControlPointId);
+                            // Gold reward applies to EVERY party member (each gets the full amount);
+                            // items still go to the active character.
+                            if (ch.goldDelta != 0)
+                                for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
+                            if (!ch.grantItemName.empty()) who.inventory.push_back(ch.grantItemName);
+                            if (!ch.takeItemName.empty()) {
+                                auto it = std::find(who.inventory.begin(), who.inventory.end(), ch.takeItemName);
+                                if (it != who.inventory.end()) who.inventory.erase(it);
+                            }
+                            if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
+                            session->plot().resolveChoiceArea(a->id);
+                            autoSave();
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndChild();
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor(2);
+                }
                 ImGui::EndGroup();
             }
             // Show the alternate text if a decision flag selects one, else the default player text.
             const std::string bodyText = gns::areaDisplayText(*a, session->plot());
             if (!bodyText.empty()) {
-                if (drewArt) {
-                    ImGui::SameLine(0.0f, 20.0f);
-                    ImGui::BeginGroup();
-                    drawProse(bodyText, 4.0f);
-                    ImGui::EndGroup();
-                } else {
-                    drawProse(bodyText, 4.0f);
-                }
+                if (drewArt || hasDecision) ImGui::SameLine(0.0f, 20.0f);
+                ImGui::BeginGroup();
+                drawProse(bodyText, 4.0f);
+                ImGui::EndGroup();
             }
             ImGui::Spacing();
-
-            // Inline decision: the prompt + a button per choice, shown until the party decides
-            // here. Effects apply to the active character; the pick is recorded so the area stops
-            // prompting and can switch to its alternate text.
-            if (!a->choices.empty() && !session->plot().isChoiceResolved(a->id)) {
-                if (!a->choicePrompt.empty()) { drawProse(a->choicePrompt, 4.0f); ImGui::Spacing(); }
-                for (size_t i = 0; i < a->choices.size(); ++i) {
-                    const gns::AreaChoice& ch = a->choices[i];
-                    std::string label = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
-                    ImGui::PushID((int)i + 7000);
-                    if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
-                        gns::Character& who = party[shopBuyer];
-                        if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
-                        if (ch.completeControlPointId != 0)
-                            session->completeControlPoint(ch.completeControlPointId);
-                        // Gold reward applies to EVERY party member (each gets the full amount);
-                        // items still go to the active character.
-                        if (ch.goldDelta != 0)
-                            for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
-                        if (!ch.grantItemName.empty()) who.inventory.push_back(ch.grantItemName);
-                        if (!ch.takeItemName.empty()) {
-                            auto it = std::find(who.inventory.begin(), who.inventory.end(), ch.takeItemName);
-                            if (it != who.inventory.end()) who.inventory.erase(it);
-                        }
-                        if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
-                        session->plot().resolveChoiceArea(a->id);
-                        autoSave();
-                    }
-                    ImGui::PopID();
-                }
-                ImGui::Spacing();
-            }
 
             if (!a->isShop || party.empty()) return;   // non-shop areas: just art + text
 
@@ -1622,8 +1685,9 @@ int main(int, char**) {
                 if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
                     actOnCell(cursorX, cursorY);
             }
-            // Mouse: clicking a cell moves the token there and acts on it.
-            if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            // Mouse: clicking a cell moves the token there and acts on it (but not when the
+            // click is grabbing the pane divider at the map's right edge).
+            if (!splitterHot && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 mp = io.MousePos;
                 int cx = (int)((mp.x - origin.x) / cs), cy = (int)((mp.y - origin.y) / cs);
                 if (cx >= 0 && cy >= 0 && cx < m.gridW && cy < m.gridH) {
