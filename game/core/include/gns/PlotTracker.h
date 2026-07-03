@@ -1,7 +1,9 @@
 #pragma once
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Storyteller: plot-progress tracking for a play-session (milestone M4).
 //
@@ -18,7 +20,10 @@
 
 namespace gns {
 
-struct Area;   // defined in Module.h; only a reference is needed here
+struct Area;            // defined in Module.h; only a reference is needed here
+struct AreaContext;     // defined in Module.h
+struct ModuleVariable;  // defined in Module.h
+struct ContextClause;   // defined in Module.h
 
 class PlotTracker {
 public:
@@ -55,15 +60,49 @@ public:
     const std::set<int>& resolvedChoiceAreas() const { return resolvedChoiceAreas_; }
     void setResolvedChoiceAreas(std::set<int> ids) { resolvedChoiceAreas_ = std::move(ids); }
 
+    // --- Global variables -----------------------------------------------------
+    // Current values of the module's typed globals (ModuleVariable), stored as canonical
+    // strings (the type lives on the module so this stays module-independent/serializable).
+    // Set by area choices; read by context conditions. Drops straight into a .gnssav.
+    void setGlobal(const std::string& name, const std::string& value) { globals_[name] = value; }
+    bool hasGlobal(const std::string& name) const { return globals_.count(name) != 0; }
+    std::string getGlobal(const std::string& name) const {
+        auto it = globals_.find(name);
+        return it == globals_.end() ? std::string() : it->second;
+    }
+    const std::map<std::string, std::string>& globals() const { return globals_; }
+    void setGlobals(std::map<std::string, std::string> g) { globals_ = std::move(g); }
+
 private:
     std::set<int> completed_;
     std::set<std::string> flags_;
     std::set<int> resolvedChoiceAreas_;
+    std::map<std::string, std::string> globals_;
 };
 
-// The player-facing text an area should display given the current plot state: the first of
-// `area.altTexts` whose flag is set, else `area.playerText` (the default). Empty alternate text
-// is honoured (returns an empty string), so an author can suppress an area's prose once decided.
-const std::string& areaDisplayText(const Area& area, const PlotTracker& plot);
+// Initialise a tracker's globals from a module's variable declarations (each variable's
+// default value). Call when a session starts.
+void initGlobals(PlotTracker& plot, const std::vector<ModuleVariable>& vars);
+
+// True when a single clause (<var> <op> <literal>) holds against the current globals, comparing
+// by the variable's declared VarType (Bool/String support == and !=; Int/Float support all six).
+bool evalClause(const ContextClause& clause, const PlotTracker& plot,
+                const std::vector<ModuleVariable>& vars);
+
+// True when *every* clause of a context's condition holds (AND). An empty condition is always
+// true (so a no-condition context is always active -- valid only as an area's sole context).
+bool contextConditionHolds(const AreaContext& ctx, const PlotTracker& plot,
+                           const std::vector<ModuleVariable>& vars);
+
+// The single active context of an area, or nullptr when none is active. When two or more are
+// simultaneously active this is a LOGIC ERROR: returns nullptr and, if `conflict` is non-null,
+// sets *conflict to a message naming the two offending contexts (the engine halts play on it).
+const AreaContext* activeContext(const Area& area, const PlotTracker& plot,
+                                 const std::vector<ModuleVariable>& vars,
+                                 std::string* conflict = nullptr);
+
+// The player-facing text a context should display: the first of its legacy `altTexts` whose flag
+// is set (back-compat), else its `playerText`. Empty text is honoured (returns empty).
+const std::string& areaContextText(const AreaContext& ctx, const PlotTracker& plot);
 
 } // namespace gns

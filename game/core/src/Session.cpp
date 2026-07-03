@@ -81,6 +81,9 @@ Session::Session(Module module, Party party, std::uint64_t seed)
 
     state_.turnCount = 0;
     state_.mode = PlayMode::Exploration;
+
+    // Seed the play-session's global variables from the module's declared defaults.
+    initGlobals(plot_, module_.variables);
 }
 
 const Map* Session::currentMap() const {

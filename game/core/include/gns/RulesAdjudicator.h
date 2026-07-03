@@ -41,6 +41,10 @@ public:
     CheckOutcome trapCheck(const Area& a);      // party falls victim -> trapDescription
     CheckOutcome lockCheck(const Area& a);      // character opens/picks -> lockDescription
     CheckOutcome hiddenCheck(const Area& a);    // party discovers -> hiddenDescription
+    // v15: same checks reading from an area's active Context.
+    CheckOutcome trapCheck(const AreaContext& c);
+    CheckOutcome lockCheck(const AreaContext& c);
+    CheckOutcome hiddenCheck(const AreaContext& c);
 
 private:
     const Repository& repo_;

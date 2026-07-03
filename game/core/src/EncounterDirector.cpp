@@ -86,6 +86,21 @@ Encounter EncounterDirector::checkArea(const Area& area) {
     return e;
 }
 
+Encounter EncounterDirector::checkArea(const AreaContext& ctx) {
+    if (!dice_.percent(ctx.monsterChancePct)) return Encounter{};   // occurred = false
+    if (ctx.monsters.empty())
+        return makeEncounter(ctx.monsterType, 1);
+
+    Encounter e;
+    e.occurred = true;
+    e.monsterType = ctx.monsters.front().type;         // representative label
+    e.known = (repo_.monster(e.monsterType) != nullptr);
+    for (const auto& am : ctx.monsters)
+        appendMonsters(e, am.type, am.count);
+    e.reaction = rollReaction();
+    return e;
+}
+
 Reaction EncounterDirector::rollReaction() {
     return reactionFor2d6(dice_.roll(2, 6));
 }

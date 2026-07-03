@@ -54,6 +54,10 @@ public:
     // area.monsterType, group size 1, when the list is empty).
     Encounter checkArea(const Area& area);
 
+    // Same, reading the monster fields from an area's active Context (v15). This is
+    // the path the engine uses now that content lives in contexts.
+    Encounter checkArea(const AreaContext& ctx);
+
     // Core builder: resolve a monster type + group size into a populated Encounter
     // (occurred = true). Unknown types still yield combatants with sensible
     // defaults so combat can proceed; known = false flags them.

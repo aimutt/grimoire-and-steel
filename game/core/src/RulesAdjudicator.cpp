@@ -58,4 +58,25 @@ RulesAdjudicator::CheckOutcome RulesAdjudicator::hiddenCheck(const Area& a) {
     return o;
 }
 
+RulesAdjudicator::CheckOutcome RulesAdjudicator::trapCheck(const AreaContext& c) {
+    CheckOutcome o;
+    o.occurred = dice_.percent(c.trapChancePct);
+    if (o.occurred) o.description = c.trapDescription;
+    return o;
+}
+
+RulesAdjudicator::CheckOutcome RulesAdjudicator::lockCheck(const AreaContext& c) {
+    CheckOutcome o;
+    o.occurred = dice_.percent(c.lockChancePct);
+    if (o.occurred) o.description = c.lockDescription;
+    return o;
+}
+
+RulesAdjudicator::CheckOutcome RulesAdjudicator::hiddenCheck(const AreaContext& c) {
+    CheckOutcome o;
+    o.occurred = dice_.percent(c.hiddenChancePct);
+    if (o.occurred) o.description = c.hiddenDescription;
+    return o;
+}
+
 } // namespace gns
