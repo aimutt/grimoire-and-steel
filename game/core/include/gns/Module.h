@@ -129,18 +129,49 @@ struct AreaTransition {
     std::string label;      // optional, e.g. "Stairs down to the crypt"
 };
 
-// A single decision the party can make at an area (cap 3 per area). Every effect field is
+// Type of a module-level global variable. Persisted as int -- append only, never renumber.
+enum class VarType : int { Bool = 0, Int = 1, String = 2, Float = 3 };
+
+// A module-wide typed variable, authored at the module level and visible to every area. Its
+// value is carried around as a canonical string: Bool "true"/"false", Int "5", Float "1.5",
+// String verbatim. The play-session's current values live in PlotTracker::globals(); the type
+// lives here (so PlotTracker stays module-independent).
+struct ModuleVariable {
+    std::string name;
+    VarType type = VarType::Bool;
+    std::string defaultValue;   // canonical string (see above)
+};
+
+// One AND-ed clause of a Context's activation condition: <varName> <op> <literal value>.
+// op: 0 ==, 1 !=, 2 <, 3 <=, 4 >, 5 >=. Ordering ops (<,<=,>,>=) apply to Int/Float only.
+struct ContextClause {
+    std::string varName;
+    int op = 0;
+    std::string value;   // canonical literal, compared per the variable's VarType
+};
+
+// A choice's mutation of a global variable. op: 0 set, 1 add, 2 subtract (add/subtract are
+// Int/Float only; Bool/String support set). An AreaChoice with no mutations (and no other
+// effect) is the "do nothing" choice.
+struct VarMutation {
+    std::string varName;
+    int op = 0;
+    std::string value;   // canonical literal operand
+};
+
+// A single decision the party can make at an area (cap 3 per context). Every effect field is
 // optional -- an empty/zero field means "no effect". Presented inline in the engine's area
 // view; the chosen option's effects are applied to the active character and recorded in the
 // play-session's PlotTracker so the choice sticks across re-entry and into a save file.
 struct AreaChoice {
     std::string label;              // button text, e.g. "We'll help you."
     std::string journalEntry;       // appended to the journal when chosen
-    std::string setFlag;            // decision flag recorded in PlotTracker (drives alt text)
+    std::string setFlag;            // LEGACY decision flag (kept for load/migration; use mutations)
     int completeControlPointId = 0; // 0 = none; else marks a Control Point complete (unlocks gated areas)
     int goldDelta = 0;              // +/- gold applied to EVERY party member (each gets the full amount)
     std::string grantItemName;      // added to the active character's inventory (empty = none)
     std::string takeItemName;       // removed from the active character's inventory (empty = none)
+    std::vector<VarMutation> mutations;  // mutations to global variables (empty = none)
 };
 
 // Player-facing text shown *instead of* Area::playerText when its flag is set. First match
@@ -149,6 +180,50 @@ struct AreaChoice {
 struct AreaConditionalText {
     std::string requiredFlag;
     std::string text;
+};
+
+// A Context owns all of an area's *branchable* content -- descriptions, statistics, images,
+// music, shop, transitions, and decisions -- plus a condition (AND-ed clauses over module
+// variables) deciding when it is the area's active context. At play time EXACTLY ONE context
+// may be active: 2+ simultaneously active is a logic error that halts gameplay; 0 active means
+// the area is inert (shows nothing). A context with no conditions is always active, so it is
+// only valid as an area's sole context.
+struct AreaContext {
+    std::string name;                          // unique within the area (author-facing, internal)
+    std::vector<ContextClause> conditions;     // all AND-ed; empty = always active
+
+    std::string dmText;         // DM-only description
+    std::string playerText;     // player-facing description
+
+    // Statistics the engine uses (chances are 0-100).
+    int monsterChancePct = 0;
+    std::string monsterType;    // legacy single type (kept for backward-compat/migration)
+    std::vector<AreaMonster> monsters;
+    int treasureChancePct = 0;
+    std::string treasureType;   // legacy single treasure (kept for backward-compat/migration)
+    std::vector<AreaTreasure> treasures;
+    int trapChancePct = 0;
+    std::string trapDescription;
+    int lockChancePct = 0;
+    std::string lockDescription;
+    int hiddenChancePct = 0;
+    std::string hiddenDescription;
+
+    std::string artworkPath;    // legacy single image (kept for back-compat/migration)
+    std::vector<AreaImage> images;
+    int defaultImage = 0;
+    std::string musicPath;
+
+    bool isShop = false;
+    std::vector<ShopItem> shopItems;
+
+    std::vector<AreaTransition> transitions;
+
+    std::string choicePrompt;
+    std::vector<AreaChoice> choices;
+
+    // Legacy flag-gated alternate player text (kept for migration; superseded by contexts).
+    std::vector<AreaConditionalText> altTexts;
 };
 
 // A described region of a map (a set of fine cells sharing an id).
@@ -161,6 +236,17 @@ struct Area {
     std::uint32_t color = 0x3366CCFFu;  // RGBA fill tint on the map
     bool fillEnabled = true;    // false = outline only (no fill tint drawn)
 
+    bool hidden = false;        // hidden at play time (invisible on the map, still playable)
+
+    // All branchable content lives in contexts now. Exactly one is active at play time (see
+    // AreaContext). A fresh area gets one empty-condition default context so it plays at once.
+    std::vector<AreaContext> contexts;
+
+    // Control points that must be completed before a party may enter this area.
+    std::vector<int> prerequisiteControlPointIds;
+
+    // --- LEGACY (v<=14) content fields: populated only when loading an old module, then folded
+    // into a synthesized default context by loadModule. Unused once migrated; not written in v15+.
     std::string dmText;         // DM-only description
     std::string playerText;     // player-facing description
 
@@ -183,8 +269,6 @@ struct Area {
     int defaultImage = 0;       // index into images shown when no direction matches
     std::string musicPath;      // music that plays while the party is in this area
 
-    bool hidden = false;        // hidden at play time (invisible on the map, still playable)
-
     // Shop/market: when isShop, the party may buy & sell here from this supply list.
     bool isShop = false;
     std::vector<ShopItem> shopItems;
@@ -198,9 +282,6 @@ struct Area {
     std::string choicePrompt;                    // question shown above the choice buttons
     std::vector<AreaChoice> choices;             // <= 3
     std::vector<AreaConditionalText> altTexts;   // flag-gated alternates for playerText
-
-    // Control points that must be completed before a party may enter this area.
-    std::vector<int> prerequisiteControlPointIds;
 };
 
 // An overhead grid map. cells/cellArea are row-major, size gridW*gridH.
@@ -226,6 +307,7 @@ struct Module {
     std::string defaultMusicPath;  // music when the party is not in a defined area
     std::vector<Map> maps;
     std::vector<ControlPoint> controlPoints;
+    std::vector<ModuleVariable> variables;  // module-wide typed globals, visible to every area
     int startMapId = 0;   // beginning of the adventure
     int startAreaId = 0;
     int endAreaId = 0;    // end of the adventure
@@ -255,8 +337,13 @@ struct Module {
 // splash_music/default_music columns and the area music column; v13 added the area hidden
 // column, the area_images table (multi-image + per-direction + default), the map_objects scale
 // column, and the area_shop_items image_id column; v14 added the area choice_prompt column and
-// the area_choices and area_alt_texts tables (per-area decisions + flag-gated alternate text).
-constexpr int kModuleFormatVersion = 14;
+// the area_choices and area_alt_texts tables (per-area decisions + flag-gated alternate text);
+// v15 moved all branchable area content into per-area Contexts (the module_variables table for
+// typed globals; the area_contexts table + its context_* child tables -- conditions, monsters,
+// treasures, images, shop_items, transitions, choices, and context_choice_mutations; the areas
+// table dropped its content columns). Pre-v15 modules are migrated on load into one default
+// context per area.
+constexpr int kModuleFormatVersion = 15;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

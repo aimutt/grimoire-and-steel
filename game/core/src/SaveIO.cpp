@@ -74,6 +74,7 @@ CREATE TABLE save_meta (
 CREATE TABLE save_control_points (cp_id INTEGER);
 CREATE TABLE save_flags (flag TEXT);
 CREATE TABLE save_resolved_areas (area_id INTEGER);
+CREATE TABLE save_globals (name TEXT, value TEXT);
 CREATE TABLE save_journal (ord INTEGER, line TEXT);
 CREATE TABLE save_character (
     owner             INTEGER,
@@ -121,6 +122,10 @@ void saveGame(const std::string& path, const GameSave& save) {
     {
         Stmt s(db, "INSERT INTO save_resolved_areas(area_id) VALUES(?);");
         for (int id : save.resolvedAreas) { s.bind(id); s.run(); }
+    }
+    {
+        Stmt s(db, "INSERT INTO save_globals(name,value) VALUES(?,?);");
+        for (const auto& kv : save.globals) { s.bind(kv.first).bind(kv.second); s.run(); }
     }
     {
         Stmt s(db, "INSERT INTO save_journal(ord,line) VALUES(?,?);");
@@ -190,6 +195,13 @@ GameSave loadGame(const std::string& path) {
     {
         Stmt s(conn.db, "SELECT area_id FROM save_resolved_areas;");
         while (sqlite3_step(s.s) == SQLITE_ROW) save.resolvedAreas.insert(colInt(s.s, 0));
+    }
+    // save_globals was added in v2; tolerate older saves that lack it.
+    try {
+        Stmt s(conn.db, "SELECT name,value FROM save_globals;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) save.globals[colText(s.s, 0)] = colText(s.s, 1);
+    } catch (const DbError&) {
+        // no save_globals table — leave empty (re-seeded from module defaults on load)
     }
     {
         Stmt s(conn.db, "SELECT line FROM save_journal ORDER BY ord;");

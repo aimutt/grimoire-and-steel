@@ -211,6 +211,66 @@ CREATE TABLE area_alt_texts (
     flag    TEXT,
     text    TEXT
 );
+CREATE TABLE module_variables (
+    ord           INTEGER,
+    name          TEXT,
+    type          INTEGER,
+    default_value TEXT
+);
+CREATE TABLE area_contexts (
+    area_id         INTEGER,
+    ctx_ord         INTEGER,
+    name            TEXT,
+    dm_text         TEXT, player_text TEXT,
+    monster_chance  INTEGER, monster_type TEXT,
+    treasure_chance INTEGER, treasure_type TEXT,
+    trap_chance     INTEGER, trap_desc TEXT,
+    lock_chance     INTEGER, lock_desc TEXT,
+    hidden_chance   INTEGER, hidden_desc TEXT,
+    artwork_path    TEXT,
+    default_image   INTEGER,
+    music           TEXT,
+    is_shop         INTEGER,
+    choice_prompt   TEXT
+);
+CREATE TABLE context_conditions (
+    area_id  INTEGER, ctx_ord INTEGER, ord INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
+CREATE TABLE context_monsters (
+    area_id INTEGER, ctx_ord INTEGER,
+    type    TEXT, count INTEGER
+);
+CREATE TABLE context_treasures (
+    area_id INTEGER, ctx_ord INTEGER,
+    type    TEXT, chance INTEGER
+);
+CREATE TABLE context_images (
+    area_id INTEGER, ctx_ord INTEGER, slot INTEGER,
+    path    TEXT, direction INTEGER, is_default INTEGER
+);
+CREATE TABLE context_shop_items (
+    area_id     INTEGER, ctx_ord INTEGER,
+    name        TEXT, description TEXT, cost INTEGER, stock INTEGER,
+    image       TEXT, image_id TEXT
+);
+CREATE TABLE context_transitions (
+    area_id INTEGER, ctx_ord INTEGER,
+    target_area_id INTEGER, label TEXT
+);
+CREATE TABLE context_choices (
+    area_id    INTEGER, ctx_ord INTEGER, ord INTEGER,
+    label      TEXT, journal TEXT, set_flag TEXT,
+    cp_id      INTEGER, gold INTEGER, grant_item TEXT, take_item TEXT
+);
+CREATE TABLE context_choice_mutations (
+    area_id    INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
+    var_name   TEXT, op INTEGER, value TEXT
+);
+CREATE TABLE context_alt_texts (
+    area_id INTEGER, ctx_ord INTEGER, ord INTEGER,
+    flag    TEXT, text TEXT
+);
 CREATE TABLE control_points (
     id INTEGER PRIMARY KEY,
     name TEXT, description TEXT,
@@ -264,6 +324,15 @@ void saveModule(const Module& mod, const std::string& path) {
     }
 
     {
+        Stmt s(db, "INSERT INTO module_variables(ord,name,type,default_value) VALUES(?,?,?,?);");
+        for (size_t i = 0; i < mod.variables.size(); ++i) {
+            const auto& v = mod.variables[i];
+            s.bind((int)i).bind(v.name).bind(static_cast<int>(v.type)).bind(v.defaultValue);
+            s.run();
+        }
+    }
+
+    {
         Stmt mapStmt(db, "INSERT INTO maps(id,name,grid_w,grid_h,overlay_w,overlay_h,"
                            "cells,cell_area) VALUES(?,?,?,?,?,?,?,?);");
         Stmt areaStmt(db,
@@ -290,6 +359,35 @@ void saveModule(const Module& mod, const std::string& path) {
             "VALUES(?,?,?,?,?,?,?,?,?);");
         Stmt altTextStmt(db,
             "INSERT INTO area_alt_texts(area_id,ord,flag,text) VALUES(?,?,?,?);");
+        Stmt ctxStmt(db,
+            "INSERT INTO area_contexts(area_id,ctx_ord,name,dm_text,player_text,"
+            "monster_chance,monster_type,treasure_chance,treasure_type,"
+            "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
+            "artwork_path,default_image,music,is_shop,choice_prompt) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+        Stmt ctxCondStmt(db,
+            "INSERT INTO context_conditions(area_id,ctx_ord,ord,var_name,op,value) "
+            "VALUES(?,?,?,?,?,?);");
+        Stmt ctxMonsterStmt(db,
+            "INSERT INTO context_monsters(area_id,ctx_ord,type,count) VALUES(?,?,?,?);");
+        Stmt ctxTreasureStmt(db,
+            "INSERT INTO context_treasures(area_id,ctx_ord,type,chance) VALUES(?,?,?,?);");
+        Stmt ctxImageStmt(db,
+            "INSERT INTO context_images(area_id,ctx_ord,slot,path,direction,is_default) "
+            "VALUES(?,?,?,?,?,?);");
+        Stmt ctxShopStmt(db,
+            "INSERT INTO context_shop_items(area_id,ctx_ord,name,description,cost,stock,image,image_id) "
+            "VALUES(?,?,?,?,?,?,?,?);");
+        Stmt ctxTransStmt(db,
+            "INSERT INTO context_transitions(area_id,ctx_ord,target_area_id,label) VALUES(?,?,?,?);");
+        Stmt ctxChoiceStmt(db,
+            "INSERT INTO context_choices(area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?);");
+        Stmt ctxChoiceMutStmt(db,
+            "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value) "
+            "VALUES(?,?,?,?,?,?,?);");
+        Stmt ctxAltStmt(db,
+            "INSERT INTO context_alt_texts(area_id,ctx_ord,ord,flag,text) VALUES(?,?,?,?,?);");
         Stmt objStmt(db,
             "INSERT INTO map_objects(id,map_id,type,x,y,rot,scale) VALUES(?,?,?,?,?,?,?);");
         Stmt textStmt(db,
@@ -372,6 +470,71 @@ void saveModule(const Module& mod, const std::string& path) {
                                .bind(a.altTexts[i].text);
                     altTextStmt.run();
                 }
+
+                // Per-area Contexts (v15) — the source of truth for all branchable content.
+                for (size_t ci = 0; ci < a.contexts.size(); ++ci) {
+                    const AreaContext& ctx = a.contexts[ci];
+                    int co = (int)ci;
+                    ctxStmt.bind(a.id).bind(co).bind(ctx.name)
+                           .bind(ctx.dmText).bind(ctx.playerText)
+                           .bind(ctx.monsterChancePct).bind(ctx.monsterType)
+                           .bind(ctx.treasureChancePct).bind(ctx.treasureType)
+                           .bind(ctx.trapChancePct).bind(ctx.trapDescription)
+                           .bind(ctx.lockChancePct).bind(ctx.lockDescription)
+                           .bind(ctx.hiddenChancePct).bind(ctx.hiddenDescription)
+                           .bind(ctx.artworkPath).bind(ctx.defaultImage).bind(ctx.musicPath)
+                           .bind(ctx.isShop ? 1 : 0).bind(ctx.choicePrompt);
+                    ctxStmt.run();
+
+                    for (size_t k = 0; k < ctx.conditions.size(); ++k) {
+                        const auto& cc = ctx.conditions[k];
+                        ctxCondStmt.bind(a.id).bind(co).bind((int)k)
+                                   .bind(cc.varName).bind(cc.op).bind(cc.value);
+                        ctxCondStmt.run();
+                    }
+                    for (const auto& am : ctx.monsters) {
+                        ctxMonsterStmt.bind(a.id).bind(co).bind(am.type).bind(am.count);
+                        ctxMonsterStmt.run();
+                    }
+                    for (const auto& at : ctx.treasures) {
+                        ctxTreasureStmt.bind(a.id).bind(co).bind(at.type).bind(at.chancePct);
+                        ctxTreasureStmt.run();
+                    }
+                    for (size_t k = 0; k < ctx.images.size(); ++k) {
+                        ctxImageStmt.bind(a.id).bind(co).bind((int)k).bind(ctx.images[k].path)
+                                    .bind(ctx.images[k].direction)
+                                    .bind((int)k == ctx.defaultImage ? 1 : 0);
+                        ctxImageStmt.run();
+                    }
+                    for (const auto& si : ctx.shopItems) {
+                        ctxShopStmt.bind(a.id).bind(co).bind(si.name).bind(si.description)
+                                   .bind(si.costGp).bind(si.stock).bind(si.imagePath).bind(si.imageId);
+                        ctxShopStmt.run();
+                    }
+                    for (const auto& tr : ctx.transitions) {
+                        ctxTransStmt.bind(a.id).bind(co).bind(tr.targetAreaId).bind(tr.label);
+                        ctxTransStmt.run();
+                    }
+                    for (size_t k = 0; k < ctx.choices.size(); ++k) {
+                        const auto& ch = ctx.choices[k];
+                        ctxChoiceStmt.bind(a.id).bind(co).bind((int)k).bind(ch.label)
+                                     .bind(ch.journalEntry).bind(ch.setFlag)
+                                     .bind(ch.completeControlPointId).bind(ch.goldDelta)
+                                     .bind(ch.grantItemName).bind(ch.takeItemName);
+                        ctxChoiceStmt.run();
+                        for (size_t mi = 0; mi < ch.mutations.size(); ++mi) {
+                            const auto& mu = ch.mutations[mi];
+                            ctxChoiceMutStmt.bind(a.id).bind(co).bind((int)k).bind((int)mi)
+                                            .bind(mu.varName).bind(mu.op).bind(mu.value);
+                            ctxChoiceMutStmt.run();
+                        }
+                    }
+                    for (size_t k = 0; k < ctx.altTexts.size(); ++k) {
+                        ctxAltStmt.bind(a.id).bind(co).bind((int)k)
+                                  .bind(ctx.altTexts[k].requiredFlag).bind(ctx.altTexts[k].text);
+                        ctxAltStmt.run();
+                    }
+                }
             }
         }
     }
@@ -419,6 +582,20 @@ Module loadModule(const std::string& path) {
     for (int opt = 2; ; --opt) {
         try { loadModuleRow(opt); break; }
         catch (const DbError&) { if (opt == 0) throw; }
+    }
+
+    // module_variables was added in v15; tolerate older files that lack it.
+    try {
+        Stmt s(c.db, "SELECT name,type,default_value FROM module_variables ORDER BY ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            ModuleVariable v;
+            v.name         = colText(s.s, 0);
+            v.type         = static_cast<VarType>(colInt(s.s, 1));
+            v.defaultValue = colText(s.s, 2);
+            mod.variables.push_back(std::move(v));
+        }
+    } catch (const DbError&) {
+        // no module_variables table — leave empty
     }
 
     {
@@ -616,6 +793,177 @@ Module loadModule(const std::string& path) {
                 a.monsters.push_back(AreaMonster{a.monsterType, 1});
             if (a.treasures.empty() && !a.treasureType.empty())
                 a.treasures.push_back(AreaTreasure{a.treasureType, a.treasureChancePct});
+        }
+
+    // --- Per-area Contexts (v15) -------------------------------------------------------------
+    // Load area_contexts (rows in ctx_ord order, so vector index == ctx_ord) and their child
+    // tables. All are tolerated as absent so pre-v15 files fall through to the migration below.
+    auto ctxAt = [&](int areaId, int ctxOrd) -> AreaContext* {
+        Area* a = mod.areaById(areaId);
+        if (!a || ctxOrd < 0 || ctxOrd >= (int)a->contexts.size()) return nullptr;
+        return &a->contexts[ctxOrd];
+    };
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,name,dm_text,player_text,monster_chance,monster_type,"
+                     "treasure_chance,treasure_type,trap_chance,trap_desc,lock_chance,lock_desc,"
+                     "hidden_chance,hidden_desc,artwork_path,default_image,music,is_shop,choice_prompt "
+                     "FROM area_contexts ORDER BY area_id,ctx_ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            if (Area* a = mod.areaById(colInt(s.s, 0))) {
+                AreaContext ctx;
+                ctx.name             = colText(s.s, 2);
+                ctx.dmText           = colText(s.s, 3);
+                ctx.playerText       = colText(s.s, 4);
+                ctx.monsterChancePct = colInt(s.s, 5);
+                ctx.monsterType      = colText(s.s, 6);
+                ctx.treasureChancePct= colInt(s.s, 7);
+                ctx.treasureType     = colText(s.s, 8);
+                ctx.trapChancePct    = colInt(s.s, 9);
+                ctx.trapDescription  = colText(s.s, 10);
+                ctx.lockChancePct    = colInt(s.s, 11);
+                ctx.lockDescription  = colText(s.s, 12);
+                ctx.hiddenChancePct  = colInt(s.s, 13);
+                ctx.hiddenDescription= colText(s.s, 14);
+                ctx.artworkPath      = colText(s.s, 15);
+                ctx.defaultImage     = colInt(s.s, 16);
+                ctx.musicPath        = colText(s.s, 17);
+                ctx.isShop           = colInt(s.s, 18) != 0;
+                ctx.choicePrompt     = colText(s.s, 19);
+                a->contexts.push_back(std::move(ctx));
+            }
+        }
+    } catch (const DbError&) { /* no area_contexts — pre-v15; migration synthesizes below */ }
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,ord,var_name,op,value FROM context_conditions "
+                     "ORDER BY area_id,ctx_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
+                ctx->conditions.push_back(ContextClause{colText(s.s, 3), colInt(s.s, 4), colText(s.s, 5)});
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,type,count FROM context_monsters;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
+                ctx->monsters.push_back(AreaMonster{colText(s.s, 2), colInt(s.s, 3)});
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,type,chance FROM context_treasures;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
+                ctx->treasures.push_back(AreaTreasure{colText(s.s, 2), colInt(s.s, 3)});
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,slot,path,direction,is_default FROM context_images "
+                     "ORDER BY area_id,ctx_ord,slot;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1))) {
+                if (colInt(s.s, 5) != 0) ctx->defaultImage = (int)ctx->images.size();
+                ctx->images.push_back(AreaImage{colText(s.s, 3), colInt(s.s, 4)});
+            }
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,name,description,cost,stock,image,image_id "
+                     "FROM context_shop_items;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1))) {
+                ShopItem si;
+                si.name = colText(s.s, 2); si.description = colText(s.s, 3);
+                si.costGp = colInt(s.s, 4); si.stock = colInt(s.s, 5);
+                si.imagePath = colText(s.s, 6); si.imageId = colText(s.s, 7);
+                ctx->shopItems.push_back(std::move(si));
+            }
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,target_area_id,label FROM context_transitions;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
+                ctx->transitions.push_back(AreaTransition{colInt(s.s, 2), colText(s.s, 3)});
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item "
+                     "FROM context_choices ORDER BY area_id,ctx_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1))) {
+                AreaChoice ch;
+                ch.label = colText(s.s, 3); ch.journalEntry = colText(s.s, 4);
+                ch.setFlag = colText(s.s, 5); ch.completeControlPointId = colInt(s.s, 6);
+                ch.goldDelta = colInt(s.s, 7); ch.grantItemName = colText(s.s, 8);
+                ch.takeItemName = colText(s.s, 9);
+                ctx->choices.push_back(std::move(ch));
+            }
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value "
+                     "FROM context_choice_mutations ORDER BY area_id,ctx_ord,choice_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
+            int choiceOrd = colInt(s.s, 2);
+            if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size())
+                ctx->choices[choiceOrd].mutations.push_back(
+                    VarMutation{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)});
+        }
+    } catch (const DbError&) {}
+
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,flag,text FROM context_alt_texts "
+                     "ORDER BY area_id,ctx_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
+                ctx->altTexts.push_back(AreaConditionalText{colText(s.s, 2), colText(s.s, 3)});
+    } catch (const DbError&) {}
+
+    // Migration: any area with no contexts (pre-v15 file) gets one "default" context (empty
+    // condition = always active) populated from its legacy fields. Then clear the legacy content
+    // fields so a re-save writes contexts only.
+    for (auto& m : mod.maps)
+        for (auto& a : m.areas) {
+            if (a.contexts.empty()) {
+                AreaContext ctx;
+                ctx.name             = "default";
+                ctx.dmText           = a.dmText;
+                ctx.playerText       = a.playerText;
+                ctx.monsterChancePct = a.monsterChancePct;
+                ctx.monsterType      = a.monsterType;
+                ctx.monsters         = a.monsters;
+                ctx.treasureChancePct= a.treasureChancePct;
+                ctx.treasureType     = a.treasureType;
+                ctx.treasures        = a.treasures;
+                ctx.trapChancePct    = a.trapChancePct;
+                ctx.trapDescription  = a.trapDescription;
+                ctx.lockChancePct    = a.lockChancePct;
+                ctx.lockDescription  = a.lockDescription;
+                ctx.hiddenChancePct  = a.hiddenChancePct;
+                ctx.hiddenDescription= a.hiddenDescription;
+                ctx.artworkPath      = a.artworkPath;
+                ctx.images           = a.images;
+                ctx.defaultImage     = a.defaultImage;
+                ctx.musicPath        = a.musicPath;
+                ctx.isShop           = a.isShop;
+                ctx.shopItems        = a.shopItems;
+                ctx.transitions      = a.transitions;
+                ctx.choicePrompt     = a.choicePrompt;
+                ctx.choices          = a.choices;
+                ctx.altTexts         = a.altTexts;
+                a.contexts.push_back(std::move(ctx));
+            }
+            // Legacy content fields now live in contexts; clear so they aren't re-persisted.
+            a.dmText.clear(); a.playerText.clear();
+            a.monsterChancePct = 0; a.monsterType.clear(); a.monsters.clear();
+            a.treasureChancePct = 0; a.treasureType.clear(); a.treasures.clear();
+            a.trapChancePct = 0; a.trapDescription.clear();
+            a.lockChancePct = 0; a.lockDescription.clear();
+            a.hiddenChancePct = 0; a.hiddenDescription.clear();
+            a.artworkPath.clear(); a.images.clear(); a.defaultImage = 0; a.musicPath.clear();
+            a.isShop = false; a.shopItems.clear(); a.transitions.clear();
+            a.choicePrompt.clear(); a.choices.clear(); a.altTexts.clear();
         }
 
     {

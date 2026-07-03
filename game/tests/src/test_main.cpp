@@ -229,6 +229,7 @@ int main() {
             gs.controlPoints = {1, 3};
             gs.flags = {"helped_mayor", "found_map"};
             gs.resolvedAreas = {10, 12};
+            gs.globals = {{"questAccepted", "true"}, {"teleportsLeft", "3"}};
             gs.journal = {"Entered the tavern.", "Agreed to rescue the family."};
             gs.party = {c1, c2};
 
@@ -247,7 +248,7 @@ int main() {
                   r.activeChar == 1);
             check("save plot state preserved",
                   r.controlPoints == gs.controlPoints && r.flags == gs.flags &&
-                  r.resolvedAreas == gs.resolvedAreas);
+                  r.resolvedAreas == gs.resolvedAreas && r.globals == gs.globals);
             check("save journal preserved",
                   r.journal.size() == 2 && r.journal[0] == "Entered the tavern." &&
                   r.journal[1] == "Agreed to rescue the family.");
@@ -273,6 +274,12 @@ int main() {
             m.coverArtPath = "art/cover.png";   // module splash image (v8)
             m.splashMusicPath = "audio/splash.mp3";     // module splash/default music (v12)
             m.defaultMusicPath = "audio/overworld.ogg";
+            m.variables = {                              // typed globals (v15)
+                {"questAccepted", VarType::Bool, "false"},
+                {"teleportsLeft", VarType::Int, "5"},
+                {"factionName", VarType::String, "neutral"},
+                {"threatLevel", VarType::Float, "1.5"},
+            };
 
             Map map;
             map.id = 1; map.name = "Level 1";
@@ -287,35 +294,52 @@ int main() {
 
             Area a1; a1.id = 10; a1.label = "A1"; a1.name = "Entry";
             a1.color = 0x4F8FE0FF;
-            a1.dmText = "A trap lurks."; a1.playerText = "A dusty hall.";
-            a1.monsterChancePct = 25; a1.monsterType = "Skeleton";
-            a1.treasureChancePct = 50; a1.treasureType = "C";
-            a1.trapChancePct = 30; a1.trapDescription = "Pit";
-            a1.lockChancePct = 15; a1.lockDescription = "Iron door";
-            a1.hiddenChancePct = 40; a1.hiddenDescription = "Loose brick";
-            a1.artworkPath = "art/entry.png";
-            a1.images = {{"art/north.png", 0}, {"art/default.png", -1}};   // multi-image (v13)
-            a1.defaultImage = 1;
-            a1.musicPath = "audio/entry.ogg";   // per-area music (v12)
             a1.hidden = true;                                        // hidden at play (v13)
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
-            a1.monsters = {{"Skeleton", 4}, {"Cave Goblin", 2}};     // multi-type (#23)
-            a1.treasures = {{"C", 50}, {"D", 20}};                   // multi-treasure (v10)
-            a1.isShop = true;                                         // shop/market (v10/v11)
-            a1.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png", "battle-axe.png"},
-                            {"Rations (1 week)", "", 5, 20, "", ""}};
-            a1.transitions = {{11, "Stairs down to the crypt"}};     // cross-area exit (v7)
-            a1.choicePrompt = "The mayor's wife begs for your help.";   // decisions (v14)
-            a1.choices = {
-                {"We'll help you.", "Agreed to rescue the family.", "helped_mayor", 1, 50,
-                 "Signet Ring", ""},
-                {"Not our problem.", "Declined the plea.", "refused_mayor", 0, 0, "", "Old Map"},
-            };
-            a1.altTexts = {{"helped_mayor", "You've agreed to help - see your journal."}};
             a1.prerequisiteControlPointIds = {1};
+
+            // Rich default context, active while the quest is not yet accepted (v15).
+            AreaContext c0;
+            c0.name = "beforeQuest";
+            c0.conditions = {{"questAccepted", 0, "false"}};   // questAccepted == false
+            c0.dmText = "A trap lurks."; c0.playerText = "A dusty hall.";
+            c0.monsterChancePct = 25; c0.monsterType = "Skeleton";
+            c0.treasureChancePct = 50; c0.treasureType = "C";
+            c0.trapChancePct = 30; c0.trapDescription = "Pit";
+            c0.lockChancePct = 15; c0.lockDescription = "Iron door";
+            c0.hiddenChancePct = 40; c0.hiddenDescription = "Loose brick";
+            c0.artworkPath = "art/entry.png";
+            c0.images = {{"art/north.png", 0}, {"art/default.png", -1}};   // multi-image
+            c0.defaultImage = 1;
+            c0.musicPath = "audio/entry.ogg";
+            c0.monsters = {{"Skeleton", 4}, {"Cave Goblin", 2}};
+            c0.treasures = {{"C", 50}, {"D", 20}};
+            c0.isShop = true;
+            c0.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png", "battle-axe.png"},
+                            {"Rations (1 week)", "", 5, 20, "", ""}};
+            c0.transitions = {{11, "Stairs down to the crypt"}};
+            c0.choicePrompt = "The mayor's wife begs for your help.";
+            AreaChoice ch0;
+            ch0.label = "We'll help you."; ch0.journalEntry = "Agreed to rescue the family.";
+            ch0.setFlag = "helped_mayor"; ch0.completeControlPointId = 1; ch0.goldDelta = 50;
+            ch0.grantItemName = "Signet Ring";
+            ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"}};  // set, subtract
+            AreaChoice ch1;
+            ch1.label = "Not our problem."; ch1.journalEntry = "Declined the plea.";
+            ch1.setFlag = "refused_mayor"; ch1.takeItemName = "Old Map";   // no mutations = "does nothing"
+            c0.choices = {ch0, ch1};
+            c0.altTexts = {{"helped_mayor", "You've agreed to help - see your journal."}};
+
+            // Second context, active once the quest is accepted -- proves multiple contexts persist.
+            AreaContext c1;
+            c1.name = "afterQuest";
+            c1.conditions = {{"questAccepted", 0, "true"}};
+            c1.playerText = "The hall feels lighter now.";
+            a1.contexts = {c0, c1};
+
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
-            a2.monsterType = "Ogre";   // legacy single field, empty list -> migrated on load
+            a2.monsterType = "Ogre";   // legacy fields + no contexts -> migrated to a default context
             map.areas.push_back(a1);
             map.areas.push_back(a2);
 
@@ -357,64 +381,80 @@ int main() {
             check("cell arrays preserved", r.maps[0].cells == m.maps[0].cells &&
                                            r.maps[0].cellArea == m.maps[0].cellArea);
             check("two areas preserved", r.maps[0].areas.size() == 2);
+            check("module variables preserved", r.variables.size() == 4 &&
+                  r.variables[0].name == "questAccepted" && r.variables[0].type == VarType::Bool &&
+                  r.variables[0].defaultValue == "false" &&
+                  r.variables[1].name == "teleportsLeft" && r.variables[1].type == VarType::Int &&
+                  r.variables[1].defaultValue == "5" &&
+                  r.variables[2].type == VarType::String && r.variables[2].defaultValue == "neutral" &&
+                  r.variables[3].type == VarType::Float && r.variables[3].defaultValue == "1.5");
+
             const Area* ra = r.areaById(10);
-            check("area stats preserved", ra && ra->label == "A1" && ra->name == "Entry" &&
-                  ra->color == 0x4F8FE0FF && ra->dmText == "A trap lurks." &&
-                  ra->playerText == "A dusty hall." && ra->monsterChancePct == 25 &&
-                  ra->monsterType == "Skeleton" && ra->treasureChancePct == 50 &&
-                  ra->treasureType == "C" && ra->trapChancePct == 30 &&
-                  ra->lockChancePct == 15 && ra->hiddenChancePct == 40 &&
-                  ra->artworkPath == "art/entry.png");
-            check("area music preserved", ra && ra->musicPath == "audio/entry.ogg");
-            check("area hidden preserved", ra && ra->hidden == true);
-            check("area images preserved", ra && ra->images.size() == 2 &&
-                  ra->images[0].path == "art/north.png" && ra->images[0].direction == 0 &&
-                  ra->images[1].path == "art/default.png" && ra->images[1].direction == -1 &&
-                  ra->defaultImage == 1);
+            check("area identity preserved", ra && ra->label == "A1" && ra->name == "Entry" &&
+                  ra->color == 0x4F8FE0FF && ra->hidden == true && ra->fillEnabled == false &&
+                  ra->labelAuto == false);
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
-            check("area fillEnabled=false preserved", ra && ra->fillEnabled == false);
-            check("area monster list preserved", ra && ra->monsters.size() == 2 &&
-                  ra->monsters[0].type == "Skeleton" && ra->monsters[0].count == 4 &&
-                  ra->monsters[1].type == "Cave Goblin" && ra->monsters[1].count == 2);
-            check("area treasure list preserved", ra && ra->treasures.size() == 2 &&
-                  ra->treasures[0].type == "C" && ra->treasures[0].chancePct == 50 &&
-                  ra->treasures[1].type == "D" && ra->treasures[1].chancePct == 20);
-            check("area shop preserved", ra && ra->isShop && ra->shopItems.size() == 2 &&
-                  ra->shopItems[0].name == "Long sword" &&
-                  ra->shopItems[0].description == "A fine blade." &&
-                  ra->shopItems[0].costGp == 15 && ra->shopItems[0].stock == 3 &&
-                  ra->shopItems[0].imagePath == "art/sword.png" &&
-                  ra->shopItems[0].imageId == "battle-axe.png" &&
-                  ra->shopItems[1].name == "Rations (1 week)" &&
-                  ra->shopItems[1].costGp == 5 && ra->shopItems[1].stock == 20);
-            check("area transitions preserved", ra && ra->transitions.size() == 1 &&
-                  ra->transitions[0].targetAreaId == 11 &&
-                  ra->transitions[0].label == "Stairs down to the crypt");
-            check("area choice prompt preserved", ra &&
-                  ra->choicePrompt == "The mayor's wife begs for your help.");
-            check("area choices preserved", ra && ra->choices.size() == 2 &&
-                  ra->choices[0].label == "We'll help you." &&
-                  ra->choices[0].journalEntry == "Agreed to rescue the family." &&
-                  ra->choices[0].setFlag == "helped_mayor" &&
-                  ra->choices[0].completeControlPointId == 1 &&
-                  ra->choices[0].goldDelta == 50 &&
-                  ra->choices[0].grantItemName == "Signet Ring" &&
-                  ra->choices[0].takeItemName.empty() &&
-                  ra->choices[1].setFlag == "refused_mayor" &&
-                  ra->choices[1].takeItemName == "Old Map");
-            check("area alt texts preserved", ra && ra->altTexts.size() == 1 &&
-                  ra->altTexts[0].requiredFlag == "helped_mayor" &&
-                  ra->altTexts[0].text == "You've agreed to help - see your journal.");
-            check("area labelAuto=false preserved", ra && ra->labelAuto == false);
+            check("area legacy content cleared", ra && ra->dmText.empty() && ra->choices.empty() &&
+                  ra->shopItems.empty() && ra->monsters.empty());
+            check("area two contexts preserved", ra && ra->contexts.size() == 2);
+            const AreaContext* rc = (ra && ra->contexts.size() == 2) ? &ra->contexts[0] : nullptr;
+            check("context name + condition preserved", rc && rc->name == "beforeQuest" &&
+                  rc->conditions.size() == 1 && rc->conditions[0].varName == "questAccepted" &&
+                  rc->conditions[0].op == 0 && rc->conditions[0].value == "false");
+            check("context text/stats preserved", rc && rc->dmText == "A trap lurks." &&
+                  rc->playerText == "A dusty hall." && rc->monsterChancePct == 25 &&
+                  rc->treasureChancePct == 50 && rc->trapChancePct == 30 &&
+                  rc->lockChancePct == 15 && rc->hiddenChancePct == 40 &&
+                  rc->artworkPath == "art/entry.png" && rc->musicPath == "audio/entry.ogg");
+            check("context images preserved", rc && rc->images.size() == 2 &&
+                  rc->images[0].path == "art/north.png" && rc->images[0].direction == 0 &&
+                  rc->images[1].direction == -1 && rc->defaultImage == 1);
+            check("context monsters preserved", rc && rc->monsters.size() == 2 &&
+                  rc->monsters[0].type == "Skeleton" && rc->monsters[0].count == 4 &&
+                  rc->monsters[1].type == "Cave Goblin" && rc->monsters[1].count == 2);
+            check("context treasures preserved", rc && rc->treasures.size() == 2 &&
+                  rc->treasures[0].type == "C" && rc->treasures[0].chancePct == 50 &&
+                  rc->treasures[1].type == "D" && rc->treasures[1].chancePct == 20);
+            check("context shop preserved", rc && rc->isShop && rc->shopItems.size() == 2 &&
+                  rc->shopItems[0].name == "Long sword" &&
+                  rc->shopItems[0].description == "A fine blade." &&
+                  rc->shopItems[0].costGp == 15 && rc->shopItems[0].stock == 3 &&
+                  rc->shopItems[0].imagePath == "art/sword.png" &&
+                  rc->shopItems[0].imageId == "battle-axe.png" &&
+                  rc->shopItems[1].name == "Rations (1 week)" &&
+                  rc->shopItems[1].costGp == 5 && rc->shopItems[1].stock == 20);
+            check("context transitions preserved", rc && rc->transitions.size() == 1 &&
+                  rc->transitions[0].targetAreaId == 11 &&
+                  rc->transitions[0].label == "Stairs down to the crypt");
+            check("context choices preserved", rc && rc->choicePrompt == "The mayor's wife begs for your help." &&
+                  rc->choices.size() == 2 &&
+                  rc->choices[0].label == "We'll help you." &&
+                  rc->choices[0].setFlag == "helped_mayor" &&
+                  rc->choices[0].completeControlPointId == 1 &&
+                  rc->choices[0].goldDelta == 50 &&
+                  rc->choices[0].grantItemName == "Signet Ring" &&
+                  rc->choices[1].setFlag == "refused_mayor" &&
+                  rc->choices[1].takeItemName == "Old Map");
+            check("context choice mutations preserved", rc && rc->choices[0].mutations.size() == 2 &&
+                  rc->choices[0].mutations[0].varName == "questAccepted" &&
+                  rc->choices[0].mutations[0].op == 0 && rc->choices[0].mutations[0].value == "true" &&
+                  rc->choices[0].mutations[1].varName == "teleportsLeft" &&
+                  rc->choices[0].mutations[1].op == 2 && rc->choices[0].mutations[1].value == "1" &&
+                  rc->choices[1].mutations.empty());
+            check("context alt texts preserved", rc && rc->altTexts.size() == 1 &&
+                  rc->altTexts[0].requiredFlag == "helped_mayor" &&
+                  rc->altTexts[0].text == "You've agreed to help - see your journal.");
+            const AreaContext* rc1 = (ra && ra->contexts.size() == 2) ? &ra->contexts[1] : nullptr;
+            check("second context preserved", rc1 && rc1->name == "afterQuest" &&
+                  rc1->conditions.size() == 1 && rc1->conditions[0].value == "true" &&
+                  rc1->playerText == "The hall feels lighter now.");
             const Area* rb = r.areaById(11);
             check("area default fillEnabled=true", rb && rb->fillEnabled == true);
             check("area default labelAuto=true preserved", rb && rb->labelAuto == true);
-            check("area default isShop=false", rb && rb->isShop == false && rb->shopItems.empty());
-            check("area default choices empty", rb && rb->choices.empty() && rb->altTexts.empty() &&
-                  rb->choicePrompt.empty());
-            check("legacy monsterType migrated to list", rb && rb->monsters.size() == 1 &&
-                  rb->monsters[0].type == "Ogre" && rb->monsters[0].count == 1);
+            check("legacy area migrated to one default context", rb && rb->contexts.size() == 1 &&
+                  rb->contexts[0].name == "default" && rb->contexts[0].monsters.size() == 1 &&
+                  rb->contexts[0].monsters[0].type == "Ogre" && rb->contexts[0].monsters[0].count == 1);
             check("control point preserved", r.controlPoints.size() == 1 &&
                   r.controlPoints[0].id == 1 && r.controlPoints[0].name == "Sealed gate" &&
                   r.controlPoints[0].areaId == 11);
@@ -597,15 +637,61 @@ int main() {
             pt.setResolvedChoiceAreas({20});
             check("resolved areas restored wholesale", pt.isChoiceResolved(20) && !pt.isChoiceResolved(10));
 
-            Area tav; tav.id = 30;
-            tav.playerText = "The mayor's wife begs for help.";
-            tav.altTexts = {{"helped_mayor", "You've agreed to help."}};
-            PlotTracker pt2;
-            check("alt text falls back to default when flag unset",
-                  areaDisplayText(tav, pt2) == "The mayor's wife begs for help.");
-            pt2.setFlag("helped_mayor");
-            check("alt text used when its flag is set",
-                  areaDisplayText(tav, pt2) == "You've agreed to help.");
+            // v15: global variables, context conditions, and single-active-context selection.
+            std::vector<ModuleVariable> vars = {
+                {"questAccepted", VarType::Bool, "false"},
+                {"gold", VarType::Int, "10"},
+                {"faction", VarType::String, "neutral"},
+                {"threat", VarType::Float, "1.5"},
+            };
+            PlotTracker pt3;
+            initGlobals(pt3, vars);
+            check("globals seeded from defaults",
+                  pt3.getGlobal("questAccepted") == "false" && pt3.getGlobal("gold") == "10");
+
+            // areaContextText: default player text, then legacy alt-text within a context.
+            AreaContext ctxT;
+            ctxT.playerText = "The mayor's wife begs for help.";
+            ctxT.altTexts = {{"helped_mayor", "You've agreed to help."}};
+            check("context text default when flag unset",
+                  areaContextText(ctxT, pt3) == "The mayor's wife begs for help.");
+            pt3.setFlag("helped_mayor");
+            check("context alt text used when flag set",
+                  areaContextText(ctxT, pt3) == "You've agreed to help.");
+
+            // Clause evaluation, one per type + ordering.
+            check("bool clause == default", evalClause({"questAccepted", 0, "false"}, pt3, vars));
+            check("int clause > holds", evalClause({"gold", 4, "5"}, pt3, vars));      // 10 > 5
+            check("int clause <= fails", !evalClause({"gold", 3, "5"}, pt3, vars));    // !(10 <= 5)
+            check("string clause != holds", evalClause({"faction", 1, "evil"}, pt3, vars));
+            check("float clause >= holds", evalClause({"threat", 5, "1.5"}, pt3, vars));
+
+            // activeContext: exactly one, flips with a variable, none = inert, two = conflict.
+            Area asel; asel.id = 40; asel.name = "Gate";
+            AreaContext before; before.name = "before"; before.conditions = {{"questAccepted", 0, "false"}};
+            AreaContext after;  after.name = "after";   after.conditions = {{"questAccepted", 0, "true"}};
+            asel.contexts = {before, after};
+            std::string conflict;
+            const AreaContext* act = activeContext(asel, pt3, vars, &conflict);
+            check("exactly one context active", act && act->name == "before" && conflict.empty());
+            pt3.setGlobal("questAccepted", "true");
+            act = activeContext(asel, pt3, vars, &conflict);
+            check("active context flips with the variable", act && act->name == "after");
+
+            Area none; none.id = 41;
+            AreaContext only; only.name = "x"; only.conditions = {{"questAccepted", 0, "false"}};
+            none.contexts = {only};
+            conflict.clear();
+            check("no active context is inert (nullptr, no error)",
+                  activeContext(none, pt3, vars, &conflict) == nullptr && conflict.empty());
+
+            Area two; two.id = 42;
+            AreaContext ca; ca.name = "ca"; ca.conditions = {{"questAccepted", 0, "true"}};
+            AreaContext cb; cb.name = "cb"; cb.conditions = {{"gold", 4, "0"}};   // gold > 0, also true
+            two.contexts = {ca, cb};
+            conflict.clear();
+            check("two active contexts report a conflict",
+                  activeContext(two, pt3, vars, &conflict) == nullptr && !conflict.empty());
         }
 
         // ---- Narrator: authored text + provider seam (M4 slice 3) ----

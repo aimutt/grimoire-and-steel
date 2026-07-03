@@ -26,6 +26,8 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -979,6 +981,9 @@ static void drawToolsWindow(App& app) {
             a.id = app.mod.nextAreaId();
             a.color = kAreaPalette[(a.id - 1) % IM_ARRAYSIZE(kAreaPalette)];
             a.label = "A" + std::to_string(a.id);
+            // Seed one empty-condition default context so a fresh area is immediately playable.
+            gns::AreaContext ctx; ctx.name = "default";
+            a.contexts.push_back(std::move(ctx));
             m->areas.push_back(a);
             app.selectedAreaId = a.id;
             app.tool = Tool::AssignArea;
@@ -1524,6 +1529,332 @@ static bool areaDestCombo(App& app, const char* id, int* targetId, int excludeAr
     return changed;
 }
 
+// ---- Global-variable helpers (used by context conditions and choice mutations) ----
+
+static const gns::ModuleVariable* findModVar(App& app, const std::string& name) {
+    for (const auto& v : app.mod.variables) if (v.name == name) return &v;
+    return nullptr;
+}
+
+// Combo listing the module's declared variable names; writes the picked name into *varName.
+static bool drawVarCombo(App& app, const char* id, std::string* varName) {
+    bool changed = false;
+    std::string cur = varName->empty() ? "(variable)" : *varName;
+    if (ImGui::BeginCombo(id, cur.c_str())) {
+        if (app.mod.variables.empty()) ImGui::TextDisabled("(none defined at module level)");
+        for (const auto& v : app.mod.variables)
+            if (ImGui::Selectable(v.name.c_str(), v.name == *varName)) { *varName = v.name; changed = true; }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+// Value editor whose widget matches the referenced variable's type; stores a canonical string.
+static bool drawVarValueField(App& app, const char* id, const std::string& varName, std::string* value) {
+    const gns::ModuleVariable* v = findModVar(app, varName);
+    gns::VarType t = v ? v->type : gns::VarType::String;
+    bool changed = false;
+    ImGui::PushID(id);
+    if (t == gns::VarType::Bool) {
+        int idx = (*value == "true" || *value == "1") ? 1 : 0;
+        const char* items[] = {"false", "true"};
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::Combo("##bval", &idx, items, 2)) { *value = idx ? "true" : "false"; changed = true; }
+    } else if (t == gns::VarType::Int) {
+        int n = std::atoi(value->c_str());
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::InputInt("##ival", &n)) { *value = std::to_string(n); changed = true; }
+    } else if (t == gns::VarType::Float) {
+        float f = (float)std::atof(value->c_str());
+        ImGui::SetNextItemWidth(110);
+        if (ImGui::InputFloat("##fval", &f)) { char b[32]; std::snprintf(b, sizeof(b), "%g", f); *value = b; changed = true; }
+    } else {
+        ImGui::SetNextItemWidth(140);
+        if (InputStr("##sval", value)) changed = true;
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// The full editor for one Context: its name + activation condition, then all of the area's
+// branchable content (descriptions, choices, statistics, shop, images, music, transitions).
+static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
+    ImGui::TextDisabled("Context name (internal, unique within this area)");
+    ImGui::SetNextItemWidth(-1);
+    if (InputStr("##ctxname", &ctx.name)) app.dirty = true;
+
+    ImGui::TextDisabled("Active when ALL conditions hold (no conditions = always active).");
+    static const char* kCondOps[] = {"==", "!=", "<", "<=", ">", ">="};
+    int delCond = -1;
+    for (size_t i = 0; i < ctx.conditions.size(); ++i) {
+        gns::ContextClause& cc = ctx.conditions[i];
+        ImGui::PushID((int)i + 6100);
+        ImGui::SetNextItemWidth(150);
+        if (drawVarCombo(app, "##cvar", &cc.varName)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(55);
+        if (ImGui::Combo("##cop", &cc.op, kCondOps, IM_ARRAYSIZE(kCondOps))) app.dirty = true;
+        ImGui::SameLine();
+        if (drawVarValueField(app, "cval", cc.varName, &cc.value)) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delCond = (int)i;
+        ImGui::PopID();
+    }
+    if (delCond >= 0) { ctx.conditions.erase(ctx.conditions.begin() + delCond); app.dirty = true; }
+    if (ImGui::SmallButton("Add condition")) { ctx.conditions.push_back(gns::ContextClause{}); app.dirty = true; }
+
+    ImGui::SeparatorText("Descriptions");
+    ImGui::TextDisabled("DM only  \xe2\x80\x94  shop discounts: [discount 20%%]  or  [discount Dwarf 50%%]");
+    if (InputStrMultiline("##dm", &ctx.dmText, ImVec2(-1, 70))) app.dirty = true;
+    ImGui::TextDisabled("Player");
+    if (InputStrMultiline("##player", &ctx.playerText, ImVec2(-1, 70))) app.dirty = true;
+
+    ImGui::SeparatorText("Choices (decisions, up to 3)");
+    ImGui::TextDisabled("A prompt + up to 3 options shown to the party on entry.\n"
+                        "Every effect is optional; a choice with no effects \"does nothing\".");
+    ImGui::TextDisabled("Prompt (the question)");
+    if (InputStrMultiline("##choiceprompt", &ctx.choicePrompt, ImVec2(-1, 50))) app.dirty = true;
+    static const char* kMutOps[] = {"set", "add", "subtract"};
+    int delChoice = -1;
+    for (size_t i = 0; i < ctx.choices.size(); ++i) {
+        gns::AreaChoice& ch = ctx.choices[i];
+        ImGui::PushID((int)i + 6000);
+        std::string hdr = "Choice " + std::to_string(i + 1) + ": " +
+                          (ch.label.empty() ? "(no label)" : ch.label) + "###choice";
+        if (ImGui::CollapsingHeader(hdr.c_str())) {
+            ImGui::TextDisabled("Button label (what the player clicks)");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chlabel", &ch.label)) app.dirty = true;
+            ImGui::TextDisabled("Journal entry (logged when chosen)");
+            if (InputStrMultiline("##chjournal", &ch.journalEntry, ImVec2(-1, 50))) app.dirty = true;
+
+            // Variable mutations: what this choice changes about the world (drives which context
+            // becomes active next time). Leaving this empty is a valid "do nothing" choice.
+            ImGui::TextDisabled("Variable changes (optional) — what picking this does");
+            int delMut = -1;
+            for (size_t k = 0; k < ch.mutations.size(); ++k) {
+                gns::VarMutation& mu = ch.mutations[k];
+                ImGui::PushID((int)k + 100);
+                ImGui::SetNextItemWidth(150);
+                if (drawVarCombo(app, "##mvar", &mu.varName)) app.dirty = true;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(90);
+                if (ImGui::Combo("##mop", &mu.op, kMutOps, IM_ARRAYSIZE(kMutOps))) app.dirty = true;
+                ImGui::SameLine();
+                if (drawVarValueField(app, "mval", mu.varName, &mu.value)) app.dirty = true;
+                ImGui::SameLine();
+                if (ImGui::SmallButton("X")) delMut = (int)k;
+                ImGui::PopID();
+            }
+            if (delMut >= 0) { ch.mutations.erase(ch.mutations.begin() + delMut); app.dirty = true; }
+            if (ImGui::SmallButton("Add change")) { ch.mutations.push_back(gns::VarMutation{}); app.dirty = true; }
+
+            ImGui::TextDisabled("Complete control point (optional) — unlocks areas gated on it");
+            {
+                std::string cur = "(none)";
+                if (ch.completeControlPointId != 0) {
+                    cur = "#" + std::to_string(ch.completeControlPointId);
+                    for (const auto& cp : app.mod.controlPoints)
+                        if (cp.id == ch.completeControlPointId) { cur += " " + cp.name; break; }
+                }
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::BeginCombo("##chcp", cur.c_str())) {
+                    if (ImGui::Selectable("(none)", ch.completeControlPointId == 0)) {
+                        ch.completeControlPointId = 0; app.dirty = true;
+                    }
+                    for (const auto& cp : app.mod.controlPoints) {
+                        std::string lbl = "#" + std::to_string(cp.id) + " " + cp.name;
+                        if (ImGui::Selectable(lbl.c_str(), ch.completeControlPointId == cp.id)) {
+                            ch.completeControlPointId = cp.id; app.dirty = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::TextDisabled("Gold given (+) or taken (-) - each party member gets this amount");
+            ImGui::SetNextItemWidth(140);
+            if (ImGui::InputInt("##chgold", &ch.goldDelta)) app.dirty = true;
+            ImGui::TextDisabled("Grant item (optional) — item name added to the active character");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chgrant", &ch.grantItemName)) app.dirty = true;
+            ImGui::TextDisabled("Take item (optional) — item name removed from the active character");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
+            if (ImGui::SmallButton("Delete choice")) delChoice = (int)i;
+        }
+        ImGui::PopID();
+    }
+    if (delChoice >= 0) { ctx.choices.erase(ctx.choices.begin() + delChoice); app.dirty = true; }
+    if (ctx.choices.size() < 3) {
+        if (ImGui::SmallButton("Add choice")) { ctx.choices.push_back(gns::AreaChoice{}); app.dirty = true; }
+    } else {
+        ImGui::TextDisabled("Maximum of 3 choices.");
+    }
+
+    ImGui::SeparatorText("Statistics");
+    if (ImGui::SliderInt("Monster %", &ctx.monsterChancePct, 0, 100)) app.dirty = true;
+    ImGui::TextDisabled("Monsters (type \xc3\x97 count)");
+    int delMonster = -1;
+    for (size_t i = 0; i < ctx.monsters.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(150);
+        if (pickerField("##mtype", &ctx.monsters[i].type, app.monsterNames)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90);
+        if (ImGui::InputInt("##mcount", &ctx.monsters[i].count)) {
+            if (ctx.monsters[i].count < 1) ctx.monsters[i].count = 1;
+            app.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delMonster = (int)i;
+        ImGui::PopID();
+    }
+    if (delMonster >= 0) { ctx.monsters.erase(ctx.monsters.begin() + delMonster); app.dirty = true; }
+    if (ImGui::SmallButton("Add monster")) { ctx.monsters.push_back(gns::AreaMonster{}); app.dirty = true; }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Treasure (type A-T \xc3\x97 chance %)");
+    int delTreasure = -1;
+    for (size_t i = 0; i < ctx.treasures.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(110);
+        if (InputStr("##ttype", &ctx.treasures[i].type)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120);
+        if (ImGui::SliderInt("##tpct", &ctx.treasures[i].chancePct, 0, 100, "%d%%")) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delTreasure = (int)i;
+        ImGui::PopID();
+    }
+    if (delTreasure >= 0) { ctx.treasures.erase(ctx.treasures.begin() + delTreasure); app.dirty = true; }
+    if (ImGui::SmallButton("Add treasure")) { ctx.treasures.push_back(gns::AreaTreasure{}); app.dirty = true; }
+    ImGui::Spacing();
+    if (ImGui::SliderInt("Trap %", &ctx.trapChancePct, 0, 100)) app.dirty = true;
+    if (InputStr("Trap desc", &ctx.trapDescription)) app.dirty = true;
+    if (ImGui::SliderInt("Lock pick %", &ctx.lockChancePct, 0, 100)) app.dirty = true;
+    if (InputStr("Lock desc", &ctx.lockDescription)) app.dirty = true;
+    if (ImGui::SliderInt("Hidden discover %", &ctx.hiddenChancePct, 0, 100)) app.dirty = true;
+    if (InputStr("Hidden desc", &ctx.hiddenDescription)) app.dirty = true;
+
+    ImGui::SeparatorText("Shop / Market");
+    if (ImGui::Checkbox("Party can buy & sell here", &ctx.isShop)) app.dirty = true;
+    if (ctx.isShop) {
+        ImGui::TextDisabled("Supply — items the party can buy/sell.");
+        int delItem = -1;
+        for (size_t i = 0; i < ctx.shopItems.size(); ++i) {
+            gns::ShopItem& it = ctx.shopItems[i];
+            ImGui::PushID((int)i);
+            std::string hdr = (it.name.empty() ? "(unnamed item)" : it.name) +
+                              "  (" + std::to_string(it.costGp) + " gp, " +
+                              std::to_string(it.stock) + " in stock)###shopitem";
+            if (ImGui::CollapsingHeader(hdr.c_str())) {
+                ImGui::SetNextItemWidth(-1);
+                if (InputStr("Name##si", &it.name)) app.dirty = true;
+                ImGui::TextDisabled("Description");
+                if (InputStrMultiline("##sidesc", &it.description, ImVec2(-1, 50))) app.dirty = true;
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::InputInt("Cost (gp)##si", &it.costGp)) {
+                    if (it.costGp < 0) it.costGp = 0; app.dirty = true;
+                }
+                ImGui::SetNextItemWidth(120);
+                if (ImGui::InputInt("In stock##si", &it.stock)) {
+                    if (it.stock < 0) it.stock = 0; app.dirty = true;
+                }
+                ImGui::TextDisabled("Item art (baked-in catalog, shown in-game)");
+                if (!it.imageId.empty()) {
+                    if (SDL_Texture* tx = itemTexture(app, it.imageId))
+                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(it.imageId.c_str());
+                }
+                if (ImGui::SmallButton("Choose art")) ImGui::OpenPopup("itemart");
+                if (!it.imageId.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear art")) { it.imageId.clear(); app.dirty = true; }
+                }
+                if (ImGui::BeginPopup("itemart")) {
+                    std::string cat;
+                    int col = 0;
+                    for (const auto& ia : kItemCatalog) {
+                        if (cat != ia.category) { cat = ia.category; ImGui::SeparatorText(cat.c_str()); col = 0; }
+                        if (col++ % 5 != 0) ImGui::SameLine();
+                        ImGui::PushID(ia.file);
+                        SDL_Texture* tx = itemTexture(app, ia.file);
+                        bool clicked = tx ? ImGui::ImageButton(ia.file, (ImTextureID)tx, ImVec2(48, 64))
+                                          : ImGui::Button(ia.file, ImVec2(48, 64));
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ia.file);
+                        if (clicked) { it.imageId = ia.file; app.dirty = true; ImGui::CloseCurrentPopup(); }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndPopup();
+                }
+                ImGui::TextDisabled("Or a free-file image (fallback)");
+                drawImagePathField(app, "shopimg", &it.imagePath);
+                if (ImGui::SmallButton("Delete item")) delItem = (int)i;
+            }
+            ImGui::PopID();
+        }
+        if (delItem >= 0) { ctx.shopItems.erase(ctx.shopItems.begin() + delItem); app.dirty = true; }
+        if (ImGui::SmallButton("Add item")) { ctx.shopItems.push_back(gns::ShopItem{}); app.dirty = true; }
+    }
+
+    ImGui::SeparatorText("Images (up to 4)");
+    ImGui::TextDisabled("One image = default. Assign directions to swap art by the party's facing.");
+    if (ctx.images.empty() && !ctx.artworkPath.empty()) {
+        ctx.images.push_back(gns::AreaImage{ctx.artworkPath, -1});
+        ctx.defaultImage = 0;
+    }
+    static const char* kDirNames[] = {"Any", "North", "East", "South", "West"};
+    int delImg = -1;
+    for (size_t i = 0; i < ctx.images.size(); ++i) {
+        ImGui::PushID((int)i + 5000);
+        gns::AreaImage& im = ctx.images[i];
+        bool isDef = ((int)i == ctx.defaultImage);
+        if (ImGui::RadioButton("Default", isDef)) { ctx.defaultImage = (int)i; app.dirty = true; }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(120);
+        int dirIdx = im.direction + 1;   // -1..3 -> 0..4
+        if (ImGui::Combo("Dir", &dirIdx, kDirNames, IM_ARRAYSIZE(kDirNames))) {
+            im.direction = dirIdx - 1; app.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) delImg = (int)i;
+        drawImagePathField(app, "area-img", &im.path);
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    if (delImg >= 0) {
+        ctx.images.erase(ctx.images.begin() + delImg);
+        if (ctx.defaultImage >= (int)ctx.images.size()) ctx.defaultImage = ctx.images.empty() ? 0 : (int)ctx.images.size() - 1;
+        app.dirty = true;
+    }
+    if (ctx.images.size() < 4 && ImGui::SmallButton("Add image")) {
+        ctx.images.push_back(gns::AreaImage{});
+        app.dirty = true;
+    }
+    ctx.artworkPath = (ctx.defaultImage >= 0 && ctx.defaultImage < (int)ctx.images.size())
+                          ? ctx.images[ctx.defaultImage].path : "";
+
+    ImGui::SeparatorText("Music");
+    ImGui::TextDisabled("Plays while the party is in this area (with this context active).");
+    drawAudioPathField(app, "area-music", &ctx.musicPath);
+
+    ImGui::SeparatorText("Transitions (exits to other areas)");
+    ImGui::TextDisabled("Link this area to an area on another map,\ne.g. stairs leading down to Level 2.");
+    int delTrans = -1;
+    for (size_t i = 0; i < ctx.transitions.size(); ++i) {
+        ImGui::PushID((int)i);
+        ImGui::SetNextItemWidth(-30);
+        if (areaDestCombo(app, "##dest", &ctx.transitions[i].targetAreaId, a.id)) app.dirty = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delTrans = (int)i;
+        ImGui::SetNextItemWidth(-1);
+        if (InputStr("##tlabel", &ctx.transitions[i].label)) app.dirty = true;
+        ImGui::PopID();
+    }
+    if (delTrans >= 0) { ctx.transitions.erase(ctx.transitions.begin() + delTrans); app.dirty = true; }
+    if (ImGui::SmallButton("Add transition")) { ctx.transitions.push_back(gns::AreaTransition{}); app.dirty = true; }
+}
+
 static void drawAreaInspector(App& app, gns::Area& a) {
     ImGui::SeparatorText("Area");
     if (InputStr("Label", &a.label)) { app.dirty = true; a.labelAuto = false; }  // hand-edited
@@ -1615,266 +1946,37 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         ImGui::SetTooltip("Hidden areas are invisible on the map during play, but the party\n"
                           "still triggers their info/contents when walking over them.");
 
-    ImGui::SeparatorText("Descriptions");
-    ImGui::TextDisabled("DM only  \xe2\x80\x94  shop discounts: [discount 20%%]  or  [discount Dwarf 50%%]");
-    if (InputStrMultiline("##dm", &a.dmText, ImVec2(-1, 70))) app.dirty = true;
-    ImGui::TextDisabled("Player");
-    if (InputStrMultiline("##player", &a.playerText, ImVec2(-1, 70))) app.dirty = true;
-
-    ImGui::SeparatorText("Choices (decisions, up to 3)");
-    ImGui::TextDisabled("A prompt + up to 3 options shown to the party on entry.\nEvery effect is optional.");
-    ImGui::TextDisabled("Prompt (the question)");
-    if (InputStrMultiline("##choiceprompt", &a.choicePrompt, ImVec2(-1, 50))) app.dirty = true;
-    int delChoice = -1;
-    for (size_t i = 0; i < a.choices.size(); ++i) {
-        gns::AreaChoice& ch = a.choices[i];
-        ImGui::PushID((int)i + 6000);
-        std::string hdr = "Choice " + std::to_string(i + 1) + ": " +
-                          (ch.label.empty() ? "(no label)" : ch.label) + "###choice";
+    ImGui::SeparatorText("Contexts");
+    ImGui::TextDisabled("Each context holds this area's content for one situation. Exactly one may be\n"
+                        "active at play time (its condition true). A context with no conditions is\n"
+                        "always active \xe2\x80\x94 use it only as the area's sole context.");
+    int delCtx = -1;
+    for (size_t i = 0; i < a.contexts.size(); ++i) {
+        gns::AreaContext& ctx = a.contexts[i];
+        ImGui::PushID((int)i + 8000);
+        bool dupName = false;
+        if (!ctx.name.empty())
+            for (size_t j = 0; j < a.contexts.size(); ++j)
+                if (j != i && a.contexts[j].name == ctx.name) { dupName = true; break; }
+        std::string hdr = "Context " + std::to_string(i + 1) + ": " +
+                          (ctx.name.empty() ? "(unnamed)" : ctx.name) +
+                          (dupName ? "  [duplicate name!]" : "") + "###ctx";
         if (ImGui::CollapsingHeader(hdr.c_str())) {
-            // Captions sit ABOVE each field (not as ImGui labels to the right) so nothing gets
-            // clipped when the Inspector is narrow.
-            ImGui::TextDisabled("Button label (what the player clicks)");
-            ImGui::SetNextItemWidth(-1);
-            if (InputStr("##chlabel", &ch.label)) app.dirty = true;
-            ImGui::TextDisabled("Journal entry (logged when chosen)");
-            if (InputStrMultiline("##chjournal", &ch.journalEntry, ImVec2(-1, 50))) app.dirty = true;
-            ImGui::TextDisabled("Set flag (optional) — a name that records this decision");
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("A one-word tag you invent, e.g. \"helped_mayor\". Type the same\n"
-                                  "tag under \"Alternate player text\" below to show different text\n"
-                                  "after this choice is made.");
-            ImGui::SetNextItemWidth(-1);
-            if (InputStr("##chflag", &ch.setFlag)) app.dirty = true;
-            // Complete a control point (unlocks areas gated on it) — single-select combo.
-            ImGui::TextDisabled("Complete control point (optional) — unlocks areas gated on it");
-            {
-                std::string cur = "(none)";
-                if (ch.completeControlPointId != 0) {
-                    cur = "#" + std::to_string(ch.completeControlPointId);
-                    for (const auto& cp : app.mod.controlPoints)
-                        if (cp.id == ch.completeControlPointId) { cur += " " + cp.name; break; }
-                }
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::BeginCombo("##chcp", cur.c_str())) {
-                    if (ImGui::Selectable("(none)", ch.completeControlPointId == 0)) {
-                        ch.completeControlPointId = 0; app.dirty = true;
-                    }
-                    for (const auto& cp : app.mod.controlPoints) {
-                        std::string lbl = "#" + std::to_string(cp.id) + " " + cp.name;
-                        if (ImGui::Selectable(lbl.c_str(), ch.completeControlPointId == cp.id)) {
-                            ch.completeControlPointId = cp.id; app.dirty = true;
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-            }
-            ImGui::TextDisabled("Gold given (+) or taken (-) - each party member gets this amount");
-            ImGui::SetNextItemWidth(140);
-            if (ImGui::InputInt("##chgold", &ch.goldDelta)) app.dirty = true;
-            ImGui::TextDisabled("Grant item (optional) — item name added to the active character");
-            ImGui::SetNextItemWidth(-1);
-            if (InputStr("##chgrant", &ch.grantItemName)) app.dirty = true;
-            ImGui::TextDisabled("Take item (optional) — item name removed from the active character");
-            ImGui::SetNextItemWidth(-1);
-            if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
-            if (ImGui::SmallButton("Delete choice")) delChoice = (int)i;
+            if (dupName) ImGui::TextColored(ImVec4(1, 0.5f, 0.5f, 1),
+                "Context names must be unique within an area.");
+            drawContextEditor(app, a, ctx);
+            ImGui::Spacing();
+            if (ImGui::SmallButton("Delete context")) delCtx = (int)i;
         }
         ImGui::PopID();
     }
-    if (delChoice >= 0) { a.choices.erase(a.choices.begin() + delChoice); app.dirty = true; }
-    if (a.choices.size() < 3) {
-        if (ImGui::SmallButton("Add choice")) { a.choices.push_back(gns::AreaChoice{}); app.dirty = true; }
-    } else {
-        ImGui::TextDisabled("Maximum of 3 choices.");
-    }
-
-    ImGui::Spacing();
-    ImGui::TextDisabled("Alternate player text — shown instead of the default when its flag is set.\n"
-                        "First match wins; empty text shows nothing (the journal keeps the record).");
-    int delAlt = -1;
-    for (size_t i = 0; i < a.altTexts.size(); ++i) {
-        ImGui::PushID((int)i + 6500);
-        ImGui::SetNextItemWidth(160);
-        if (InputStr("Flag##alt", &a.altTexts[i].requiredFlag)) app.dirty = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X")) delAlt = (int)i;
-        if (InputStrMultiline("##alttext", &a.altTexts[i].text, ImVec2(-1, 45))) app.dirty = true;
-        ImGui::PopID();
-    }
-    if (delAlt >= 0) { a.altTexts.erase(a.altTexts.begin() + delAlt); app.dirty = true; }
-    if (ImGui::SmallButton("Add alternate text")) {
-        a.altTexts.push_back(gns::AreaConditionalText{}); app.dirty = true;
-    }
-
-    ImGui::SeparatorText("Statistics");
-    if (ImGui::SliderInt("Monster %", &a.monsterChancePct, 0, 100)) app.dirty = true;
-    // Monsters: one or more types, each with a count, spawned together on entry (#23).
-    ImGui::TextDisabled("Monsters (type \xc3\x97 count)");
-    int delMonster = -1;
-    for (size_t i = 0; i < a.monsters.size(); ++i) {
-        ImGui::PushID((int)i);
-        ImGui::SetNextItemWidth(150);
-        if (pickerField("##mtype", &a.monsters[i].type, app.monsterNames)) app.dirty = true;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(90);
-        if (ImGui::InputInt("##mcount", &a.monsters[i].count)) {
-            if (a.monsters[i].count < 1) a.monsters[i].count = 1;
-            app.dirty = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X")) delMonster = (int)i;
-        ImGui::PopID();
-    }
-    if (delMonster >= 0) { a.monsters.erase(a.monsters.begin() + delMonster); app.dirty = true; }
-    if (ImGui::SmallButton("Add monster")) { a.monsters.push_back(gns::AreaMonster{}); app.dirty = true; }
-    ImGui::Spacing();
-    // Treasure: one or more treasure types, each with its own independent chance.
-    ImGui::TextDisabled("Treasure (type A-T \xc3\x97 chance %)");
-    int delTreasure = -1;
-    for (size_t i = 0; i < a.treasures.size(); ++i) {
-        ImGui::PushID((int)i);
-        ImGui::SetNextItemWidth(110);
-        if (InputStr("##ttype", &a.treasures[i].type)) app.dirty = true;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(120);
-        if (ImGui::SliderInt("##tpct", &a.treasures[i].chancePct, 0, 100, "%d%%")) app.dirty = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X")) delTreasure = (int)i;
-        ImGui::PopID();
-    }
-    if (delTreasure >= 0) { a.treasures.erase(a.treasures.begin() + delTreasure); app.dirty = true; }
-    if (ImGui::SmallButton("Add treasure")) { a.treasures.push_back(gns::AreaTreasure{}); app.dirty = true; }
-    ImGui::Spacing();
-    if (ImGui::SliderInt("Trap %", &a.trapChancePct, 0, 100)) app.dirty = true;
-    if (InputStr("Trap desc", &a.trapDescription)) app.dirty = true;
-    if (ImGui::SliderInt("Lock pick %", &a.lockChancePct, 0, 100)) app.dirty = true;
-    if (InputStr("Lock desc", &a.lockDescription)) app.dirty = true;
-    if (ImGui::SliderInt("Hidden discover %", &a.hiddenChancePct, 0, 100)) app.dirty = true;
-    if (InputStr("Hidden desc", &a.hiddenDescription)) app.dirty = true;
-
-    ImGui::SeparatorText("Shop / Market");
-    if (ImGui::Checkbox("Party can buy & sell here", &a.isShop)) app.dirty = true;
-    if (a.isShop) {
-        ImGui::TextDisabled("Supply — items the party can buy/sell.");
-        int delItem = -1;
-        for (size_t i = 0; i < a.shopItems.size(); ++i) {
-            gns::ShopItem& it = a.shopItems[i];
-            ImGui::PushID((int)i);
-            std::string hdr = (it.name.empty() ? "(unnamed item)" : it.name) +
-                              "  (" + std::to_string(it.costGp) + " gp, " +
-                              std::to_string(it.stock) + " in stock)###shopitem";
-            if (ImGui::CollapsingHeader(hdr.c_str())) {
-                ImGui::SetNextItemWidth(-1);
-                if (InputStr("Name##si", &it.name)) app.dirty = true;
-                ImGui::TextDisabled("Description");
-                if (InputStrMultiline("##sidesc", &it.description, ImVec2(-1, 50))) app.dirty = true;
-                ImGui::SetNextItemWidth(120);
-                if (ImGui::InputInt("Cost (gp)##si", &it.costGp)) {
-                    if (it.costGp < 0) it.costGp = 0; app.dirty = true;
-                }
-                ImGui::SetNextItemWidth(120);
-                if (ImGui::InputInt("In stock##si", &it.stock)) {
-                    if (it.stock < 0) it.stock = 0; app.dirty = true;
-                }
-                ImGui::TextDisabled("Item art (baked-in catalog, shown in-game)");
-                if (!it.imageId.empty()) {
-                    if (SDL_Texture* tx = itemTexture(app, it.imageId))
-                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
-                    ImGui::SameLine();
-                    ImGui::TextUnformatted(it.imageId.c_str());
-                }
-                if (ImGui::SmallButton("Choose art")) ImGui::OpenPopup("itemart");
-                if (!it.imageId.empty()) {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Clear art")) { it.imageId.clear(); app.dirty = true; }
-                }
-                if (ImGui::BeginPopup("itemart")) {
-                    std::string cat;
-                    int col = 0;
-                    for (const auto& ia : kItemCatalog) {
-                        if (cat != ia.category) { cat = ia.category; ImGui::SeparatorText(cat.c_str()); col = 0; }
-                        if (col++ % 5 != 0) ImGui::SameLine();
-                        ImGui::PushID(ia.file);
-                        SDL_Texture* tx = itemTexture(app, ia.file);
-                        bool clicked = tx ? ImGui::ImageButton(ia.file, (ImTextureID)tx, ImVec2(48, 64))
-                                          : ImGui::Button(ia.file, ImVec2(48, 64));
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ia.file);
-                        if (clicked) { it.imageId = ia.file; app.dirty = true; ImGui::CloseCurrentPopup(); }
-                        ImGui::PopID();
-                    }
-                    ImGui::EndPopup();
-                }
-                ImGui::TextDisabled("Or a free-file image (fallback)");
-                drawImagePathField(app, "shopimg", &it.imagePath);
-                if (ImGui::SmallButton("Delete item")) delItem = (int)i;
-            }
-            ImGui::PopID();
-        }
-        if (delItem >= 0) { a.shopItems.erase(a.shopItems.begin() + delItem); app.dirty = true; }
-        if (ImGui::SmallButton("Add item")) { a.shopItems.push_back(gns::ShopItem{}); app.dirty = true; }
-    }
-
-    ImGui::SeparatorText("Images (up to 4)");
-    ImGui::TextDisabled("One image = default. Assign directions to swap art by the party's facing.");
-    // Migrate a legacy single artwork into the image list the first time we edit.
-    if (a.images.empty() && !a.artworkPath.empty()) {
-        a.images.push_back(gns::AreaImage{a.artworkPath, -1});
-        a.defaultImage = 0;
-    }
-    static const char* kDirNames[] = {"Any", "North", "East", "South", "West"};
-    int delImg = -1;
-    for (size_t i = 0; i < a.images.size(); ++i) {
-        ImGui::PushID((int)i + 5000);
-        gns::AreaImage& im = a.images[i];
-        bool isDef = ((int)i == a.defaultImage);
-        if (ImGui::RadioButton("Default", isDef)) { a.defaultImage = (int)i; app.dirty = true; }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(120);
-        int dirIdx = im.direction + 1;   // -1..3 -> 0..4
-        if (ImGui::Combo("Dir", &dirIdx, kDirNames, IM_ARRAYSIZE(kDirNames))) {
-            im.direction = dirIdx - 1; app.dirty = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Remove")) delImg = (int)i;
-        drawImagePathField(app, "area-img", &im.path);
-        ImGui::Separator();
-        ImGui::PopID();
-    }
-    if (delImg >= 0) {
-        a.images.erase(a.images.begin() + delImg);
-        if (a.defaultImage >= (int)a.images.size()) a.defaultImage = a.images.empty() ? 0 : (int)a.images.size() - 1;
+    if (delCtx >= 0) { a.contexts.erase(a.contexts.begin() + delCtx); app.dirty = true; }
+    if (ImGui::Button("Add Context")) {
+        gns::AreaContext ctx;
+        ctx.name = "context" + std::to_string(a.contexts.size() + 1);
+        a.contexts.push_back(std::move(ctx));
         app.dirty = true;
     }
-    if (a.images.size() < 4 && ImGui::SmallButton("Add image")) {
-        a.images.push_back(gns::AreaImage{});
-        app.dirty = true;
-    }
-    // Keep the legacy field in sync with the chosen default (older readers still see one image).
-    a.artworkPath = (a.defaultImage >= 0 && a.defaultImage < (int)a.images.size())
-                        ? a.images[a.defaultImage].path : "";
-
-    ImGui::SeparatorText("Music");
-    ImGui::TextDisabled("Plays while the party is in this area.");
-    drawAudioPathField(app, "area-music", &a.musicPath);
-
-    ImGui::SeparatorText("Transitions (exits to other areas)");
-    ImGui::TextDisabled("Link this area to an area on another map,\ne.g. stairs leading down to Level 2.");
-    int delTrans = -1;
-    for (size_t i = 0; i < a.transitions.size(); ++i) {
-        ImGui::PushID((int)i);
-        ImGui::SetNextItemWidth(-30);
-        if (areaDestCombo(app, "##dest", &a.transitions[i].targetAreaId, a.id)) app.dirty = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X")) delTrans = (int)i;
-        ImGui::SetNextItemWidth(-1);
-        if (InputStr("##tlabel", &a.transitions[i].label)) app.dirty = true;
-        ImGui::PopID();
-    }
-    if (delTrans >= 0) { a.transitions.erase(a.transitions.begin() + delTrans); app.dirty = true; }
-    if (ImGui::SmallButton("Add transition")) { a.transitions.push_back(gns::AreaTransition{}); app.dirty = true; }
 
     ImGui::SeparatorText("Prerequisite control points");
     if (app.mod.controlPoints.empty()) {
@@ -1915,6 +2017,54 @@ static void drawModuleInspector(App& app) {
     if (InputStr("Author", &app.mod.author)) app.dirty = true;
     ImGui::TextDisabled("Summary");
     if (InputStrMultiline("##summary", &app.mod.summary, ImVec2(-1, 80))) app.dirty = true;
+
+    ImGui::SeparatorText("Global Variables");
+    ImGui::TextDisabled("Typed values every area can read (in context conditions) and choices can\n"
+                        "change. e.g. bool saveMayorQuestAccepted = false, int teleportsLeft = 5.");
+    static const char* kVarTypes[] = {"bool", "int", "string", "float"};
+    int delVar = -1;
+    for (size_t i = 0; i < app.mod.variables.size(); ++i) {
+        gns::ModuleVariable& v = app.mod.variables[i];
+        ImGui::PushID((int)i + 9000);
+        ImGui::SetNextItemWidth(90);
+        int ty = (int)v.type;
+        if (ImGui::Combo("##vtype", &ty, kVarTypes, IM_ARRAYSIZE(kVarTypes))) {
+            v.type = (gns::VarType)ty; app.dirty = true;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(150);
+        if (InputStr("##vname", &v.name)) app.dirty = true;
+        ImGui::SameLine();
+        ImGui::TextDisabled("=");
+        ImGui::SameLine();
+        // Default value editor matching the type (canonical-string storage).
+        if (v.type == gns::VarType::Bool) {
+            int idx = (v.defaultValue == "true" || v.defaultValue == "1") ? 1 : 0;
+            const char* bs[] = {"false", "true"};
+            ImGui::SetNextItemWidth(90);
+            if (ImGui::Combo("##vdef", &idx, bs, 2)) { v.defaultValue = idx ? "true" : "false"; app.dirty = true; }
+        } else if (v.type == gns::VarType::Int) {
+            int n = std::atoi(v.defaultValue.c_str());
+            ImGui::SetNextItemWidth(100);
+            if (ImGui::InputInt("##vdef", &n)) { v.defaultValue = std::to_string(n); app.dirty = true; }
+        } else if (v.type == gns::VarType::Float) {
+            float f = (float)std::atof(v.defaultValue.c_str());
+            ImGui::SetNextItemWidth(100);
+            if (ImGui::InputFloat("##vdef", &f)) { char b[32]; std::snprintf(b, sizeof(b), "%g", f); v.defaultValue = b; app.dirty = true; }
+        } else {
+            ImGui::SetNextItemWidth(140);
+            if (InputStr("##vdef", &v.defaultValue)) app.dirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) delVar = (int)i;
+        ImGui::PopID();
+    }
+    if (delVar >= 0) { app.mod.variables.erase(app.mod.variables.begin() + delVar); app.dirty = true; }
+    if (ImGui::SmallButton("Add variable")) {
+        gns::ModuleVariable v; v.name = "var" + std::to_string(app.mod.variables.size() + 1);
+        v.type = gns::VarType::Bool; v.defaultValue = "false";
+        app.mod.variables.push_back(std::move(v)); app.dirty = true;
+    }
 
     ImGui::SeparatorText("Cover Art");
     ImGui::TextDisabled("Splash image shown by the Game Engine when this module loads.");

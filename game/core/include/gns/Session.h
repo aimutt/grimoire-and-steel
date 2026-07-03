@@ -90,6 +90,13 @@ public:
     // True when the party is standing on the module's declared end area.
     bool isAtEnd() const;
 
+    // The single active context of `area` given the current globals, or nullptr when none is
+    // active. On a 2+-active logic error returns nullptr and (when `conflict` is non-null) fills
+    // *conflict with a message naming the offending contexts.
+    const AreaContext* activeContext(const Area& area, std::string* conflict = nullptr) const {
+        return gns::activeContext(area, plot_, module_.variables, conflict);
+    }
+
 private:
     Module module_;
     Party party_;

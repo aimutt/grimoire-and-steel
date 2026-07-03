@@ -2,6 +2,7 @@
 #include "gns/Character.h"
 
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -16,10 +17,12 @@
 // engine keeps a single auto-saved sidecar next to the module; a later slice moves saves to
 // %APPDATA%. Follow the append-only-column + tolerant-load discipline when adding fields: bump
 // kSaveFormatVersion and the header comment.
+//
+// v2 added the save_globals table (current values of the module's typed global variables).
 
 namespace gns {
 
-constexpr int kSaveFormatVersion = 1;
+constexpr int kSaveFormatVersion = 2;
 
 // A complete snapshot of a play-session. PlayState fields are kept flat here so this struct does
 // not track PlayState's own evolution; `mode` is a PlayMode cast to int.
@@ -34,6 +37,7 @@ struct GameSave {
     std::set<int> controlPoints;         // PlotTracker completed ids
     std::set<std::string> flags;         // PlotTracker decision flags
     std::set<int> resolvedAreas;         // areas whose choices were decided
+    std::map<std::string, std::string> globals;  // PlotTracker global-variable values
 
     std::vector<std::string> journal;    // adventure-log lines, in order
     std::vector<Character> party;        // full party (gold + inventory + AP ...)

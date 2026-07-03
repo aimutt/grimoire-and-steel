@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -431,6 +433,7 @@ int main(int, char**) {
     int faceX = 0, faceY = 1;                 // facing direction (default south)
     int shopBuyer = 0;                        // which party member is buying/selling
     bool areaView = false;                    // left region shows the area view, not the map
+    std::string contextError;                 // set when an area has 2+ active contexts (logic halt)
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
     int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
     int confirmChoice = 0;                    // confirm-popup highlight (0 = No, 1 = Yes)
@@ -491,6 +494,7 @@ int main(int, char**) {
         gs.controlPoints = session->plot().completedIds();
         gs.flags         = session->plot().flags();
         gs.resolvedAreas = session->plot().resolvedChoiceAreas();
+        gs.globals       = session->plot().globals();
         gs.journal = journal;
         gs.party   = session->party().members;
         try { gns::saveGame(sidecarPath(), gs); haveSaveFile = true; }
@@ -503,6 +507,30 @@ int main(int, char**) {
         return a->label.empty() ? "Unknown area" : a->label;
     };
 
+    // Apply a choice's mutation to a global variable, interpreting op by the variable's type.
+    //   op 0 = set, 1 = add, 2 = subtract (add/subtract are Int/Float only; Bool/String set).
+    auto applyMutation = [&](const gns::VarMutation& mu) {
+        if (!session || mu.varName.empty()) return;
+        const gns::ModuleVariable* v = nullptr;
+        for (const auto& mv : mod.variables) if (mv.name == mu.varName) { v = &mv; break; }
+        if (!v) return;
+        gns::PlotTracker& plot = session->plot();
+        if (v->type == gns::VarType::Int || v->type == gns::VarType::Float) {
+            std::string cur = plot.hasGlobal(mu.varName) ? plot.getGlobal(mu.varName) : v->defaultValue;
+            double a = std::atof(cur.c_str());
+            double b = std::atof(mu.value.c_str());
+            double r = (mu.op == 1) ? a + b : (mu.op == 2) ? a - b : b;   // add / subtract / set
+            if (v->type == gns::VarType::Int)
+                plot.setGlobal(mu.varName, std::to_string((long long)r));
+            else {
+                char buf[32]; std::snprintf(buf, sizeof(buf), "%g", r);
+                plot.setGlobal(mu.varName, buf);
+            }
+        } else {
+            plot.setGlobal(mu.varName, mu.value);   // Bool/String: set only
+        }
+    };
+
     // Run the "beat" for entering an area: seat there, narrate, pick up Control Points
     // located here, resolve any encounter, and run trap/lock/hidden checks.
     auto enterArea = [&](int areaId) {
@@ -510,8 +538,13 @@ int main(int, char**) {
         session->state().areaId = areaId;
         const gns::Area* a = session->currentArea();
         journal.push_back("== " + areaLabel(a) + " ==");
-        // Show the area's alternate text if a decision flag selects one, else the default text.
-        const std::string entryText = a ? gns::areaDisplayText(*a, session->plot()) : std::string();
+        // Resolve the area's active context (over the current globals). A 2+-active conflict is a
+        // logic error: record it and stop the beat (the halt panel takes over on the next frame).
+        std::string conflict;
+        const gns::AreaContext* ctx = a ? session->activeContext(*a, &conflict) : nullptr;
+        if (a && !conflict.empty()) { contextError = conflict; journal.push_back(conflict); autoSave(); return; }
+        // Show the context's (legacy flag-selected, else default) player text.
+        const std::string entryText = ctx ? gns::areaContextText(*ctx, session->plot()) : std::string();
         if (!entryText.empty()) journal.push_back(entryText);
         else journal.push_back("You arrive at " + areaLabel(a) + ".");
 
@@ -521,9 +554,9 @@ int main(int, char**) {
             if (cp.kind == 0 && cp.areaId == areaId && session->completeControlPoint(cp.id))
                 journal.push_back("Objective reached: " + cp.name);
 
-        if (a && a->monsterChancePct > 0) {
+        if (ctx && ctx->monsterChancePct > 0) {
             gns::EncounterDirector dir(*repo, session->dice());
-            gns::Encounter enc = dir.checkArea(*a);
+            gns::Encounter enc = dir.checkArea(*ctx);
             if (enc.occurred) {
                 journal.push_back("A fight breaks out!");
                 gns::CombatEngine combat(*repo, session->dice());
@@ -534,11 +567,11 @@ int main(int, char**) {
                     : "The party has fallen...");
             }
         }
-        if (a) {
+        if (ctx) {
             gns::RulesAdjudicator adj(*repo, session->dice());
-            auto tc = adj.trapCheck(*a);   if (tc.occurred) journal.push_back("Trap! " + tc.description);
-            auto lc = adj.lockCheck(*a);   if (lc.occurred) journal.push_back(lc.description);
-            auto hc = adj.hiddenCheck(*a); if (hc.occurred) journal.push_back("You find: " + hc.description);
+            auto tc = adj.trapCheck(*ctx);   if (tc.occurred) journal.push_back("Trap! " + tc.description);
+            auto lc = adj.lockCheck(*ctx);   if (lc.occurred) journal.push_back(lc.description);
+            auto hc = adj.hiddenCheck(*ctx); if (hc.occurred) journal.push_back("You find: " + hc.description);
         }
         autoSave();   // persist progress after each area beat
     };
@@ -618,6 +651,9 @@ int main(int, char**) {
         session->plot().setCompletedIds(gs.controlPoints);
         session->plot().setFlags(gs.flags);
         session->plot().setResolvedChoiceAreas(gs.resolvedAreas);
+        // The Session ctor already seeded globals from module defaults; override with the saved
+        // values when present (older v1 saves have none, so keep the defaults).
+        if (!gs.globals.empty()) session->plot().setGlobals(gs.globals);
         journal = gs.journal;
         cursorX = gs.cursorX; cursorY = gs.cursorY; faceX = gs.faceX; faceY = gs.faceY;
         shopBuyer = gs.activeChar;
@@ -1148,19 +1184,19 @@ int main(int, char**) {
         // Draws the area's facing-selected artwork; returns true iff it actually rendered an
         // image. A defined area with text but no art is normal (art is optional), so callers
         // use the return value to fall back to a full-width text layout.
-        auto drawAreaImage = [&](const gns::Area* a, float maxW, float maxH) -> bool {
-            if (!a) return false;
+        auto drawAreaImage = [&](const gns::AreaContext* ctx, float maxW, float maxH) -> bool {
+            if (!ctx) return false;
             std::string path;
-            if (!a->images.empty()) {
+            if (!ctx->images.empty()) {
                 int dir = (faceY < 0) ? 0 : (faceX > 0) ? 1 : (faceY > 0) ? 2 : 3;  // N,E,S,W
-                for (const auto& im : a->images) if (im.direction == dir) { path = im.path; break; }
+                for (const auto& im : ctx->images) if (im.direction == dir) { path = im.path; break; }
                 if (path.empty()) {
-                    int di = a->defaultImage;
-                    path = (di >= 0 && di < (int)a->images.size()) ? a->images[di].path
-                                                                   : a->images.front().path;
+                    int di = ctx->defaultImage;
+                    path = (di >= 0 && di < (int)ctx->images.size()) ? ctx->images[di].path
+                                                                     : ctx->images.front().path;
                 }
             } else {
-                path = a->artworkPath;
+                path = ctx->artworkPath;
             }
             if (path.empty()) return false;
             SDL_Texture* tex = loadCachedImage(path);
@@ -1221,8 +1257,8 @@ int main(int, char**) {
         // Full-window area view: replaces the map while the party is "inside" a defined area.
         // Shows the area art + description; for shops, clickable buy/sell grids with confirm
         // popups. Clicking an item never buys/sells directly — it opens a Yes/No dialog.
-        auto drawAreaView = [&](gns::Area* a) {
-            if (!a || !session) return;
+        auto drawAreaView = [&](gns::Area* a, gns::AreaContext* ctx) {
+            if (!a || !ctx || !session) return;
             auto& party = session->party().members;
             if (shopBuyer < 0) shopBuyer = 0;
             if (shopBuyer >= (int)party.size()) shopBuyer = 0;
@@ -1246,11 +1282,11 @@ int main(int, char**) {
             // area must always show its text (art is optional).
             float topAvail = ImGui::GetContentRegionAvail().x;
             float imgW = std::min(560.0f, topAvail * 0.42f);
-            const bool hasDecision = !a->choices.empty() && !session->plot().isChoiceResolved(a->id);
+            const bool hasDecision = !ctx->choices.empty() && !session->plot().isChoiceResolved(a->id);
             bool drewArt = false;
             {
                 ImGui::BeginGroup();
-                drewArt = drawAreaImage(a, imgW, 460.0f);
+                drewArt = drawAreaImage(ctx, imgW, 460.0f);
                 // The decision dialog: a bordered, tinted box holding the prompt + a button per
                 // choice, sized to the art column so it stays confined to the lower-left rather
                 // than sprawling across the whole region. Effects apply to the active character;
@@ -1263,13 +1299,16 @@ int main(int, char**) {
                     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.5f);
                     ImGui::BeginChild("decision", ImVec2(boxW, 0.0f),
                                       ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
-                    if (!a->choicePrompt.empty()) { drawProse(a->choicePrompt, 4.0f); ImGui::Spacing(); }
-                    for (size_t i = 0; i < a->choices.size(); ++i) {
-                        const gns::AreaChoice& ch = a->choices[i];
+                    if (!ctx->choicePrompt.empty()) { drawProse(ctx->choicePrompt, 4.0f); ImGui::Spacing(); }
+                    for (size_t i = 0; i < ctx->choices.size(); ++i) {
+                        const gns::AreaChoice& ch = ctx->choices[i];
                         std::string label = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
                         ImGui::PushID((int)i + 7000);
                         if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
                             gns::Character& who = party[shopBuyer];
+                            // Mutate global variables (drives which context is active next). The
+                            // legacy setFlag is still honoured for migrated modules.
+                            for (const auto& mu : ch.mutations) applyMutation(mu);
                             if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
                             if (ch.completeControlPointId != 0)
                                 session->completeControlPoint(ch.completeControlPointId);
@@ -1294,8 +1333,8 @@ int main(int, char**) {
                 }
                 ImGui::EndGroup();
             }
-            // Show the alternate text if a decision flag selects one, else the default player text.
-            const std::string bodyText = gns::areaDisplayText(*a, session->plot());
+            // Show the context's (legacy flag-selected, else default) player text.
+            const std::string bodyText = gns::areaContextText(*ctx, session->plot());
             if (!bodyText.empty()) {
                 if (drewArt || hasDecision) ImGui::SameLine(0.0f, 20.0f);
                 ImGui::BeginGroup();
@@ -1304,10 +1343,10 @@ int main(int, char**) {
             }
             ImGui::Spacing();
 
-            if (!a->isShop || party.empty()) return;   // non-shop areas: just art + text
+            if (!ctx->isShop || party.empty()) return;   // non-shop areas: just art + text
 
             gns::Character& buyer = party[shopBuyer];
-            int disc = parseDiscountPct(a->dmText, buyer.kin, buyer.calling);
+            int disc = parseDiscountPct(ctx->dmText, buyer.kin, buyer.calling);
             if (disc > 0) ImGui::Text("Buying as %s  -  %d gp  (discount %d%%)",
                                       buyer.name.c_str(), buyer.gold, disc);
             else ImGui::Text("Buying as %s  -  %d gp", buyer.name.c_str(), buyer.gold);
@@ -1375,12 +1414,13 @@ int main(int, char**) {
                 tx = nullptr; desc.clear();
                 for (const auto& mp : mod.maps)
                     for (const auto& ar : mp.areas)
-                        for (const auto& it : ar.shopItems)
-                            if (it.name == nm) {
-                                if (!tx) tx = shopItemTexture(it);
-                                if (desc.empty()) desc = it.description;
-                                if (tx && !desc.empty()) return;
-                            }
+                        for (const auto& cx : ar.contexts)
+                            for (const auto& it : cx.shopItems)
+                                if (it.name == nm) {
+                                    if (!tx) tx = shopItemTexture(it);
+                                    if (desc.empty()) desc = it.description;
+                                    if (tx && !desc.empty()) return;
+                                }
             };
             float gridH = ImGui::GetContentRegionAvail().y;
             if (gridH < 200.0f) gridH = 200.0f;
@@ -1389,13 +1429,13 @@ int main(int, char**) {
 
             ImGui::BeginChild("shopcol", ImVec2(colW, gridH), ImGuiChildFlags_Borders);
             ImGui::SeparatorText("For Sale");
-            if (a->shopItems.empty()) {
+            if (ctx->shopItems.empty()) {
                 ImGui::TextDisabled("(nothing for sale)");
             } else {
                 int perRow = gridPerRow();
                 int placed = 0;
-                for (size_t i = 0; i < a->shopItems.size(); ++i) {
-                    gns::ShopItem& it = a->shopItems[i];
+                for (size_t i = 0; i < ctx->shopItems.size(); ++i) {
+                    gns::ShopItem& it = ctx->shopItems[i];
                     if (placed % perRow != 0) ImGui::SameLine();
                     int price = priceOf(it);
                     bool canBuy = it.stock > 0 && buyer.gold >= price;
@@ -1421,7 +1461,7 @@ int main(int, char**) {
                 for (size_t k = 0; k < buyer.inventory.size(); ++k) {
                     const std::string& nm = buyer.inventory[k];
                     int cost = 0;
-                    for (const auto& it : a->shopItems)
+                    for (const auto& it : ctx->shopItems)
                         if (it.name == nm) { cost = it.costGp; break; }
                     SDL_Texture* tx = nullptr; std::string desc;
                     ownedItemArt(nm, tx, desc);    // art from any shop in the module
@@ -1477,8 +1517,8 @@ int main(int, char**) {
             };
 
             if (ImGui::BeginPopupModal("Confirm Purchase", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                if (pendingBuy >= 0 && pendingBuy < (int)a->shopItems.size()) {
-                    gns::ShopItem& it = a->shopItems[pendingBuy];
+                if (pendingBuy >= 0 && pendingBuy < (int)ctx->shopItems.size()) {
+                    gns::ShopItem& it = ctx->shopItems[pendingBuy];
                     int price = priceOf(it);
                     ImGui::Text("Do you want to purchase %s for %d GP?",
                                 it.name.empty() ? "this item" : it.name.c_str(), price);
@@ -1502,7 +1542,7 @@ int main(int, char**) {
                 if (pendingSell >= 0 && pendingSell < (int)buyer.inventory.size()) {
                     const std::string nm = buyer.inventory[pendingSell];
                     int cost = 0;
-                    for (const auto& it : a->shopItems) if (it.name == nm) { cost = it.costGp; break; }
+                    for (const auto& it : ctx->shopItems) if (it.name == nm) { cost = it.costGp; break; }
                     int gain = cost / 2;
                     ImGui::Text("Are you sure you want to sell %s for %d GP?", nm.c_str(), gain);
                     ImGui::Spacing();
@@ -1592,8 +1632,28 @@ int main(int, char**) {
         ImGui::SetNextWindowPos(wp);
         ImGui::SetNextWindowSize(ImVec2(ws.x - rightW, ws.y));
         ImGui::Begin("Map", nullptr, pf);
-        if (session && areaView && hereArea) {
-            drawAreaView(hereArea);
+        // Resolve the active context of the area the party stands on. A 2+-active conflict is a
+        // logic error: show a halt panel instead of the area view. Zero active = inert (map shown).
+        gns::AreaContext* hereCtx = nullptr;
+        std::string hereConflict;
+        if (session && hereArea) {
+            const gns::AreaContext* c =
+                gns::activeContext(*hereArea, session->plot(), mod.variables, &hereConflict);
+            hereCtx = const_cast<gns::AreaContext*>(c);   // points into the mutable engine module
+            if (!hereConflict.empty()) contextError = hereConflict;
+        }
+        if (session && areaView && hereArea && !hereConflict.empty()) {
+            // Gameplay halt: two or more contexts are simultaneously active in this area.
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.55f, 1.0f));
+            ImGui::SeparatorText("Logic error");
+            ImGui::TextWrapped("%s", hereConflict.c_str());
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+            ImGui::TextWrapped("Gameplay is paused. Only one context may be active at a time \xE2\x80\x94 "
+                               "fix the contexts' conditions in the Module Creator so they cannot "
+                               "hold simultaneously.");
+        } else if (session && areaView && hereArea && hereCtx) {
+            drawAreaView(hereArea, hereCtx);
         } else if (!session) {
             ImGui::TextWrapped("%s", haveModule
                 ? "Press \"Start Adventure\" in the Adventure panel."
@@ -1771,7 +1831,7 @@ int main(int, char**) {
                 if (ImGui::Button("Restart")) openRestart = true;
                 if (areaView && hereArea) {
                     ImGui::SameLine();
-                    if (ImGui::Button(hereArea->isShop ? "Leave Shop" : "Exit")) areaView = false;
+                    if (ImGui::Button((hereCtx && hereCtx->isShop) ? "Leave Shop" : "Exit")) areaView = false;
                 }
                 if (openRestart) ImGui::OpenPopup("Confirm Restart");
                 if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
