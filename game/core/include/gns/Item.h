@@ -1,11 +1,22 @@
 #pragma once
 #include <string>
+#include <vector>
 
 // A carried item, shared by the character model (Character::inventory), the authored module
 // model (AreaChoice::grantItem), and saves. Kept in its own tiny header so both Character.h and
 // Module.h can include it without a cyclic dependency (Character.h <- Module.h).
 
 namespace gns {
+
+// A mutation of a global variable. op: 0 set, 1 add, 2 subtract (add/subtract are Int/Float only;
+// Bool/String support set). Used by choices (AreaChoice::mutations), area enter/exit hooks
+// (Area::onEnter/onExit), and item acquire/loss hooks (InventoryItem/ShopItem::onAcquire/onUnacquire).
+// Lives here (not Module.h) so InventoryItem can carry mutation lists without a cyclic include.
+struct VarMutation {
+    std::string varName;
+    int op = 0;
+    std::string value;   // canonical literal operand
+};
 
 // An item a character carries. Same art model as ShopItem (baked-in imageId, else free-file
 // imagePath). Identical names stack: quantity tracks how many are held. Granted by choices
@@ -17,6 +28,8 @@ struct InventoryItem {
     std::string imagePath;   // free-file item image (fallback if no imageId)
     int quantity = 1;        // number held (>=1); a stack of identical items
     int value = 0;           // GP worth of one item (editable when assigned; default = catalog cost)
+    std::vector<VarMutation> onAcquire;    // applied when this item enters an inventory
+    std::vector<VarMutation> onUnacquire;  // applied when this item leaves an inventory
 };
 
 } // namespace gns

@@ -569,6 +569,11 @@ int main(int, char**) {
         }
     };
 
+    // Fire an item's acquire/loss global-variable hooks (an item entering/leaving an inventory).
+    // Both accept anything with onAcquire/onUnacquire lists (ShopItem or InventoryItem).
+    auto fireAcquire = [&](const auto& item) { for (const auto& mu : item.onAcquire) applyMutation(mu); };
+    auto fireUnacquire = [&](const auto& item) { for (const auto& mu : item.onUnacquire) applyMutation(mu); };
+
     // Run the "beat" for entering an area: seat there, narrate, pick up Control Points
     // located here, resolve any encounter, and run trap/lock/hidden checks.
     auto enterArea = [&](int areaId) {
@@ -624,6 +629,8 @@ int main(int, char**) {
             auto lc = adj.lockCheck(*ctx);   if (lc.occurred) journal.push_back(lc.description);
             auto hc = adj.hiddenCheck(*ctx); if (hc.occurred) journal.push_back("You find: " + hc.description);
         }
+        // Area OnEnter mutations fire once per fresh entry (enterArea only runs on a fresh entry).
+        if (a) for (const auto& mu : a->onEnter) applyMutation(mu);
         autoSave();   // persist progress after each area beat
     };
 
@@ -1202,11 +1209,13 @@ int main(int, char**) {
                                     [&](const gns::InventoryItem& x){ return x.name == ch.grantItem.name; });
                                 if (it != who.inventory.end()) it->quantity += qty;
                                 else { gns::InventoryItem gi = ch.grantItem; gi.quantity = qty; who.inventory.push_back(gi); }
+                                fireAcquire(ch.grantItem);   // item enters inventory
                             }
                             if (!ch.takeItemName.empty()) {
                                 auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
                                     [&](const gns::InventoryItem& x){ return x.name == ch.takeItemName; });
                                 if (it != who.inventory.end()) {
+                                    fireUnacquire(*it);      // item leaves inventory
                                     if (--it->quantity <= 0) who.inventory.erase(it);
                                 }
                             }
@@ -1431,11 +1440,17 @@ int main(int, char**) {
                     int choice = confirmButtons(/*yesEnabled=*/ok);
                     if (choice == 1) {
                         buyer.gold -= price; it.stock -= 1;
-                        // Add to inventory; identical names stack.
+                        // Add to inventory; identical names stack. Carry the item's acquire/loss
+                        // mutation lists onto the stored item so a later sale can fire the loss hook.
                         auto inv = std::find_if(buyer.inventory.begin(), buyer.inventory.end(),
                             [&](const gns::InventoryItem& x){ return x.name == it.name; });
                         if (inv != buyer.inventory.end()) inv->quantity += 1;
-                        else buyer.inventory.push_back(gns::InventoryItem{it.name, it.description, it.imageId, it.imagePath, 1});
+                        else {
+                            gns::InventoryItem ni{it.name, it.description, it.imageId, it.imagePath, 1};
+                            ni.onAcquire = it.onAcquire; ni.onUnacquire = it.onUnacquire;
+                            buyer.inventory.push_back(std::move(ni));
+                        }
+                        fireAcquire(it);   // item bought -> enters inventory
                         journal.push_back(buyer.name + " buys " + it.name + " for " +
                                           std::to_string(price) + " gp.");
                         autoSave();
@@ -1457,6 +1472,7 @@ int main(int, char**) {
                     int choice = confirmButtons(/*yesEnabled=*/true);
                     if (choice == 1) {
                         buyer.gold += gain;
+                        fireUnacquire(buyer.inventory[pendingSell]);   // item sold -> leaves inventory
                         // Sell one unit off the stack; drop the entry when the last one is gone.
                         if (--buyer.inventory[pendingSell].quantity <= 0)
                             buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
@@ -1748,7 +1764,12 @@ int main(int, char**) {
                 }
                 // Run the enter "beat" (narration/encounter) only on a fresh entry, but always
                 // (re)open the area view -so stepping off and back onto a shop re-opens it.
-                if (target != curId) { enterArea(target); playStatus.clear(); }
+                if (target != curId) {
+                    // Fire the leaving area's OnExit mutations before entering the new one.
+                    if (curId != 0) if (const gns::Area* old = mod.areaById(curId))
+                        for (const auto& mu : old->onExit) applyMutation(mu);
+                    enterArea(target); playStatus.clear();
+                }
                 areaView = true;
             };
 

@@ -15,8 +15,10 @@ namespace gns {
 // v2 added the character `portrait` column (avatar image filename); v3 added the `gold`
 // column and the character_item table (inventory). v4 gave character_item rich columns
 // (description, image_id, image_path, quantity) so items carry art + stack counts. v5 added the
-// character_item `value` column (per-item GP worth, editable when the item is assigned).
-constexpr int kCharacterFormatVersion = 5;
+// character_item `value` column (per-item GP worth, editable when the item is assigned). v6 added
+// the character_item_mutation table (per-item OnAcquire/OnUnacquire global-variable hooks, keyed by
+// item_ord with a kind column: 0 = acquire, 1 = unacquire).
+constexpr int kCharacterFormatVersion = 6;
 
 // Write `c` to `path`, fully overwriting any existing file. Throws gns::DbError.
 void saveCharacter(const Character& c, const std::string& path);

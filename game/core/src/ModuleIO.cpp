@@ -269,6 +269,18 @@ CREATE TABLE context_choice_mutations (
     area_id    INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
     var_name   TEXT, op INTEGER, value TEXT
 );
+CREATE TABLE context_shop_item_mutations (
+    area_id  INTEGER, ctx_ord INTEGER, item_ord INTEGER,
+    kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
+    ord      INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
+CREATE TABLE context_choice_grant_mutations (
+    area_id  INTEGER, ctx_ord INTEGER, choice_ord INTEGER,
+    kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
+    ord      INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
 CREATE TABLE context_alt_texts (
     area_id INTEGER, ctx_ord INTEGER, ord INTEGER,
     flag    TEXT, text TEXT
@@ -299,6 +311,14 @@ CREATE TABLE control_points (
 CREATE TABLE area_prerequisites (
     area_id          INTEGER,
     control_point_id INTEGER
+);
+CREATE TABLE area_enter_mutations (
+    area_id  INTEGER, ord INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
+CREATE TABLE area_exit_mutations (
+    area_id  INTEGER, ord INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
 );
 CREATE TABLE map_objects (
     id     INTEGER PRIMARY KEY,
@@ -405,6 +425,16 @@ void saveModule(const Module& mod, const std::string& path) {
         Stmt ctxChoiceMutStmt(db,
             "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value) "
             "VALUES(?,?,?,?,?,?,?);");
+        Stmt areaEnterMutStmt(db,
+            "INSERT INTO area_enter_mutations(area_id,ord,var_name,op,value) VALUES(?,?,?,?,?);");
+        Stmt areaExitMutStmt(db,
+            "INSERT INTO area_exit_mutations(area_id,ord,var_name,op,value) VALUES(?,?,?,?,?);");
+        Stmt ctxShopMutStmt(db,
+            "INSERT INTO context_shop_item_mutations(area_id,ctx_ord,item_ord,kind,ord,var_name,op,value) "
+            "VALUES(?,?,?,?,?,?,?,?);");
+        Stmt ctxGrantMutStmt(db,
+            "INSERT INTO context_choice_grant_mutations(area_id,ctx_ord,choice_ord,kind,ord,var_name,op,value) "
+            "VALUES(?,?,?,?,?,?,?,?);");
         Stmt ctxAltStmt(db,
             "INSERT INTO context_alt_texts(area_id,ctx_ord,ord,flag,text) VALUES(?,?,?,?,?);");
         Stmt ctxCharStmt(db,
@@ -465,6 +495,17 @@ void saveModule(const Module& mod, const std::string& path) {
                 for (int cpId : a.prerequisiteControlPointIds) {
                     prereqStmt.bind(a.id).bind(cpId);
                     prereqStmt.run();
+                }
+
+                for (size_t i = 0; i < a.onEnter.size(); ++i) {
+                    const auto& mu = a.onEnter[i];
+                    areaEnterMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value);
+                    areaEnterMutStmt.run();
+                }
+                for (size_t i = 0; i < a.onExit.size(); ++i) {
+                    const auto& mu = a.onExit[i];
+                    areaExitMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value);
+                    areaExitMutStmt.run();
                 }
 
                 for (const auto& am : a.monsters) {
@@ -537,10 +578,23 @@ void saveModule(const Module& mod, const std::string& path) {
                                     .bind((int)k == ctx.defaultImage ? 1 : 0);
                         ctxImageStmt.run();
                     }
-                    for (const auto& si : ctx.shopItems) {
+                    for (size_t si_i = 0; si_i < ctx.shopItems.size(); ++si_i) {
+                        const auto& si = ctx.shopItems[si_i];
                         ctxShopStmt.bind(a.id).bind(co).bind(si.name).bind(si.description)
                                    .bind(si.costGp).bind(si.stock).bind(si.imagePath).bind(si.imageId);
                         ctxShopStmt.run();
+                        for (size_t mi = 0; mi < si.onAcquire.size(); ++mi) {
+                            const auto& mu = si.onAcquire[mi];
+                            ctxShopMutStmt.bind(a.id).bind(co).bind((int)si_i).bind(0).bind((int)mi)
+                                          .bind(mu.varName).bind(mu.op).bind(mu.value);
+                            ctxShopMutStmt.run();
+                        }
+                        for (size_t mi = 0; mi < si.onUnacquire.size(); ++mi) {
+                            const auto& mu = si.onUnacquire[mi];
+                            ctxShopMutStmt.bind(a.id).bind(co).bind((int)si_i).bind(1).bind((int)mi)
+                                          .bind(mu.varName).bind(mu.op).bind(mu.value);
+                            ctxShopMutStmt.run();
+                        }
                     }
                     for (const auto& tr : ctx.transitions) {
                         ctxTransStmt.bind(a.id).bind(co).bind(tr.targetAreaId).bind(tr.label);
@@ -561,6 +615,19 @@ void saveModule(const Module& mod, const std::string& path) {
                             ctxChoiceMutStmt.bind(a.id).bind(co).bind((int)k).bind((int)mi)
                                             .bind(mu.varName).bind(mu.op).bind(mu.value);
                             ctxChoiceMutStmt.run();
+                        }
+                        // The granted item's own acquire/loss hooks (kind 0/1).
+                        for (size_t mi = 0; mi < ch.grantItem.onAcquire.size(); ++mi) {
+                            const auto& mu = ch.grantItem.onAcquire[mi];
+                            ctxGrantMutStmt.bind(a.id).bind(co).bind((int)k).bind(0).bind((int)mi)
+                                           .bind(mu.varName).bind(mu.op).bind(mu.value);
+                            ctxGrantMutStmt.run();
+                        }
+                        for (size_t mi = 0; mi < ch.grantItem.onUnacquire.size(); ++mi) {
+                            const auto& mu = ch.grantItem.onUnacquire[mi];
+                            ctxGrantMutStmt.bind(a.id).bind(co).bind((int)k).bind(1).bind((int)mi)
+                                           .bind(mu.varName).bind(mu.op).bind(mu.value);
+                            ctxGrantMutStmt.run();
                         }
                     }
                     for (size_t k = 0; k < ctx.altTexts.size(); ++k) {
@@ -943,6 +1010,21 @@ Module loadModule(const std::string& path) {
             }
     } catch (const DbError&) {}
 
+    // Shop-item acquire/loss mutations (v18): kind 0 = onAcquire, 1 = onUnacquire, keyed by item_ord.
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,item_ord,kind,var_name,op,value "
+                     "FROM context_shop_item_mutations ORDER BY area_id,ctx_ord,item_ord,kind,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
+            int itemOrd = colInt(s.s, 2);
+            if (ctx && itemOrd >= 0 && itemOrd < (int)ctx->shopItems.size()) {
+                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)};
+                if (colInt(s.s, 3) == 0) ctx->shopItems[itemOrd].onAcquire.push_back(std::move(mu));
+                else                     ctx->shopItems[itemOrd].onUnacquire.push_back(std::move(mu));
+            }
+        }
+    } catch (const DbError&) {}
+
     try {
         Stmt s(c.db, "SELECT area_id,ctx_ord,target_area_id,label FROM context_transitions;");
         while (sqlite3_step(s.s) == SQLITE_ROW)
@@ -1001,6 +1083,21 @@ Module loadModule(const std::string& path) {
             if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size())
                 ctx->choices[choiceOrd].mutations.push_back(
                     VarMutation{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)});
+        }
+    } catch (const DbError&) {}
+
+    // Granted-item acquire/loss mutations (v18): kind 0 = onAcquire, 1 = onUnacquire.
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,kind,var_name,op,value "
+                     "FROM context_choice_grant_mutations ORDER BY area_id,ctx_ord,choice_ord,kind,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
+            int choiceOrd = colInt(s.s, 2);
+            if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size()) {
+                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)};
+                if (colInt(s.s, 3) == 0) ctx->choices[choiceOrd].grantItem.onAcquire.push_back(std::move(mu));
+                else                     ctx->choices[choiceOrd].grantItem.onUnacquire.push_back(std::move(mu));
+            }
         }
     } catch (const DbError&) {}
 
@@ -1123,6 +1220,20 @@ Module loadModule(const std::string& path) {
                 a->prerequisiteControlPointIds.push_back(colInt(s.s, 1));
         }
     }
+
+    // Area OnEnter/OnExit mutations (v18). Tolerated as absent on older modules.
+    try {
+        Stmt s(c.db, "SELECT area_id,var_name,op,value FROM area_enter_mutations ORDER BY area_id,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Area* a = mod.areaById(colInt(s.s, 0)))
+                a->onEnter.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3)});
+    } catch (const DbError&) {}
+    try {
+        Stmt s(c.db, "SELECT area_id,var_name,op,value FROM area_exit_mutations ORDER BY area_id,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Area* a = mod.areaById(colInt(s.s, 0)))
+                a->onExit.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3)});
+    } catch (const DbError&) {}
 
     // control_points gained x,y in v4 and a kind column in v5. Try the newest layout
     // first, then fall back column-set by column-set (legacy files keep the -1 sentinel

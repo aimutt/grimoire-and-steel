@@ -176,6 +176,8 @@ int main() {
             c.gold = 275;   // economy (v3); rich inventory items (v4); per-item value (v5)
             c.inventory = {{"Torch", "A pitch-soaked brand.", "torch.png", "", 3, 1},
                            {"Lake Charles Map", "A map of the town.", "map.png", "", 1, 25}};
+            c.inventory[0].onAcquire = {{"litTorches", 1, "1"}};        // carried-item hooks (v6)
+            c.inventory[0].onUnacquire = {{"litTorches", 2, "1"}};
 
             const std::string path = "gns_character_roundtrip_test.gnschar";
             std::remove(path.c_str());
@@ -206,6 +208,13 @@ int main() {
                   r.inventory[0].imageId == "torch.png" && r.inventory[0].quantity == 3 &&
                   r.inventory[1].name == "Lake Charles Map" && r.inventory[1].quantity == 1 &&
                   r.inventory[1].value == 25);
+            check("character item mutations preserved (v6)",
+                  r.inventory.size() == 2 && r.inventory[0].onAcquire.size() == 1 &&
+                  r.inventory[0].onAcquire[0].varName == "litTorches" &&
+                  r.inventory[0].onAcquire[0].op == 1 &&
+                  r.inventory[0].onUnacquire.size() == 1 &&
+                  r.inventory[0].onUnacquire[0].op == 2 &&
+                  r.inventory[1].onAcquire.empty());
             check("character trainings preserved",
                   r.trainings.size() == 3 && r.trainings[0] == "Sorcery" &&
                   r.trainings[1] == "Lore" && r.trainings[2] == "Healing");
@@ -222,6 +231,8 @@ int main() {
                                          {"Blades", "Athletics", "Command", "Survival"}, "Chain", true);
             c1.gold = 40;
             c1.inventory = {{"Long sword", "", "", "", 1}, {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2, 50}};
+            c1.inventory[1].onAcquire = {{"ringWorn", 0, "true"}};     // carried-item hooks (save v5)
+            c1.inventory[1].onUnacquire = {{"ringWorn", 0, "false"}};
             c1.ap = 120;
             Traits t2; t2.might = -1; t2.grace = 0; t2.wits = 1; t2.spirit = 2;
             Character c2 = makeCharacter(repo, "Lyra", "Elf", "Mystic", t2,
@@ -272,6 +283,14 @@ int main() {
                   r.party[0].inventory[1].quantity == 2 &&
                   r.party[0].inventory[1].value == 50 &&
                   r.party[1].gold == 90 && r.party[1].ap == c2.ap);
+            check("save item mutations preserved (v5)",
+                  r.party[0].inventory.size() == 2 &&
+                  r.party[0].inventory[1].onAcquire.size() == 1 &&
+                  r.party[0].inventory[1].onAcquire[0].varName == "ringWorn" &&
+                  r.party[0].inventory[1].onAcquire[0].value == "true" &&
+                  r.party[0].inventory[1].onUnacquire.size() == 1 &&
+                  r.party[0].inventory[1].onUnacquire[0].value == "false" &&
+                  r.party[0].inventory[0].onAcquire.empty());
             check("save party spells/trainings preserved",
                   r.party[0].trainings.size() == 4 && r.party[1].spells.size() == 2 &&
                   r.party[1].spells[0] == "Flame");
@@ -311,6 +330,8 @@ int main() {
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
             a1.prerequisiteControlPointIds = {1};
+            a1.onEnter = {{"teleportsLeft", 2, "1"}};               // OnEnter: subtract 1 (v18)
+            a1.onExit  = {{"factionName", 0, "wary"}, {"threatLevel", 1, "0.5"}};  // OnExit: set + add
 
             // Rich default context, active while the quest is not yet accepted (v15).
             AreaContext c0;
@@ -331,12 +352,16 @@ int main() {
             c0.isShop = true;
             c0.shopItems = {{"Long sword", "A fine blade.", 15, 3, "art/sword.png", "battle-axe.png"},
                             {"Rations (1 week)", "", 5, 20, "", ""}};
+            c0.shopItems[0].onAcquire = {{"factionName", 0, "armed"}};   // item acquire/loss hooks (v18)
+            c0.shopItems[0].onUnacquire = {{"teleportsLeft", 1, "2"}};
             c0.transitions = {{11, "Stairs down to the crypt"}};
             c0.choicePrompt = "The mayor's wife begs for your help.";
             AreaChoice ch0;
             ch0.label = "We'll help you."; ch0.journalEntry = "Agreed to rescue the family.";
             ch0.setFlag = "helped_mayor"; ch0.completeControlPointId = 1; ch0.goldDelta = 50;
             ch0.grantItem = {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2};  // rich granted item (v16)
+            ch0.grantItem.onAcquire = {{"questAccepted", 0, "true"}};   // granted-item hooks (v18)
+            ch0.grantItem.onUnacquire = {{"factionName", 0, "cursed"}};
             ch0.deactivateArea = true;
             ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"}};  // set, subtract
             AreaChoice ch1;
@@ -422,6 +447,13 @@ int main() {
                   ra->labelAuto == false);
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
+            check("area onEnter/onExit mutations preserved (v18)",
+                  ra && ra->onEnter.size() == 1 && ra->onEnter[0].varName == "teleportsLeft" &&
+                  ra->onEnter[0].op == 2 && ra->onEnter[0].value == "1" &&
+                  ra->onExit.size() == 2 && ra->onExit[0].varName == "factionName" &&
+                  ra->onExit[0].op == 0 && ra->onExit[0].value == "wary" &&
+                  ra->onExit[1].varName == "threatLevel" && ra->onExit[1].op == 1 &&
+                  ra->onExit[1].value == "0.5");
             check("area legacy content cleared", ra && ra->dmText.empty() && ra->choices.empty() &&
                   ra->shopItems.empty() && ra->monsters.empty());
             check("area two contexts preserved", ra && ra->contexts.size() == 2);
@@ -451,6 +483,15 @@ int main() {
                   rc->shopItems[0].imageId == "battle-axe.png" &&
                   rc->shopItems[1].name == "Rations (1 week)" &&
                   rc->shopItems[1].costGp == 5 && rc->shopItems[1].stock == 20);
+            check("context shop item mutations preserved (v18)", rc && rc->shopItems.size() == 2 &&
+                  rc->shopItems[0].onAcquire.size() == 1 &&
+                  rc->shopItems[0].onAcquire[0].varName == "factionName" &&
+                  rc->shopItems[0].onAcquire[0].op == 0 &&
+                  rc->shopItems[0].onAcquire[0].value == "armed" &&
+                  rc->shopItems[0].onUnacquire.size() == 1 &&
+                  rc->shopItems[0].onUnacquire[0].varName == "teleportsLeft" &&
+                  rc->shopItems[0].onUnacquire[0].op == 1 &&
+                  rc->shopItems[1].onAcquire.empty() && rc->shopItems[1].onUnacquire.empty());
             check("context transitions preserved", rc && rc->transitions.size() == 1 &&
                   rc->transitions[0].targetAreaId == 11 &&
                   rc->transitions[0].label == "Stairs down to the crypt");
@@ -474,6 +515,13 @@ int main() {
                   rc->choices[0].mutations[1].varName == "teleportsLeft" &&
                   rc->choices[0].mutations[1].op == 2 && rc->choices[0].mutations[1].value == "1" &&
                   rc->choices[1].mutations.empty());
+            check("context granted-item mutations preserved (v18)", rc && rc->choices.size() == 2 &&
+                  rc->choices[0].grantItem.onAcquire.size() == 1 &&
+                  rc->choices[0].grantItem.onAcquire[0].varName == "questAccepted" &&
+                  rc->choices[0].grantItem.onAcquire[0].value == "true" &&
+                  rc->choices[0].grantItem.onUnacquire.size() == 1 &&
+                  rc->choices[0].grantItem.onUnacquire[0].varName == "factionName" &&
+                  rc->choices[0].grantItem.onUnacquire[0].value == "cursed");
             check("context alt texts preserved", rc && rc->altTexts.size() == 1 &&
                   rc->altTexts[0].requiredFlag == "helped_mayor" &&
                   rc->altTexts[0].text == "You've agreed to help - see your journal.");

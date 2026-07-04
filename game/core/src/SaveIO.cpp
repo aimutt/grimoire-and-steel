@@ -90,6 +90,12 @@ CREATE TABLE save_character (
 CREATE TABLE save_character_training (owner INTEGER, name TEXT);
 CREATE TABLE save_character_spell    (owner INTEGER, name TEXT);
 CREATE TABLE save_character_item     (owner INTEGER, name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
+CREATE TABLE save_character_item_mutation (
+    owner    INTEGER, item_ord INTEGER,
+    kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
+    ord      INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
 CREATE TABLE save_deactivated_areas  (area_id INTEGER);
 CREATE TABLE save_deleted_contexts   (area_id INTEGER, ctx_name TEXT);
 )sql";
@@ -152,6 +158,8 @@ void saveGame(const std::string& path, const GameSave& save) {
         Stmt sp(db, "INSERT INTO save_character_spell(owner,name) VALUES(?,?);");
         Stmt it(db, "INSERT INTO save_character_item(owner,name,description,image_id,image_path,quantity,value) "
                     "VALUES(?,?,?,?,?,?,?);");
+        Stmt im(db, "INSERT INTO save_character_item_mutation(owner,item_ord,kind,ord,var_name,op,value) "
+                    "VALUES(?,?,?,?,?,?,?);");
         for (size_t i = 0; i < save.party.size(); ++i) {
             const Character& c = save.party[i];
             int owner = (int)i;
@@ -165,10 +173,21 @@ void saveGame(const std::string& path, const GameSave& save) {
             s.run();
             for (const auto& t : c.trainings) { tr.bind(owner).bind(t); tr.run(); }
             for (const auto& x : c.spells)    { sp.bind(owner).bind(x); sp.run(); }
-            for (const auto& x : c.inventory) {
+            for (size_t j = 0; j < c.inventory.size(); ++j) {
+                const auto& x = c.inventory[j];
                 it.bind(owner).bind(x.name).bind(x.description).bind(x.imageId).bind(x.imagePath)
                   .bind(x.quantity < 1 ? 1 : x.quantity).bind(x.value);
                 it.run();
+                for (size_t k = 0; k < x.onAcquire.size(); ++k) {
+                    const auto& m = x.onAcquire[k];
+                    im.bind(owner).bind((int)j).bind(0).bind((int)k).bind(m.varName).bind(m.op).bind(m.value);
+                    im.run();
+                }
+                for (size_t k = 0; k < x.onUnacquire.size(); ++k) {
+                    const auto& m = x.onUnacquire[k];
+                    im.bind(owner).bind((int)j).bind(1).bind((int)k).bind(m.varName).bind(m.op).bind(m.value);
+                    im.run();
+                }
             }
         }
     }
@@ -301,6 +320,20 @@ GameSave loadGame(const std::string& path) {
             if (level == 0) break;
         }
     }
+    // Item acquire/loss mutations (v5), keyed by (owner,item_ord): kind 0 = acquire, 1 = unacquire.
+    try {
+        Stmt s(conn.db, "SELECT owner,item_ord,kind,var_name,op,value FROM save_character_item_mutation "
+                        "ORDER BY owner,item_ord,kind,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            size_t owner = (size_t)colInt(s.s, 0);
+            int itemOrd = colInt(s.s, 1);
+            if (owner < save.party.size() && itemOrd >= 0 && itemOrd < (int)save.party[owner].inventory.size()) {
+                VarMutation m{colText(s.s, 3), colInt(s.s, 4), colText(s.s, 5)};
+                if (colInt(s.s, 2) == 0) save.party[owner].inventory[itemOrd].onAcquire.push_back(std::move(m));
+                else                     save.party[owner].inventory[itemOrd].onUnacquire.push_back(std::move(m));
+            }
+        }
+    } catch (const DbError&) {}
 
     // save_deactivated_areas + save_deleted_contexts were added in v3; tolerate older saves.
     try {
