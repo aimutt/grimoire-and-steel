@@ -17,8 +17,10 @@ namespace gns {
 // (description, image_id, image_path, quantity) so items carry art + stack counts. v5 added the
 // character_item `value` column (per-item GP worth, editable when the item is assigned). v6 added
 // the character_item_mutation table (per-item OnAcquire/OnUnacquire global-variable hooks, keyed by
-// item_ord with a kind column: 0 = acquire, 1 = unacquire).
-constexpr int kCharacterFormatVersion = 6;
+// item_ord with a kind column: 0 = acquire, 1 = unacquire). v7 added the character `armor_defense_bonus`
+// column and the character_item equip profile columns (slot, damage_die, defense_bonus, weapon_bonus,
+// dropable) so gear can be equipped/unequipped by drag-and-drop and used in combat.
+constexpr int kCharacterFormatVersion = 7;
 
 // Write `c` to `path`, fully overwriting any existing file. Throws gns::DbError.
 void saveCharacter(const Character& c, const std::string& path);

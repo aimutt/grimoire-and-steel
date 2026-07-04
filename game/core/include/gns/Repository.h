@@ -19,7 +19,6 @@ public:
     const std::vector<Kin>& kins() const { return kins_; }
     const std::vector<Calling>& callings() const { return callings_; }
     const std::vector<Training>& trainings() const { return trainings_; }
-    const std::vector<WeaponCategory>& weaponCategories() const { return weaponCats_; }
     const std::vector<Armor>& armors() const { return armors_; }
     const std::vector<Equipment>& equipment() const { return equipment_; }
     const std::vector<ChallengeNumber>& challenges() const { return challenges_; }
@@ -32,7 +31,6 @@ public:
     const Calling* calling(const std::string& name) const;
     const Calling* callingById(int id) const;
     const Training* training(const std::string& name) const;
-    const WeaponCategory* weaponCategory(const std::string& name) const;
     const Armor* armor(const std::string& name) const;
     const Equipment* equipment(const std::string& name) const;
     const MonsterDef* monster(const std::string& name) const;
@@ -55,7 +53,6 @@ private:
     std::vector<Kin> kins_;
     std::vector<Calling> callings_;
     std::vector<Training> trainings_;
-    std::vector<WeaponCategory> weaponCats_;
     std::vector<Armor> armors_;
     std::vector<Equipment> equipment_;
     std::vector<ChallengeNumber> challenges_;
@@ -71,7 +68,6 @@ private:
     std::map<std::string, int> callingByName_;
     std::map<int, int> callingById_;
     std::map<std::string, int> trainingByName_;
-    std::map<std::string, int> weaponCatByName_;
     std::map<std::string, int> armorByName_;
     std::map<std::string, int> equipmentByName_;
     std::map<std::string, int> challengeByName_;

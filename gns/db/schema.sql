@@ -32,7 +32,6 @@ DROP TABLE IF EXISTS monster;
 DROP TABLE IF EXISTS challenge_number;
 DROP TABLE IF EXISTS equipment;
 DROP TABLE IF EXISTS armor;
-DROP TABLE IF EXISTS weapon_category;
 DROP TABLE IF EXISTS calling_weapon_option;
 DROP TABLE IF EXISTS calling_training_option;
 DROP TABLE IF EXISTS calling;
@@ -107,14 +106,6 @@ CREATE TABLE calling_weapon_option (
 -- ---------------------------------------------------------------------------
 -- Equipment & resolution tables.
 -- ---------------------------------------------------------------------------
-CREATE TABLE weapon_category (
-    weapon_category_id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    damage_die TEXT NOT NULL,
-    examples TEXT NOT NULL,
-    sort_order INTEGER NOT NULL UNIQUE
-) STRICT;
-
 CREATE TABLE armor (
     armor_id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -125,10 +116,10 @@ CREATE TABLE armor (
 
 -- Priced adventuring-gear catalog: individual weapons, armor, shields, helmets,
 -- potions, crystals, valuables, and supplies, each mapped to a baked-in art file
--- (image_id). weapon_category/armor above define the *rules* (dice / Defense
--- bonuses); this table is the shop & reference price list built on top of them.
--- Weapons set `damage`; armor/shield/helmet set `defense_bonus`; consumables and
--- gear set `effect`. Any of those may be NULL when it does not apply.
+-- (image_id). This is the canonical named-weapon damage list (Weapon rows set the
+-- combat `damage` die) as well as the armor/shield/helmet Defense bonuses and the
+-- shop & reference price list. Weapons set `damage`; armor/shield/helmet set
+-- `defense_bonus`; consumables and gear set `effect`. Any may be NULL when N/A.
 CREATE TABLE equipment (
     equipment_id  INTEGER PRIMARY KEY,
     category      TEXT NOT NULL,      -- Weapon, Ammunition, Armor, Shield, Helmet, Potion, Crystal, Valuable, Cloak, Gear, Quest Item

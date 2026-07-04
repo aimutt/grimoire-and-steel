@@ -72,11 +72,13 @@ CREATE TABLE character (
     weapon_name       TEXT, weapon_damage_die TEXT, weapon_bonus INTEGER,
     background        TEXT, goal TEXT, personality TEXT, notes TEXT,
     portrait          TEXT,
-    gold              INTEGER
+    gold              INTEGER,
+    armor_defense_bonus INTEGER
 );
 CREATE TABLE character_training (name TEXT);
 CREATE TABLE character_spell (name TEXT);
-CREATE TABLE character_item (name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
+CREATE TABLE character_item (name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER,
+    slot INTEGER, damage_die TEXT, defense_bonus INTEGER, weapon_bonus INTEGER, dropable INTEGER);
 CREATE TABLE character_item_mutation (
     item_ord INTEGER,
     kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
@@ -102,15 +104,15 @@ void saveCharacter(const Character& c, const std::string& path) {
             "INSERT INTO character(id,name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
-            "background,goal,personality,notes,portrait,gold) "
-            "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "background,goal,personality,notes,portrait,gold,armor_defense_bonus) "
+            "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         s.bind(c.name).bind(c.playerName).bind(c.kin).bind(c.calling).bind(c.level)
          .bind(c.traits.might).bind(c.traits.grace).bind(c.traits.wits).bind(c.traits.spirit)
          .bind(c.maxLife).bind(c.life).bind(c.defense).bind(c.ap).bind(c.strain)
          .bind(c.armorName).bind(c.shield ? 1 : 0)
          .bind(c.weaponName).bind(c.weaponDamageDie).bind(c.weaponBonus)
          .bind(c.background).bind(c.goal).bind(c.personality).bind(c.notes).bind(c.portraitPath)
-         .bind(c.gold);
+         .bind(c.gold).bind(c.armorDefenseBonus);
         s.run();
     }
     {
@@ -122,14 +124,17 @@ void saveCharacter(const Character& c, const std::string& path) {
         for (const auto& sp : c.spells) { s.bind(sp); s.run(); }
     }
     {
-        Stmt s(db, "INSERT INTO character_item(name,description,image_id,image_path,quantity,value) "
-                   "VALUES(?,?,?,?,?,?);");
+        Stmt s(db, "INSERT INTO character_item(name,description,image_id,image_path,quantity,value,"
+                   "slot,damage_die,defense_bonus,weapon_bonus,dropable) "
+                   "VALUES(?,?,?,?,?,?,?,?,?,?,?);");
         Stmt mu(db, "INSERT INTO character_item_mutation(item_ord,kind,ord,var_name,op,value) "
                     "VALUES(?,?,?,?,?,?);");
         for (size_t i = 0; i < c.inventory.size(); ++i) {
             const auto& it = c.inventory[i];
             s.bind(it.name).bind(it.description).bind(it.imageId).bind(it.imagePath)
-             .bind(it.quantity < 1 ? 1 : it.quantity).bind(it.value);
+             .bind(it.quantity < 1 ? 1 : it.quantity).bind(it.value)
+             .bind(it.slot).bind(it.damageDie).bind(it.defenseBonus).bind(it.weaponBonus)
+             .bind(it.dropable ? 1 : 0);
             s.run();
             for (size_t k = 0; k < it.onAcquire.size(); ++k) {
                 const auto& m = it.onAcquire[k];
@@ -154,9 +159,10 @@ Character loadCharacter(const std::string& path) {
         fail(conn.db, "cannot open '" + path + "'");
 
     Character c;
-    // `portrait` was added in v2 and `gold` in v3; `level` 2 = newest, 1 = v2, 0 = v1.
+    // `portrait` was added in v2, `gold` in v3, `armor_defense_bonus` in v7; loader `level`
+    // 3 = newest (with armor bonus), 2 = +gold, 1 = +portrait, 0 = v1.
     auto loadRow = [&](int level) {
-        bool withPortrait = level >= 1, withGold = level >= 2;
+        bool withPortrait = level >= 1, withGold = level >= 2, withArmorBonus = level >= 3;
         std::string sql =
             "SELECT name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
@@ -164,6 +170,7 @@ Character loadCharacter(const std::string& path) {
             "background,goal,personality,notes";
         if (withPortrait) sql += ",portrait";
         if (withGold) sql += ",gold";
+        if (withArmorBonus) sql += ",armor_defense_bonus";
         sql += " FROM character WHERE id=1;";
         Stmt s(conn.db, sql.c_str());
         if (sqlite3_step(s.s) != SQLITE_ROW) fail(conn.db, "character row missing");
@@ -190,10 +197,12 @@ Character loadCharacter(const std::string& path) {
         c.goal            = colText(s.s, 20);
         c.personality     = colText(s.s, 21);
         c.notes           = colText(s.s, 22);
-        if (withPortrait) c.portraitPath = colText(s.s, 23);
-        if (withGold) c.gold = colInt(s.s, 24);
+        int col = 23;
+        if (withPortrait) c.portraitPath = colText(s.s, col++);
+        if (withGold) c.gold = colInt(s.s, col++);
+        if (withArmorBonus) c.armorDefenseBonus = colInt(s.s, col++);
     };
-    for (int level = 2; ; --level) {
+    for (int level = 3; ; --level) {
         try { loadRow(level); break; }
         catch (const DbError&) { if (level == 0) throw; }
     }
@@ -206,11 +215,14 @@ Character loadCharacter(const std::string& path) {
         Stmt s(conn.db, "SELECT name FROM character_spell;");
         while (sqlite3_step(s.s) == SQLITE_ROW) c.spells.push_back(colText(s.s, 0));
     } catch (const DbError&) {}
-    // character_item gained description/image_id/image_path/quantity in v4 and `value` in v5.
-    // level 2 = newest (with value), 1 = v4 (no value), 0 = v3 (name only); fall back a tier.
+    // character_item gained description/image_id/image_path/quantity in v4, `value` in v5, and the
+    // equip profile (slot/damage_die/defense_bonus/weapon_bonus/dropable) in v7. level 3 = newest,
+    // 2 = +value, 1 = v4, 0 = v3 (name only); fall back a tier.
     auto loadItems = [&](int level) {
         const char* sql =
-            level >= 2 ? "SELECT name,description,image_id,image_path,quantity,value FROM character_item;"
+            level >= 3 ? "SELECT name,description,image_id,image_path,quantity,value,"
+                         "slot,damage_die,defense_bonus,weapon_bonus,dropable FROM character_item;"
+            : level >= 2 ? "SELECT name,description,image_id,image_path,quantity,value FROM character_item;"
             : level >= 1 ? "SELECT name,description,image_id,image_path,quantity FROM character_item;"
                          : "SELECT name FROM character_item;";
         Stmt s(conn.db, sql);
@@ -224,11 +236,18 @@ Character loadCharacter(const std::string& path) {
                 it.quantity    = colInt(s.s, 4);
                 if (it.quantity < 1) it.quantity = 1;
                 if (level >= 2) it.value = colInt(s.s, 5);
+                if (level >= 3) {
+                    it.slot         = colInt(s.s, 6);
+                    it.damageDie    = colText(s.s, 7);
+                    it.defenseBonus = colInt(s.s, 8);
+                    it.weaponBonus  = colInt(s.s, 9);
+                    it.dropable     = colInt(s.s, 10) != 0;
+                }
             }
             c.inventory.push_back(std::move(it));
         }
     };
-    for (int level = 2; ; --level) {
+    for (int level = 3; ; --level) {
         try { loadItems(level); break; }
         catch (const DbError&) { c.inventory.clear(); if (level == 0) break; }
     }

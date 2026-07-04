@@ -33,13 +33,14 @@ struct Character {
     int defense = 10;
     int ap = 0;             // cumulative advancement points
     int strain = 0;         // current accumulated strain
-    int gold = 100;         // gold pieces (starting default; spent at shops)
+    int gold = 25;          // gold pieces (starting default; spent at shops)
 
     std::vector<std::string> spells;      // known spell names (Mystics)
     std::vector<InventoryItem> inventory; // items the character carries (bought goods, granted items)
 
     // Equipment shaping combat (a small profile so the engine needn't re-derive).
     std::string armorName = "No armor";
+    int armorDefenseBonus = 0;             // Defense from worn armor (so armor can be swapped/removed)
     bool shield = false;
     std::string weaponName;               // display / chosen weapon
     std::string weaponDamageDie = "1d6";  // damage die for attacks
@@ -77,5 +78,17 @@ int meleeAttackBonus(const Character& c);
 int rangedAttackBonus(const Character& c);
 // Safe strain limit before backlash: max(1, 3 + Spirit).
 int strainLimit(const Character& c);
+
+// --- equip / unequip (drag-and-drop gear management) ------------------------
+
+// Recompute the Defense scalar from Grace + worn armor + shield (all shields are +1).
+void recomputeDefense(Character& c);
+// Equip the inventory item at `idx` into its slot (1 weapon, 2 armor, 3 shield). The currently
+// equipped item in that slot (if any) is returned to inventory; the equipped scalars are set from
+// the item, which is then removed from inventory. No-op for slot 0 or an out-of-range index.
+void equipInventoryItem(Character& c, size_t idx);
+// Move the equipped item in `slot` (1 weapon, 2 armor, 3 shield) back into inventory and clear the
+// equipped scalars. No-op when that slot is empty.
+void unequipToInventory(Character& c, int slot);
 
 } // namespace gns

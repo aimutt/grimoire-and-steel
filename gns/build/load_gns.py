@@ -33,7 +33,6 @@ TABLES = [
     "calling",
     "calling_training_option",
     "calling_weapon_option",
-    "weapon_category",
     "armor",
     "equipment",
     "challenge_number",

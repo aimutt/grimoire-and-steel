@@ -42,7 +42,7 @@ CONTENT_PAGES = {
     "callings":    ("Callings",     "SELECT * FROM v_calling_summary"),
     "kin":         ("Kin",          "SELECT name, description, gift_name, gift_description FROM kin ORDER BY sort_order"),
     "traits":      ("Traits",       "SELECT name, description FROM trait ORDER BY sort_order"),
-    "weapons":     ("Weapons",      "SELECT name, damage_die, examples FROM weapon_category ORDER BY sort_order"),
+    "weapons":     ("Weapons",      "SELECT name, damage, cost_gp FROM equipment WHERE category='Weapon' ORDER BY sort_order"),
     "armor":       ("Armor",        "SELECT name, defense_bonus, notes FROM armor ORDER BY sort_order"),
     "advancement": ("Advancement",  "SELECT calling, level, ap_required FROM v_advancement_table"),
 }

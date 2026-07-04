@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 #include "gns/Item.h"        // gns::InventoryItem
 #include "gns/Character.h"   // gns::Character (AreaContext::characters)
@@ -183,6 +184,9 @@ struct AreaChoice {
     InventoryItem grantItem;        // granted to the active character (empty name = none); quantity = count
     std::string takeItemName;       // removed from the active character's inventory (empty = none)
     std::vector<VarMutation> mutations;  // mutations to global variables (empty = none)
+    // "Set item dropable" effects: each flips a granted item's dropable status at runtime (item name
+    // -> new dropable). Lets a later context lock/unlock whether a granted item can be dropped.
+    std::vector<std::pair<std::string, bool>> dropableSets;
     bool deactivateArea = false;    // when chosen, remove this area from the map + stop triggering it
     bool deleteContext = false;     // when chosen, stop THIS context from ever activating again
 };
@@ -370,13 +374,21 @@ struct Module {
 // tables (the last carrying the per-item value column). v18 added global-variable mutation hooks
 // that fire automatically: Area OnEnter/OnExit (area_enter_mutations/area_exit_mutations tables) and
 // item OnAcquire/OnUnacquire (context_shop_item_mutations + context_choice_grant_mutations, each with
-// a kind column: 0 = acquire, 1 = unacquire).
-constexpr int kModuleFormatVersion = 18;
+// a kind column: 0 = acquire, 1 = unacquire). v19 gave granted items an equip profile + dropable flag
+// (context_choices columns grant_slot/grant_damage_die/grant_defense_bonus/grant_weapon_bonus/
+// grant_dropable) and added the context_choice_dropable_sets table (a choice's "Set item dropable"
+// effects: item_name -> dropable), all tolerant-loaded.
+constexpr int kModuleFormatVersion = 19;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);
 
 // Load a module from a .gnsmod SQLite file. Throws gns::DbError.
 Module loadModule(const std::string& path);
+
+// Distinct items granted by any choice across every area/context, each with its authored dropable
+// default (item name -> dropable). Used to seed the play-session's runtime dropable state and to
+// populate the Module Creator's granted-items list. First occurrence of a name wins.
+std::vector<std::pair<std::string, bool>> collectGrantedItems(const Module& mod);
 
 } // namespace gns

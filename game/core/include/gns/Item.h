@@ -28,6 +28,13 @@ struct InventoryItem {
     std::string imagePath;   // free-file item image (fallback if no imageId)
     int quantity = 1;        // number held (>=1); a stack of identical items
     int value = 0;           // GP worth of one item (editable when assigned; default = catalog cost)
+    // Equip profile: lets any item be equipped/unequipped and used in combat (drag-and-drop on the
+    // character sheet). slot: 0 none, 1 weapon, 2 armor, 3 shield.
+    int slot = 0;
+    std::string damageDie;   // weapon damage die (slot==1), e.g. "1d8"
+    int defenseBonus = 0;    // Defense granted when worn (slot==2 armor / slot==3 shield)
+    int weaponBonus = 0;     // magic weapon bonus (+1..+3) carried with an equipped weapon
+    bool dropable = true;    // authored default on a grant; runtime status lives in PlotTracker by name
     std::vector<VarMutation> onAcquire;    // applied when this item enters an inventory
     std::vector<VarMutation> onUnacquire;  // applied when this item leaves an inventory
 };

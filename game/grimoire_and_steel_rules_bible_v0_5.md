@@ -254,22 +254,24 @@ Heavy armor may make swimming, climbing, sneaking, and running harder.
 
 ## 10. Weapons
 
-Weapons are simple.
+Weapons are simple. Each weapon deals a fixed damage die.
 
-| Weapon Type | Damage |
+| Weapon | Damage |
 |---|---:|
-| Small weapon | 1d4 |
-| One-handed weapon | 1d6 |
-| Two-handed weapon | 1d8 |
-| Bow or crossbow | 1d6 |
-| Improvised weapon | 1d4 |
-
-Examples:
-
-- Small weapon: dagger, club, hatchet
-- One-handed weapon: sword, axe, mace, spear, short sword, hand axe
-- Two-handed weapon: greatsword, battle axe, war hammer
-- Bow or crossbow: shortbow, longbow, crossbow
+| Knife | 1d4 |
+| Dagger | 1d4 |
+| Wooden Club | 1d4 |
+| Staff | 1d4 |
+| Hand Axe | 1d6 |
+| Mace | 1d6 |
+| Hammer | 1d6 |
+| Short Sword | 1d6 |
+| War Staff | 1d6 |
+| Short Bow | 1d6 |
+| Crossbow | 1d6 |
+| Long Sword | 1d8 |
+| Battle Axe | 1d10 |
+| War Hammer | 1d10 |
 
 ---
 
@@ -1072,15 +1074,15 @@ Prices are in gold pieces (GP). Treat them as a starting guide — the Guide may
 | Knife | 1d4 | 1 GP |
 | Dagger | 1d4 | 2 GP |
 | Wooden Club | 1d4 | 1 GP |
-| Quarterstaff | 1d6 | 5 GP |
+| Staff | 1d4 | 5 GP |
 | Hand Axe | 1d6 | 5 GP |
 | Mace | 1d6 | 8 GP |
 | Hammer | 1d6 | 6 GP |
 | Short Sword | 1d6 | 10 GP |
 | Long Sword | 1d8 | 20 GP |
-| Battle Axe | 1d8 | 15 GP |
-| War Hammer | 1d8 | 15 GP |
-| War Staff | 1d8 | 12 GP |
+| Battle Axe | 1d10 | 15 GP |
+| War Hammer | 1d10 | 15 GP |
+| War Staff | 1d6 | 12 GP |
 | Short Bow | 1d6 | 12 GP |
 | Crossbow | 1d6 | 18 GP |
 

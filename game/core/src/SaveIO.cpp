@@ -73,7 +73,7 @@ CREATE TABLE save_meta (
 );
 CREATE TABLE save_control_points (cp_id INTEGER);
 CREATE TABLE save_flags (flag TEXT);
-CREATE TABLE save_resolved_areas (area_id INTEGER);
+CREATE TABLE save_resolved_contexts (area_id INTEGER, ctx_name TEXT);
 CREATE TABLE save_globals (name TEXT, value TEXT);
 CREATE TABLE save_journal (ord INTEGER, line TEXT);
 CREATE TABLE save_character (
@@ -85,11 +85,13 @@ CREATE TABLE save_character (
     armor_name        TEXT, shield INTEGER,
     weapon_name       TEXT, weapon_damage_die TEXT, weapon_bonus INTEGER,
     background        TEXT, goal TEXT, personality TEXT, notes TEXT,
-    portrait          TEXT, gold INTEGER
+    portrait          TEXT, gold INTEGER,
+    armor_defense_bonus INTEGER
 );
 CREATE TABLE save_character_training (owner INTEGER, name TEXT);
 CREATE TABLE save_character_spell    (owner INTEGER, name TEXT);
-CREATE TABLE save_character_item     (owner INTEGER, name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
+CREATE TABLE save_character_item     (owner INTEGER, name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER,
+    slot INTEGER, damage_die TEXT, defense_bonus INTEGER, weapon_bonus INTEGER, dropable INTEGER);
 CREATE TABLE save_character_item_mutation (
     owner    INTEGER, item_ord INTEGER,
     kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
@@ -98,6 +100,7 @@ CREATE TABLE save_character_item_mutation (
 );
 CREATE TABLE save_deactivated_areas  (area_id INTEGER);
 CREATE TABLE save_deleted_contexts   (area_id INTEGER, ctx_name TEXT);
+CREATE TABLE save_granted_dropable   (name TEXT, dropable INTEGER);
 )sql";
 
 } // namespace
@@ -128,8 +131,8 @@ void saveGame(const std::string& path, const GameSave& save) {
         for (const auto& f : save.flags) { s.bind(f); s.run(); }
     }
     {
-        Stmt s(db, "INSERT INTO save_resolved_areas(area_id) VALUES(?);");
-        for (int id : save.resolvedAreas) { s.bind(id); s.run(); }
+        Stmt s(db, "INSERT INTO save_resolved_contexts(area_id,ctx_name) VALUES(?,?);");
+        for (const auto& rc : save.resolvedContexts) { s.bind(rc.first).bind(rc.second); s.run(); }
     }
     {
         Stmt s(db, "INSERT INTO save_globals(name,value) VALUES(?,?);");
@@ -144,6 +147,10 @@ void saveGame(const std::string& path, const GameSave& save) {
         for (const auto& dc : save.deletedContexts) { s.bind(dc.first).bind(dc.second); s.run(); }
     }
     {
+        Stmt s(db, "INSERT INTO save_granted_dropable(name,dropable) VALUES(?,?);");
+        for (const auto& kv : save.grantedDropable) { s.bind(kv.first).bind(kv.second ? 1 : 0); s.run(); }
+    }
+    {
         Stmt s(db, "INSERT INTO save_journal(ord,line) VALUES(?,?);");
         for (size_t i = 0; i < save.journal.size(); ++i) { s.bind((int)i).bind(save.journal[i]); s.run(); }
     }
@@ -152,12 +159,13 @@ void saveGame(const std::string& path, const GameSave& save) {
             "INSERT INTO save_character(owner,name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
-            "background,goal,personality,notes,portrait,gold) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "background,goal,personality,notes,portrait,gold,armor_defense_bonus) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt tr(db, "INSERT INTO save_character_training(owner,name) VALUES(?,?);");
         Stmt sp(db, "INSERT INTO save_character_spell(owner,name) VALUES(?,?);");
-        Stmt it(db, "INSERT INTO save_character_item(owner,name,description,image_id,image_path,quantity,value) "
-                    "VALUES(?,?,?,?,?,?,?);");
+        Stmt it(db, "INSERT INTO save_character_item(owner,name,description,image_id,image_path,quantity,value,"
+                    "slot,damage_die,defense_bonus,weapon_bonus,dropable) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt im(db, "INSERT INTO save_character_item_mutation(owner,item_ord,kind,ord,var_name,op,value) "
                     "VALUES(?,?,?,?,?,?,?);");
         for (size_t i = 0; i < save.party.size(); ++i) {
@@ -169,14 +177,16 @@ void saveGame(const std::string& path, const GameSave& save) {
              .bind(c.armorName).bind(c.shield ? 1 : 0)
              .bind(c.weaponName).bind(c.weaponDamageDie).bind(c.weaponBonus)
              .bind(c.background).bind(c.goal).bind(c.personality).bind(c.notes).bind(c.portraitPath)
-             .bind(c.gold);
+             .bind(c.gold).bind(c.armorDefenseBonus);
             s.run();
             for (const auto& t : c.trainings) { tr.bind(owner).bind(t); tr.run(); }
             for (const auto& x : c.spells)    { sp.bind(owner).bind(x); sp.run(); }
             for (size_t j = 0; j < c.inventory.size(); ++j) {
                 const auto& x = c.inventory[j];
                 it.bind(owner).bind(x.name).bind(x.description).bind(x.imageId).bind(x.imagePath)
-                  .bind(x.quantity < 1 ? 1 : x.quantity).bind(x.value);
+                  .bind(x.quantity < 1 ? 1 : x.quantity).bind(x.value)
+                  .bind(x.slot).bind(x.damageDie).bind(x.defenseBonus).bind(x.weaponBonus)
+                  .bind(x.dropable ? 1 : 0);
                 it.run();
                 for (size_t k = 0; k < x.onAcquire.size(); ++k) {
                     const auto& m = x.onAcquire[k];
@@ -226,10 +236,14 @@ GameSave loadGame(const std::string& path) {
         Stmt s(conn.db, "SELECT flag FROM save_flags;");
         while (sqlite3_step(s.s) == SQLITE_ROW) save.flags.insert(colText(s.s, 0));
     }
-    {
-        Stmt s(conn.db, "SELECT area_id FROM save_resolved_areas;");
-        while (sqlite3_step(s.s) == SQLITE_ROW) save.resolvedAreas.insert(colInt(s.s, 0));
-    }
+    // save_resolved_contexts (per-context) replaced the v5 per-area save_resolved_areas in v6;
+    // tolerate older saves that lack it (their per-area resolved flags are simply dropped, letting
+    // contexts re-prompt once).
+    try {
+        Stmt s(conn.db, "SELECT area_id,ctx_name FROM save_resolved_contexts;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            save.resolvedContexts.insert({colInt(s.s, 0), colText(s.s, 1)});
+    } catch (const DbError&) {}
     // save_globals was added in v2; tolerate older saves that lack it.
     try {
         Stmt s(conn.db, "SELECT name,value FROM save_globals;");
@@ -241,13 +255,17 @@ GameSave loadGame(const std::string& path) {
         Stmt s(conn.db, "SELECT line FROM save_journal ORDER BY ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW) save.journal.push_back(colText(s.s, 0));
     }
-    {
-        Stmt s(conn.db,
+    // save_character gained armor_defense_bonus in v7; tolerate older saves that lack it by
+    // retrying without the column.
+    auto loadParty = [&](bool withArmorBonus) {
+        std::string sql =
             "SELECT owner,name,player_name,kin,calling,level,"
             "might,grace,wits,spirit,max_life,life,defense,ap,strain,"
             "armor_name,shield,weapon_name,weapon_damage_die,weapon_bonus,"
-            "background,goal,personality,notes,portrait,gold "
-            "FROM save_character ORDER BY owner;");
+            "background,goal,personality,notes,portrait,gold";
+        if (withArmorBonus) sql += ",armor_defense_bonus";
+        sql += " FROM save_character ORDER BY owner;";
+        Stmt s(conn.db, sql.c_str());
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             Character c;
             c.name            = colText(s.s, 1);
@@ -275,9 +293,12 @@ GameSave loadGame(const std::string& path) {
             c.notes           = colText(s.s, 23);
             c.portraitPath    = colText(s.s, 24);
             c.gold            = colInt(s.s, 25);
+            if (withArmorBonus) c.armorDefenseBonus = colInt(s.s, 26);
             save.party.push_back(std::move(c));
         }
-    }
+    };
+    try { loadParty(true); }
+    catch (const DbError&) { save.party.clear(); loadParty(false); }
     // Child lists keyed by owner index (position in save.party).
     auto fillList = [&](const char* sql, std::vector<std::string> Character::* field) {
         Stmt s(conn.db, sql);
@@ -289,11 +310,14 @@ GameSave loadGame(const std::string& path) {
     fillList("SELECT owner,name FROM save_character_training ORDER BY rowid;", &Character::trainings);
     fillList("SELECT owner,name FROM save_character_spell ORDER BY rowid;",    &Character::spells);
 
-    // save_character_item gained description/image_id/image_path/quantity in v3. Try the rich
-    // layout: level 2 = newest (with value, v4), 1 = v3 (rich, no value), 0 = v2 (name only).
+    // save_character_item gained description/image_id/image_path/quantity in v3, `value` in v4, and
+    // the equip profile (slot/damage_die/defense_bonus/weapon_bonus/dropable) in v7. level 3 = newest,
+    // 2 = +value, 1 = rich (no value), 0 = name only.
     auto fillItems = [&](int level) {
         const char* sql =
-            level >= 2 ? "SELECT owner,name,description,image_id,image_path,quantity,value FROM save_character_item ORDER BY rowid;"
+            level >= 3 ? "SELECT owner,name,description,image_id,image_path,quantity,value,"
+                         "slot,damage_die,defense_bonus,weapon_bonus,dropable FROM save_character_item ORDER BY rowid;"
+            : level >= 2 ? "SELECT owner,name,description,image_id,image_path,quantity,value FROM save_character_item ORDER BY rowid;"
             : level >= 1 ? "SELECT owner,name,description,image_id,image_path,quantity FROM save_character_item ORDER BY rowid;"
                          : "SELECT owner,name FROM save_character_item ORDER BY rowid;";
         Stmt s(conn.db, sql);
@@ -309,11 +333,18 @@ GameSave loadGame(const std::string& path) {
                 it.quantity    = colInt(s.s, 5);
                 if (it.quantity < 1) it.quantity = 1;
                 if (level >= 2) it.value = colInt(s.s, 6);
+                if (level >= 3) {
+                    it.slot         = colInt(s.s, 7);
+                    it.damageDie    = colText(s.s, 8);
+                    it.defenseBonus = colInt(s.s, 9);
+                    it.weaponBonus  = colInt(s.s, 10);
+                    it.dropable     = colInt(s.s, 11) != 0;
+                }
             }
             save.party[owner].inventory.push_back(std::move(it));
         }
     };
-    for (int level = 2; ; --level) {
+    for (int level = 3; ; --level) {
         try { fillItems(level); break; }
         catch (const DbError&) {
             for (auto& c : save.party) c.inventory.clear();
@@ -344,6 +375,12 @@ GameSave loadGame(const std::string& path) {
         Stmt s(conn.db, "SELECT area_id,ctx_name FROM save_deleted_contexts;");
         while (sqlite3_step(s.s) == SQLITE_ROW)
             save.deletedContexts.insert({colInt(s.s, 0), colText(s.s, 1)});
+    } catch (const DbError&) {}
+    // save_granted_dropable (v7): runtime dropable status of module granted items, by name.
+    try {
+        Stmt s(conn.db, "SELECT name,dropable FROM save_granted_dropable;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            save.grantedDropable[colText(s.s, 0)] = colInt(s.s, 1) != 0;
     } catch (const DbError&) {}
 
     return save;

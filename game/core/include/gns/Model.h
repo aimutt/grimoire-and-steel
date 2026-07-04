@@ -50,15 +50,6 @@ struct Calling {
     std::vector<std::string> weaponOptions;     // weapon names
 };
 
-// A weapon class with its damage die (e.g. "One-handed weapon" -> "1d6").
-struct WeaponCategory {
-    int id = 0;
-    std::string name;
-    std::string damageDie;   // e.g. "1d6"
-    std::string examples;
-    int sortOrder = 0;
-};
-
 // An armor (or shield) option granting a flat Defense bonus.
 struct Armor {
     int id = 0;

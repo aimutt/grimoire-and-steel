@@ -52,13 +52,19 @@ public:
     const std::set<std::string>& flags() const { return flags_; }
     void setFlags(std::set<std::string> f) { flags_ = std::move(f); }
 
-    // --- Resolved choice areas ------------------------------------------------
-    // Areas whose choices have already been decided, so the engine stops re-prompting
-    // once a choice was made there (even after the party leaves and returns).
-    void resolveChoiceArea(int areaId) { resolvedChoiceAreas_.insert(areaId); }
-    bool isChoiceResolved(int areaId) const { return resolvedChoiceAreas_.count(areaId) != 0; }
-    const std::set<int>& resolvedChoiceAreas() const { return resolvedChoiceAreas_; }
-    void setResolvedChoiceAreas(std::set<int> ids) { resolvedChoiceAreas_ = std::move(ids); }
+    // --- Resolved choice contexts ---------------------------------------------
+    // Contexts whose choices have already been decided, keyed by (areaId, context name),
+    // so the engine stops re-prompting a context once a choice was made there (even after
+    // the party leaves and returns). Keyed per-context (not per-area) so a later active
+    // context in the same area still presents its own choices.
+    void resolveChoiceContext(int areaId, const std::string& ctxName) {
+        resolvedChoiceContexts_.insert({areaId, ctxName});
+    }
+    bool isChoiceResolved(int areaId, const std::string& ctxName) const {
+        return resolvedChoiceContexts_.count({areaId, ctxName}) != 0;
+    }
+    const std::set<std::pair<int, std::string>>& resolvedChoiceContexts() const { return resolvedChoiceContexts_; }
+    void setResolvedChoiceContexts(std::set<std::pair<int, std::string>> c) { resolvedChoiceContexts_ = std::move(c); }
 
     // --- Global variables -----------------------------------------------------
     // Current values of the module's typed globals (ModuleVariable), stored as canonical
@@ -72,6 +78,23 @@ public:
     }
     const std::map<std::string, std::string>& globals() const { return globals_; }
     void setGlobals(std::map<std::string, std::string> g) { globals_ = std::move(g); }
+
+    // --- Granted-item dropable status -----------------------------------------
+    // Runtime dropable state for module granted items, keyed by item name. Seeded from each grant's
+    // authored default (seedItemDropable, insert-if-absent) at session start; a "Set item dropable"
+    // choice effect mutates it. A name present here is a "granted" item; dropping it is gated by its
+    // current value. Non-granted items (not in the map) are always droppable. Serialized in .gnssav.
+    void seedItemDropable(const std::string& name, bool dropable) {
+        grantedDropable_.emplace(name, dropable);   // no-op if already present
+    }
+    void setItemDropable(const std::string& name, bool dropable) { grantedDropable_[name] = dropable; }
+    bool isGrantedName(const std::string& name) const { return grantedDropable_.count(name) != 0; }
+    bool isDropable(const std::string& name) const {
+        auto it = grantedDropable_.find(name);
+        return it == grantedDropable_.end() ? true : it->second;
+    }
+    const std::map<std::string, bool>& grantedDropable() const { return grantedDropable_; }
+    void setGrantedDropable(std::map<std::string, bool> m) { grantedDropable_ = std::move(m); }
 
     // --- Deactivated areas (set by area choices) ------------------------------
     // Areas a choice has removed from play: no longer drawn on the map and no longer
@@ -94,8 +117,9 @@ public:
 private:
     std::set<int> completed_;
     std::set<std::string> flags_;
-    std::set<int> resolvedChoiceAreas_;
+    std::set<std::pair<int, std::string>> resolvedChoiceContexts_;
     std::map<std::string, std::string> globals_;
+    std::map<std::string, bool> grantedDropable_;
     std::set<int> deactivatedAreas_;
     std::set<std::pair<int, std::string>> deletedContexts_;
 };
