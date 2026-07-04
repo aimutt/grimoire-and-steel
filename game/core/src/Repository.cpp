@@ -65,13 +65,6 @@ void Repository::load() {
         if (it != callingById_.end()) callings_[it->second].weaponOptions.push_back(r[1]);
     }
     for (auto& r : db_.query(
-            "SELECT weapon_category_id, name, COALESCE(damage_die,''), COALESCE(examples,''), "
-            "sort_order FROM weapon_category ORDER BY sort_order")) {
-        WeaponCategory w{toInt(r[0]), r[1], r[2], r[3], toInt(r[4])};
-        weaponCatByName_[w.name] = (int)weaponCats_.size();
-        weaponCats_.push_back(std::move(w));
-    }
-    for (auto& r : db_.query(
             "SELECT armor_id, name, defense_bonus, COALESCE(notes,''), sort_order "
             "FROM armor ORDER BY sort_order")) {
         Armor a{toInt(r[0]), r[1], toInt(r[2]), r[3], toInt(r[4])};
@@ -160,10 +153,6 @@ const Calling* Repository::callingById(int id) const {
 const Training* Repository::training(const std::string& name) const {
     auto it = trainingByName_.find(name);
     return it == trainingByName_.end() ? nullptr : &trainings_[it->second];
-}
-const WeaponCategory* Repository::weaponCategory(const std::string& name) const {
-    auto it = weaponCatByName_.find(name);
-    return it == weaponCatByName_.end() ? nullptr : &weaponCats_[it->second];
 }
 const Armor* Repository::armor(const std::string& name) const {
     auto it = armorByName_.find(name);

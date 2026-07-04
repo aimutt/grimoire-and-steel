@@ -1782,10 +1782,53 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             // gallery (grouped by category) with a "Browse file..." filesystem fallback.
             ImGui::TextDisabled("Item image (pick from the gallery or browse a file)");
             drawItemArtPicker(app, "chgrantart", &ch.grantItem.imageId, &ch.grantItem.imagePath);
+            // Equip profile: makes a granted weapon/armor equippable in the engine (drag-and-drop).
+            ImGui::TextDisabled("Equip slot - lets the player equip this item for combat");
+            static const char* kGrantSlots[] = {"Not equippable", "Weapon", "Armor", "Shield"};
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::Combo("##chgrantslot", &ch.grantItem.slot, kGrantSlots, IM_ARRAYSIZE(kGrantSlots)))
+                app.dirty = true;
+            if (ch.grantItem.slot == 1) {
+                ImGui::SetNextItemWidth(110);
+                if (InputStr("Damage die##chgrantdie", &ch.grantItem.damageDie)) app.dirty = true;
+                ImGui::SameLine(); ImGui::SetNextItemWidth(110);
+                if (ImGui::InputInt("Weapon +##chgrantwb", &ch.grantItem.weaponBonus)) app.dirty = true;
+            } else if (ch.grantItem.slot == 2 || ch.grantItem.slot == 3) {
+                ImGui::SetNextItemWidth(140);
+                if (ImGui::InputInt("Defense bonus##chgrantdef", &ch.grantItem.defenseBonus)) app.dirty = true;
+            }
+            if (ImGui::Checkbox("Dropable (the player may drop this granted item)", &ch.grantItem.dropable))
+                app.dirty = true;
             ImGui::TextDisabled("On acquire - variable changes when this item is gained");
             if (drawMutationList(app, "chgrantacq", ch.grantItem.onAcquire)) app.dirty = true;
             ImGui::TextDisabled("On unacquire - variable changes when this item is later lost");
             if (drawMutationList(app, "chgrantunacq", ch.grantItem.onUnacquire)) app.dirty = true;
+            // "Set item dropable" effects: lock/unlock whether a granted item can be dropped.
+            ImGui::TextDisabled("Set item dropable - change a granted item's dropable status when chosen");
+            {
+                auto granted = gns::collectGrantedItems(app.mod);
+                int delDs = -1;
+                for (size_t di = 0; di < ch.dropableSets.size(); ++di) {
+                    ImGui::PushID((int)di + 8200);
+                    ImGui::SetNextItemWidth(180);
+                    const std::string& cur = ch.dropableSets[di].first;
+                    if (ImGui::BeginCombo("##dsitem", cur.empty() ? "(item)" : cur.c_str())) {
+                        for (const auto& g : granted)
+                            if (ImGui::Selectable(g.first.c_str(), cur == g.first)) {
+                                ch.dropableSets[di].first = g.first; app.dirty = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine();
+                    bool d = ch.dropableSets[di].second;
+                    if (ImGui::Checkbox("dropable##dsval", &d)) { ch.dropableSets[di].second = d; app.dirty = true; }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X##dsdel")) delDs = (int)di;
+                    ImGui::PopID();
+                }
+                if (delDs >= 0) { ch.dropableSets.erase(ch.dropableSets.begin() + delDs); app.dirty = true; }
+                if (ImGui::SmallButton("Add dropable rule")) { ch.dropableSets.emplace_back("", true); app.dirty = true; }
+            }
             ImGui::TextDisabled("Take item (optional) - item name removed from the active character");
             ImGui::SetNextItemWidth(-1);
             if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
@@ -2208,6 +2251,16 @@ static void drawModuleInspector(App& app) {
         gns::ModuleVariable v; v.name = "var" + std::to_string(app.mod.variables.size() + 1);
         v.type = gns::VarType::Bool; v.defaultValue = "false";
         app.mod.variables.push_back(std::move(v)); app.dirty = true;
+    }
+
+    ImGui::SeparatorText("Granted Items");
+    ImGui::TextDisabled("Items any choice grants to the party (dropable = may be dropped without\n"
+                        "selling). A context's 'Set item dropable' effect can change this at play.");
+    {
+        auto granted = gns::collectGrantedItems(app.mod);
+        if (granted.empty()) ImGui::TextDisabled("(no granted items assigned)");
+        else for (const auto& g : granted)
+            ImGui::BulletText("%s  -  dropable: %s", g.first.c_str(), g.second ? "true" : "false");
     }
 
     ImGui::SeparatorText("Cover Art");

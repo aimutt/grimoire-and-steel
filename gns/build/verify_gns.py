@@ -21,7 +21,6 @@ COUNTS = {
     "calling": 4,
     "calling_training_option": 9,
     "calling_weapon_option": 10,
-    "weapon_category": 5,
     "armor": 5,
     "equipment": 57,
     "challenge_number": 5,
@@ -65,8 +64,6 @@ def main() -> int:
         "select group_concat(name, ',') from (select name from trait order by sort_order)"),
         "Might,Grace,Wits,Spirit")
     check("Mail armor defense bonus", one("select defense_bonus from armor where name='Mail armor'"), 2)
-    check("One-handed weapon die", one(
-        "select damage_die from weapon_category where name='One-handed weapon'"), "1d6")
     check("Ogre life", one("select life from monster where name='Ogre'"), 22)
     check("Heal challenge number", one("select challenge_number from spell where name='Heal'"), 12)
     check("Blade level-5 AP", one(
@@ -75,6 +72,10 @@ def main() -> int:
     check("Normal challenge target", one(
         "select target_number from challenge_number where name='Normal'"), 12)
     check("Long Sword damage", one("select damage from equipment where name='Long Sword'"), "1d8")
+    check("Battle Axe damage", one("select damage from equipment where name='Battle Axe'"), "1d10")
+    check("War Hammer damage", one("select damage from equipment where name='War Hammer'"), "1d10")
+    check("War Staff damage", one("select damage from equipment where name='War Staff'"), "1d6")
+    check("Staff damage", one("select damage from equipment where name='Staff'"), "1d4")
     check("Plate Armor protection", one(
         "select defense_bonus from equipment where name='Plate Armor'"), 3)
     check("Potion of Healing cost", one(

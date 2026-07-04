@@ -35,6 +35,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -263,12 +264,11 @@ int main(int, char**) {
     Mode mode = repo ? Mode::Characters : Mode::Browser;
 
     // Lists for the creation combos (built once from the repository).
-    std::vector<std::string> kinNames, callingNames, trainingNames, weaponCatNames, spellNames;
+    std::vector<std::string> kinNames, callingNames, trainingNames, spellNames;
     if (repo) {
         for (const auto& k : repo->kins()) kinNames.push_back(k.name);
         for (const auto& c : repo->callings()) callingNames.push_back(c.name);
         for (const auto& t : repo->trainings()) trainingNames.push_back(t.name);
-        for (const auto& w : repo->weaponCategories()) weaponCatNames.push_back(w.name);
         for (const auto& s : repo->spells()) spellNames.push_back(s.name);
     }
 
@@ -286,6 +286,7 @@ int main(int, char**) {
     std::string moduleDir;                              // folder of the open .gnsmod (for relative art)
     std::string modulePath;                             // full path of the open .gnsmod (for the save sidecar)
     bool haveSaveFile = false;                          // a .gnssav sits next to the open module
+    std::string savePreview;                            // one-line summary of the resumable save
     SDL_Texture* coverTex = nullptr;
 
     // The single auto-saved progress file: the module path with a .gnssav extension.
@@ -444,6 +445,15 @@ int main(int, char**) {
             modulePath = path;
             std::error_code ec;
             haveSaveFile = std::filesystem::exists(sidecarPath(), ec);
+            // Peek the save once (cheap, on open) for a one-line resume preview.
+            savePreview.clear();
+            if (haveSaveFile) {
+                try {
+                    gns::GameSave gs = gns::loadGame(sidecarPath());
+                    savePreview = "Party of " + std::to_string(gs.party.size()) +
+                                  "  \xC2\xB7  " + std::to_string(gs.turnCount) + " turns played";
+                } catch (const std::exception&) { savePreview.clear(); }
+            }
             clearImgCache();   // new module -> drop stale area textures
             if (coverTex) { SDL_DestroyTexture(coverTex); coverTex = nullptr; }
             if (!mod.coverArtPath.empty()) {
@@ -468,6 +478,7 @@ int main(int, char**) {
     int faceX = 0, faceY = 1;                 // facing direction (default south)
     int shopBuyer = 0;                        // which party member is buying/selling
     int sheetChar = -1;                       // party member whose full sheet+inventory window is open (-1 none)
+    std::string sheetMsg;                     // transient note on the character sheet (e.g. undroppable item)
     bool areaView = false;                    // left region shows the area view, not the map
     std::string contextError;                 // set when an area has 2+ active contexts (logic halt)
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
@@ -529,10 +540,11 @@ int main(int, char**) {
         gs.activeChar = shopBuyer;
         gs.controlPoints = session->plot().completedIds();
         gs.flags         = session->plot().flags();
-        gs.resolvedAreas = session->plot().resolvedChoiceAreas();
+        gs.resolvedContexts = session->plot().resolvedChoiceContexts();
         gs.globals       = session->plot().globals();
         gs.deactivatedAreas = session->plot().deactivatedAreas();
         gs.deletedContexts  = session->plot().deletedContexts();
+        gs.grantedDropable  = session->plot().grantedDropable();
         gs.journal = journal;
         gs.party   = session->party().members;
         try { gns::saveGame(sidecarPath(), gs); haveSaveFile = true; }
@@ -642,20 +654,43 @@ int main(int, char**) {
             const char* name; const char* kin; const char* calling;
             gns::Traits traits; std::vector<std::string> trainings;
             const char* armor; bool shield; const char* weapon; const char* die;
-            std::vector<std::string> spells;
+            std::vector<std::string> spells; const char* backstory;
         };
         const Pre pres[5] = {
             {"Bram", "Human", "Blade",  {2,1,0,-1}, {"Blades","Shields","Survival","Lore"},
-                "Mail armor", true,  "Short sword", "1d6", {}},
+                "Mail armor", true,  "Short sword", "1d6", {},
+                "The son of a village smith, Bram traded the forge for a sword after raiders burned "
+                "his home. He hires out his blade to caravans and dreams of earning a knighthood."},
             {"Mira", "Elf", "Mystic",   {-1,0,1,2}, {"Sorcery","Lore","Healing"},
-                "No armor", false, "Staff", "1d6", {"Flame","Heal","Ward"}},
+                "No armor", false, "Staff", "1d4", {"Flame","Heal","Ward"},
+                "Raised among the hedge-witches of the Silverwood, Mira left to study the old spells "
+                "no one else would teach her. She travels to fill her book and mend what she can."},
             {"Dax", "Halfling", "Shadow", {0,2,1,-1}, {"Stealth","Locks","Survival"},
-                "Light armor", false, "Dagger", "1d4", {}},
+                "Light armor", false, "Dagger", "1d4", {},
+                "A former dockside pickpocket, Dax found honest work harder to escape than any jail. "
+                "Quick hands and a quicker grin keep him one step ahead of old debts."},
             {"Lyra", "Human", "Sage",   {-1,0,2,1}, {"Lore","Healing","Persuasion","Crafting"},
-                "Light armor", false, "Short sword", "1d6", {}},
+                "Light armor", false, "Short sword", "1d6", {},
+                "Once an apprentice archivist, Lyra grew restless copying other people's adventures. "
+                "She set out to record her own, one dusty ruin and lost tale at a time."},
             {"Orin", "Dwarf", "Blade",  {2,0,-1,1}, {"Axes","Shields","Survival"},
-                "Mail armor", true,  "Hand axe", "1d6", {}},
+                "Mail armor", true,  "Hand axe", "1d6", {},
+                "Exiled from his mountain hold over a feud he will not discuss, Orin swings his axe "
+                "for anyone with coin and a worthy cause, hoping one day to be welcomed home."},
         };
+        // Equipment/food pool for the randomized starting kit. A pregen already wields its equipped
+        // weapon and wears its equipped armor (its "1 weapon / 1 armor"), so the inventory roll adds
+        // only a single Gear item -- never a second weapon or armor.
+        std::vector<const gns::Equipment*> gearPool;
+        for (const auto& e : repo->equipment())
+            if (e.category == "Gear") gearPool.push_back(&e);
+        auto asItem = [](const gns::Equipment& e) {
+            gns::InventoryItem it;
+            it.name = e.name; it.description = e.description; it.imageId = e.imageId;
+            it.quantity = 1; it.value = e.costGp;
+            return it;
+        };
+
         roster.clear();
         for (int i = 0; i < n; ++i) {
             const Pre& p = pres[i % 5];
@@ -664,14 +699,17 @@ int main(int, char**) {
             c.weaponName = p.weapon;
             c.weaponDamageDie = p.die;
             c.spells = p.spells;
-            // Baseline kit so every generated character carries a few items, each with a baked-in
-            // thumbnail (names match ArmorWeapons catalog files).
-            c.inventory = {
-                {"Knife",        "A small utility knife.",   "knife.png",       "", 1},
-                {"Wooden club",  "A simple wooden club.",    "club-wooden.png", "", 1},
-                {"Staff",        "A sturdy wooden staff.",   "staff.png",       "", 1},
-                {"Small shield", "A light wooden buckler.",  "shield-small.png","", 1},
+            c.background = p.backstory;
+            // Randomized starting kit: give 0 or 1 equipment/food item (varied but reproducible
+            // via a per-character seed).
+            std::mt19937 rng(0xC0FFEEu + (unsigned)i);
+            auto maybePick = [&](const std::vector<const gns::Equipment*>& pool) {
+                if (pool.empty() || (rng() & 1u) == 0u) return;   // coin-flip: skip
+                const gns::Equipment* e = pool[rng() % pool.size()];
+                c.inventory.push_back(asItem(*e));
             };
+            c.inventory.clear();
+            maybePick(gearPool);
             if (!portraitFiles.empty()) c.portraitPath = portraitFiles[i % portraitFiles.size()];
             roster.push_back(std::move(c));
         }
@@ -716,12 +754,15 @@ int main(int, char**) {
         session->state().mode      = (gns::PlayMode)gs.mode;
         session->plot().setCompletedIds(gs.controlPoints);
         session->plot().setFlags(gs.flags);
-        session->plot().setResolvedChoiceAreas(gs.resolvedAreas);
+        session->plot().setResolvedChoiceContexts(gs.resolvedContexts);
         // The Session ctor already seeded globals from module defaults; override with the saved
         // values when present (older v1 saves have none, so keep the defaults).
         if (!gs.globals.empty()) session->plot().setGlobals(gs.globals);
         session->plot().setDeactivatedAreas(gs.deactivatedAreas);
         session->plot().setDeletedContexts(gs.deletedContexts);
+        // The Session ctor seeded dropable status from module grant defaults; override with saved
+        // values when present (older saves have none, so the seeded defaults stand).
+        if (!gs.grantedDropable.empty()) session->plot().setGrantedDropable(gs.grantedDropable);
         journal = gs.journal;
         cursorX = gs.cursorX; cursorY = gs.cursorY; faceX = gs.faceX; faceY = gs.faceY;
         shopBuyer = gs.activeChar;
@@ -1168,7 +1209,7 @@ int main(int, char**) {
             // area must always show its text (art is optional).
             float topAvail = ImGui::GetContentRegionAvail().x;
             float imgW = std::min(560.0f, topAvail * 0.42f);
-            const bool hasDecision = !ctx->choices.empty() && !session->plot().isChoiceResolved(a->id);
+            const bool hasDecision = !ctx->choices.empty() && !session->plot().isChoiceResolved(a->id, ctx->name);
             bool drewArt = false;
             {
                 ImGui::BeginGroup();
@@ -1209,8 +1250,13 @@ int main(int, char**) {
                                     [&](const gns::InventoryItem& x){ return x.name == ch.grantItem.name; });
                                 if (it != who.inventory.end()) it->quantity += qty;
                                 else { gns::InventoryItem gi = ch.grantItem; gi.quantity = qty; who.inventory.push_back(gi); }
+                                // Register the granted item's dropable status (seed if not already set).
+                                session->plot().seedItemDropable(ch.grantItem.name, ch.grantItem.dropable);
                                 fireAcquire(ch.grantItem);   // item enters inventory
                             }
+                            // "Set item dropable" effects: lock/unlock whether a granted item can be dropped.
+                            for (const auto& ds : ch.dropableSets)
+                                session->plot().setItemDropable(ds.first, ds.second);
                             if (!ch.takeItemName.empty()) {
                                 auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
                                     [&](const gns::InventoryItem& x){ return x.name == ch.takeItemName; });
@@ -1230,7 +1276,7 @@ int main(int, char**) {
                                 else
                                     session->plot().deactivateArea(a->id);
                             }
-                            session->plot().resolveChoiceArea(a->id);
+                            session->plot().resolveChoiceContext(a->id, ctx->name);
                             autoSave();
                         }
                         ImGui::PopID();
@@ -1447,7 +1493,18 @@ int main(int, char**) {
                         if (inv != buyer.inventory.end()) inv->quantity += 1;
                         else {
                             gns::InventoryItem ni{it.name, it.description, it.imageId, it.imagePath, 1};
+                            ni.value = it.costGp;
                             ni.onAcquire = it.onAcquire; ni.onUnacquire = it.onUnacquire;
+                            // Derive an equip profile from the catalog so bought weapons/armor are
+                            // equippable (matched by baked-in art id).
+                            if (repo && !it.imageId.empty())
+                                for (const auto& e : repo->equipment())
+                                    if (e.imageId == it.imageId) {
+                                        if (e.category == "Weapon")      { ni.slot = 1; ni.damageDie = e.damage; }
+                                        else if (e.category == "Armor")  { ni.slot = 2; ni.defenseBonus = e.defenseBonus; }
+                                        else if (e.category == "Shield") { ni.slot = 3; ni.defenseBonus = e.defenseBonus; }
+                                        break;
+                                    }
                             buyer.inventory.push_back(std::move(ni));
                         }
                         fireAcquire(it);   // item bought -> enters inventory
@@ -1545,22 +1602,29 @@ int main(int, char**) {
                     ImGui::EndTable();
                 }
                 bool hov = ImGui::IsWindowHovered();
+                if (hov) ImGui::SetTooltip("Click to view sheet & inventory");
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
                 ImGui::PopStyleColor();
-                if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) shopBuyer = (int)i;
-                // Open the full character sheet + inventory window for this member.
-                if (ImGui::SmallButton("View details / inventory")) { shopBuyer = (int)i; sheetChar = (int)i; }
+                // Clicking the card makes the character active AND opens their full sheet + inventory
+                // (no separate button -- the whole card is the affordance).
+                if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    shopBuyer = (int)i; sheetChar = (int)i; sheetMsg.clear();
+                }
                 ImGui::PopID();
                 ImGui::Spacing();
             }
         };
 
-        // Floating window: a character's full sheet + inventory. Opened from a party card's
-        // "View details" button; closed with the window's X (or when the party changes). Every
-        // carried item shows a name + thumbnail; hovering a tile reveals its description.
-        auto drawCharacterSheet = [&](const gns::Character& pc) {
-            ImGui::SetNextWindowSize(ImVec2(460, 520), ImGuiCond_Appearing);
+        // Floating window: a character's full sheet + inventory. Opened by clicking a party card;
+        // closed with the window's X (or when the party changes). Every carried item shows a name +
+        // thumbnail; hovering a tile reveals its description.
+        auto drawCharacterSheet = [&](gns::Character& pc) {
+            // Size the sheet to most of the viewport height so the full stat/gear/inventory
+            // list fits without scrolling in the common case (still resizable/scrollable for
+            // extreme inventories). ImGuiCond_Appearing keeps a user's manual resize sticky.
+            const ImVec2 work = ImGui::GetMainViewport()->WorkSize;
+            ImGui::SetNextWindowSize(ImVec2(660.0f, work.y * 0.9f), ImGuiCond_Appearing);
             bool open = true;
             std::string title = (pc.name.empty() ? std::string("Character") : pc.name) + "###charsheet";
             if (ImGui::Begin(title.c_str(), &open)) {
@@ -1587,52 +1651,66 @@ int main(int, char**) {
                 // every item on the sheet shows a thumbnail.
                 const float iconSz = 56.0f;
                 const float iconH = iconSz * 4.0f / 3.0f;   // item art is 3:4 (portrait), never square
-                auto tile = [&](const std::string& id, SDL_Texture* tx, const std::string& label,
-                                const std::string& tipTitle, const std::string& tipDesc) {
-                    ImGui::PushID(id.c_str());
+
+                // Pending gear actions, applied after the UI so we never mutate the inventory
+                // mid-render (which would invalidate indices / ImGui ids).
+                int equipIdx = -1;      // inventory index to equip into its slot
+                int unequipSlot = 0;    // equipped slot (1 weapon, 2 armor, 3 shield) to move to inventory
+                int dropIdx = -1;       // inventory index to drop
+
+                // An equipped-slot tile: a drag SOURCE (payload GNS_EQUIP = slot) when filled, and a
+                // drop TARGET that equips a dragged inventory item whose slot matches.
+                auto equipSlotTile = [&](const char* id, int slot, SDL_Texture* tx,
+                                         const std::string& label, const std::string& tip, bool filled) {
+                    ImGui::PushID(id);
                     ImGui::BeginGroup();
-                    if (tx) {
-                        ImGui::Image((ImTextureID)tx, ImVec2(iconSz, iconH));
-                    } else {
-                        std::string ph(1, label.empty() ? '?' : (char)std::toupper((unsigned char)label[0]));
-                        ImGui::Button(ph.c_str(), ImVec2(iconSz, iconH));
+                    if (tx) ImGui::ImageButton("b", (ImTextureID)tx, ImVec2(iconSz, iconH));
+                    else    ImGui::Button(label.empty() ? "-" : label.substr(0, 1).c_str(), ImVec2(iconSz, iconH));
+                    if (filled && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                        ImGui::SetDragDropPayload("GNS_EQUIP", &slot, sizeof(int));
+                        ImGui::TextUnformatted(label.c_str());
+                        ImGui::EndDragDropSource();
                     }
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GNS_INV")) {
+                            int idx = *(const int*)p->Data;
+                            if (idx >= 0 && idx < (int)pc.inventory.size() && pc.inventory[idx].slot == slot)
+                                equipIdx = idx;
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (ImGui::IsItemHovered() && !tip.empty()) ImGui::SetTooltip("%s", tip.c_str());
                     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + iconSz);
                     ImGui::TextUnformatted(label.c_str());
                     ImGui::PopTextWrapPos();
                     ImGui::EndGroup();
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::TextUnformatted(tipTitle.empty() ? label.c_str() : tipTitle.c_str());
-                        if (!tipDesc.empty()) {
-                            ImGui::Separator();
-                            ImGui::PushTextWrapPos(320.0f);
-                            ImGui::TextUnformatted(tipDesc.c_str());
-                            ImGui::PopTextWrapPos();
-                        }
-                        ImGui::EndTooltip();
-                    }
                     ImGui::PopID();
                 };
 
-                ImGui::SeparatorText("Gear");
+                ImGui::SeparatorText("Equipped Weapons and Armor");
+                ImGui::TextDisabled("Drag an item here to equip it; drag a slot into Inventory to remove it.");
                 {
                     // Weapon.
-                    std::string weap = pc.weaponName.empty() ? std::string("Unarmed") : pc.weaponName;
+                    bool hasWeapon = !pc.weaponName.empty();
+                    std::string weap = hasWeapon ? pc.weaponName : std::string("Unarmed");
                     std::string weapTip = weap + " (" +
                         (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
                     if (pc.weaponBonus) weapTip += " +" + std::to_string(pc.weaponBonus);
-                    tile("gw", itemTexture(gearArtFile(pc.weaponName)), weap, weapTip, "");
+                    equipSlotTile("gw", 1, hasWeapon ? itemTexture(gearArtFile(pc.weaponName)) : nullptr,
+                                  weap, weapTip, hasWeapon);
                     ImGui::SameLine();
-                    // Armor - the tunic stands in as everyday clothes when the character wears none.
+                    // Armor - the tunic stands in as everyday clothes when the character wears none
+                    // (the tunic image is always shown so the slot never renders as a blank letter).
                     bool noArmor = pc.armorName.empty() || pc.armorName == "No armor";
                     std::string armLabel = noArmor ? std::string("Clothes") : pc.armorName;
-                    tile("ga", itemTexture(gearArtFile(noArmor ? std::string("No armor") : pc.armorName)),
-                         armLabel, noArmor ? std::string("Tunic (no armor)") : pc.armorName, "");
-                    if (pc.shield) {
-                        ImGui::SameLine();
-                        tile("gs", itemTexture(shieldArtFile("")), "Shield", "Shield", "");
-                    }
+                    equipSlotTile("ga", 2, itemTexture(gearArtFile(noArmor ? std::string("No armor") : pc.armorName)),
+                                  armLabel, noArmor ? std::string("Tunic (no armor)") : pc.armorName, !noArmor);
+                    ImGui::SameLine();
+                    // Shield slot is always shown so an inventory shield can be dropped onto it.
+                    equipSlotTile("gs", 3, pc.shield ? itemTexture(shieldArtFile("")) : nullptr,
+                                  pc.shield ? std::string("Shield") : std::string("No shield"),
+                                  pc.shield ? std::string("Shield (+1 Defense)") : std::string("No shield"),
+                                  pc.shield);
                 }
                 if (!pc.trainings.empty()) {
                     ImGui::SeparatorText("Trainings");
@@ -1647,26 +1725,101 @@ int main(int, char**) {
                     ImGui::TextWrapped("%s", s.c_str());
                 }
                 ImGui::SeparatorText("Inventory");
+                ImGui::TextDisabled("(Carried items - not equipped, no combat effect.)");
+                // A bordered region that also accepts an equipped tile dropped onto it (unequip).
+                ImGui::BeginChild("invregion", ImVec2(0, 200), ImGuiChildFlags_Borders);
                 if (pc.inventory.empty()) {
                     ImGui::TextDisabled("(carrying nothing)");
-                } else {
-                    ImGuiStyle& st = ImGui::GetStyle();
-                    float availW = ImGui::GetContentRegionAvail().x;
-                    int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (iconSz + st.ItemSpacing.x)));
-                    int placed = 0;
-                    for (size_t k = 0; k < pc.inventory.size(); ++k) {
-                        const gns::InventoryItem& it = pc.inventory[k];
-                        if (placed % perRow != 0) ImGui::SameLine();
-                        std::string nm = it.name.empty() ? std::string("(item)") : it.name;
-                        std::string lbl = nm;
-                        if (it.quantity > 1) lbl += " x" + std::to_string(it.quantity);
-                        tile("inv" + std::to_string(k), invItemTexture(it), lbl, nm, it.description);
-                        ++placed;
+                }
+                for (size_t k = 0; k < pc.inventory.size(); ++k) {
+                    const gns::InventoryItem& it = pc.inventory[k];
+                    std::string nm = it.name.empty() ? std::string("(item)") : it.name;
+                    std::string lbl = nm;
+                    if (it.quantity > 1) lbl += " x" + std::to_string(it.quantity);
+                    const bool equippable = it.slot >= 1 && it.slot <= 3;
+                    const bool canDrop = session->plot().isDropable(it.name);
+
+                    ImGui::PushID((int)k + 6000);
+                    SDL_Texture* tx = invItemTexture(it);
+                    if (tx) ImGui::ImageButton("b", (ImTextureID)tx, ImVec2(iconSz, iconH));
+                    else    ImGui::Button(nm.substr(0, 1).c_str(), ImVec2(iconSz, iconH));
+                    // Drag SOURCE: this inventory item (equip target reads its slot).
+                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                        int idx = (int)k;
+                        ImGui::SetDragDropPayload("GNS_INV", &idx, sizeof(int));
+                        ImGui::TextUnformatted(lbl.c_str());
+                        ImGui::EndDragDropSource();
                     }
+                    // Drop TARGET on a tile: an equipped item dropped here is unequipped.
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GNS_EQUIP"))
+                            unequipSlot = *(const int*)p->Data;
+                        ImGui::EndDragDropTarget();
+                    }
+                    ImGui::SameLine();
+                    ImGui::BeginGroup();
+                    ImGui::TextUnformatted(lbl.c_str());
+                    if (equippable)
+                        ImGui::TextDisabled(it.slot == 1 ? "Weapon (drag to equip)"
+                                          : it.slot == 2 ? "Armor (drag to equip)"
+                                                         : "Shield (drag to equip)");
+                    else if (!it.description.empty())
+                        ImGui::TextDisabled("%s", it.description.c_str());
+                    if (ImGui::SmallButton("Drop")) {
+                        if (canDrop) dropIdx = (int)k;
+                        else sheetMsg = nm + " was granted and cannot be dropped.";
+                    }
+                    ImGui::EndGroup();
+                    ImGui::PopID();
+                    ImGui::Spacing();
+                }
+                ImGui::EndChild();
+                // Dropping an equipped tile anywhere on the Inventory region unequips it.
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GNS_EQUIP"))
+                        unequipSlot = *(const int*)p->Data;
+                    ImGui::EndDragDropTarget();
+                }
+                if (!sheetMsg.empty())
+                    ImGui::TextColored(ImVec4(1, 0.7f, 0.4f, 1), "%s", sheetMsg.c_str());
+
+                // Apply exactly one pending gear action, then repair item art and autosave.
+                auto repairGearArt = [&]() {
+                    for (auto& iv : pc.inventory) {
+                        if (!iv.imageId.empty() || !iv.imagePath.empty()) continue;
+                        if (iv.slot == 3) iv.imageId = shieldArtFile("");
+                        else if (iv.slot == 1 || iv.slot == 2) iv.imageId = gearArtFile(iv.name);
+                    }
+                };
+                if (equipIdx >= 0) {
+                    gns::equipInventoryItem(pc, (size_t)equipIdx);
+                    repairGearArt(); sheetMsg.clear(); autoSave();
+                } else if (unequipSlot >= 1) {
+                    gns::unequipToInventory(pc, unequipSlot);
+                    repairGearArt(); sheetMsg.clear(); autoSave();
+                } else if (dropIdx >= 0 && dropIdx < (int)pc.inventory.size()) {
+                    // Drop one unit at a time; the loss hook fires per unit and the stack is removed
+                    // only when the last one is gone.
+                    fireUnacquire(pc.inventory[dropIdx]);
+                    if (--pc.inventory[dropIdx].quantity <= 0)
+                        pc.inventory.erase(pc.inventory.begin() + dropIdx);
+                    sheetMsg.clear(); autoSave();
+                }
+
+                ImGui::SeparatorText("Life & Backstory");
+                bool anyBio = !pc.background.empty() || !pc.goal.empty() ||
+                              !pc.personality.empty() || !pc.notes.empty();
+                if (!anyBio) {
+                    ImGui::TextDisabled("(No backstory recorded.)");
+                } else {
+                    if (!pc.background.empty())  ImGui::TextWrapped("%s", pc.background.c_str());
+                    if (!pc.goal.empty())        { ImGui::Spacing(); ImGui::TextDisabled("Goal");        ImGui::TextWrapped("%s", pc.goal.c_str()); }
+                    if (!pc.personality.empty()) { ImGui::Spacing(); ImGui::TextDisabled("Personality"); ImGui::TextWrapped("%s", pc.personality.c_str()); }
+                    if (!pc.notes.empty())       { ImGui::Spacing(); ImGui::TextDisabled("Notes");       ImGui::TextWrapped("%s", pc.notes.c_str()); }
                 }
             }
             ImGui::End();
-            if (!open) sheetChar = -1;
+            if (!open) { sheetChar = -1; sheetMsg.clear(); }
         };
 
         // --- Map canvas (left) ---
@@ -1841,9 +1994,36 @@ int main(int, char**) {
                 // A save sits next to this module: offer to resume it. Starting a New Game
                 // (below) overwrites the sidecar on the first autosave.
                 if (haveSaveFile) {
-                    if (ImGui::Button("Continue adventure")) continueGame();
+                    ImGui::SeparatorText("Continue Game");
+                    if (!savePreview.empty()) ImGui::TextDisabled("%s", savePreview.c_str());
+                    else                      ImGui::TextDisabled("(saved progress found)");
+                    ImGui::Spacing();
+                    // Prominent green resume; red destructive delete beside it.
+                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.16f, 0.52f, 0.24f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.64f, 0.30f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.13f, 0.44f, 0.20f, 1.0f));
+                    bool doContinue = ImGui::Button("Continue adventure");
+                    ImGui::PopStyleColor(3);
+                    if (doContinue) continueGame();
                     ImGui::SameLine();
-                    ImGui::TextDisabled("(saved progress found)");
+                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.18f, 0.18f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.68f, 0.23f, 0.23f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.46f, 0.14f, 0.14f, 1.0f));
+                    bool openDelete = ImGui::Button("Delete Adventure");
+                    ImGui::PopStyleColor(3);
+                    if (openDelete) ImGui::OpenPopup("Confirm Delete");
+                    if (ImGui::BeginPopupModal("Confirm Delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                        ImGui::TextUnformatted("Delete the saved game? This cannot be undone.");
+                        ImGui::Spacing();
+                        if (ImGui::Button("Yes, delete", ImVec2(130, 0))) {
+                            std::error_code ec; std::filesystem::remove(sidecarPath(), ec);
+                            haveSaveFile = false; savePreview.clear();
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Cancel", ImVec2(110, 0))) ImGui::CloseCurrentPopup();
+                        ImGui::EndPopup();
+                    }
                     ImGui::SeparatorText("New Game");
                 }
                 ImGui::TextDisabled("Party from roster: %d character(s)", (int)roster.size());

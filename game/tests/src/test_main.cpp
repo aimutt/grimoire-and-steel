@@ -67,10 +67,10 @@ int main() {
         Repository repo(db);
         check("Normal challenge target = 12", repo.challenge("Normal") == 12);
         check("Hard challenge target = 15", repo.challenge("Hard") == 15);
-        check("One-handed weapon die = 1d6",
-              repo.weaponCategory("One-handed weapon")->damageDie == "1d6");
-        check("Two-handed weapon die = 1d8",
-              repo.weaponCategory("Two-handed weapon")->damageDie == "1d8");
+        check("Short Sword damage = 1d6", repo.equipment("Short Sword")->damage == "1d6");
+        check("Long Sword damage = 1d8", repo.equipment("Long Sword")->damage == "1d8");
+        check("Battle Axe damage = 1d10", repo.equipment("Battle Axe")->damage == "1d10");
+        check("Staff damage = 1d4", repo.equipment("Staff")->damage == "1d4");
         check("Mail armor defense bonus = 2", repo.armor("Mail armor")->defenseBonus == 2);
         check("Plate armor defense bonus = 3", repo.armor("Plate armor")->defenseBonus == 3);
         check("Ogre life = 22", repo.monster("Ogre")->life == 22);
@@ -107,6 +107,33 @@ int main() {
         check("Human Mystic Life = 12 (10 + Might 2)", mira.maxLife == 12);
         check("Mystic unarmored Defense = 11 (10 + Grace 1)", mira.defense == 11);
         check("spell cast bonus = 1 (Spirit -1 + Sorcery 2)", spellCastBonus(mira) == 1);
+
+        // ---- Equip / unequip (drag-and-drop gear management) ----
+        {
+            Traits gtr; gtr.might = 1; gtr.grace = 1; gtr.wits = 0; gtr.spirit = -1;
+            Character eq = makeCharacter(repo, "Gear", "Human", "Blade", gtr,
+                                         {"Blades", "Shields", "Survival", "Lore"}, "Mail armor", false);
+            check("makeCharacter records armor defense bonus", eq.armorDefenseBonus == 2);
+            eq.weaponName = "Short sword"; eq.weaponDamageDie = "1d6";
+            InventoryItem axe; axe.name = "Battle Axe"; axe.slot = 1; axe.damageDie = "1d10";
+            InventoryItem plate; plate.name = "Plate Armor"; plate.slot = 2; plate.defenseBonus = 3;
+            eq.inventory = {axe, plate};
+            equipInventoryItem(eq, 0);
+            check("equip weapon updates combat die", eq.weaponName == "Battle Axe" && eq.weaponDamageDie == "1d10");
+            bool oldWeaponBack = false;
+            for (const auto& iv : eq.inventory) if (iv.name == "Short sword" && iv.slot == 1) oldWeaponBack = true;
+            check("unequipped old weapon returns to inventory", oldWeaponBack && eq.inventory.size() == 2);
+            size_t pidx = 0;
+            for (size_t k = 0; k < eq.inventory.size(); ++k) if (eq.inventory[k].name == "Plate Armor") pidx = k;
+            equipInventoryItem(eq, pidx);
+            check("equip armor recomputes Defense",
+                  eq.armorName == "Plate Armor" && eq.armorDefenseBonus == 3 &&
+                  eq.defense == 10 + eq.traits.grace + 3);
+            unequipToInventory(eq, 1);
+            bool axeStored = false;
+            for (const auto& iv : eq.inventory) if (iv.name == "Battle Axe" && iv.slot == 1) axeStored = true;
+            check("unequip weapon clears the slot and stores it", eq.weaponName.empty() && axeStored);
+        }
 
         // ---- Core resolution ----
         std::printf("== resolution ==\n");
@@ -171,11 +198,14 @@ int main() {
             c.weaponName = "Staff";
             c.weaponDamageDie = "1d4";
             c.weaponBonus = 1;
+            c.armorName = "Chain Mail"; c.shield = true; c.armorDefenseBonus = 2;   // equip profile (v7)
             c.spells = {"Flame", "Heal", "Veil"};
             c.ap = 250; c.level = 2; c.life = 7; c.strain = 1;
             c.gold = 275;   // economy (v3); rich inventory items (v4); per-item value (v5)
             c.inventory = {{"Torch", "A pitch-soaked brand.", "torch.png", "", 3, 1},
-                           {"Lake Charles Map", "A map of the town.", "map.png", "", 1, 25}};
+                           {"Lake Charles Map", "A map of the town.", "map.png", "", 1, 25},
+                           {"Long Sword", "A blade.", "sword-long.png", "", 1, 20}};
+            c.inventory[2].slot = 1; c.inventory[2].damageDie = "1d8"; c.inventory[2].dropable = false;  // v7
             c.inventory[0].onAcquire = {{"litTorches", 1, "1"}};        // carried-item hooks (v6)
             c.inventory[0].onUnacquire = {{"litTorches", 2, "1"}};
 
@@ -195,7 +225,7 @@ int main() {
                   r.maxLife == c.maxLife && r.life == 7 && r.defense == c.defense &&
                   r.ap == 250 && r.strain == 1);
             check("character equipment preserved",
-                  r.armorName == "No armor" && r.shield == false &&
+                  r.armorName == "Chain Mail" && r.shield == true && r.armorDefenseBonus == 2 &&
                   r.weaponName == "Staff" && r.weaponDamageDie == "1d4" && r.weaponBonus == 1);
             check("character flavor preserved",
                   r.background == "Hedge witch" && r.goal == "Find the lost grimoire" &&
@@ -203,13 +233,17 @@ int main() {
                   r.notes == "Owes a debt to the river spirits.");
             check("character portrait preserved", r.portraitPath == "portrait05.png");
             check("character gold + inventory preserved", r.gold == 275 &&
-                  r.inventory.size() == 2 && r.inventory[0].name == "Torch" &&
+                  r.inventory.size() == 3 && r.inventory[0].name == "Torch" &&
                   r.inventory[0].description == "A pitch-soaked brand." &&
                   r.inventory[0].imageId == "torch.png" && r.inventory[0].quantity == 3 &&
                   r.inventory[1].name == "Lake Charles Map" && r.inventory[1].quantity == 1 &&
                   r.inventory[1].value == 25);
+            check("character item equip profile preserved (v7)",
+                  r.inventory.size() == 3 && r.inventory[2].slot == 1 &&
+                  r.inventory[2].damageDie == "1d8" && r.inventory[2].dropable == false &&
+                  r.inventory[0].dropable == true);
             check("character item mutations preserved (v6)",
-                  r.inventory.size() == 2 && r.inventory[0].onAcquire.size() == 1 &&
+                  r.inventory.size() == 3 && r.inventory[0].onAcquire.size() == 1 &&
                   r.inventory[0].onAcquire[0].varName == "litTorches" &&
                   r.inventory[0].onAcquire[0].op == 1 &&
                   r.inventory[0].onUnacquire.size() == 1 &&
@@ -229,8 +263,9 @@ int main() {
             Traits t1; t1.might = 2; t1.grace = 1; t1.wits = 0; t1.spirit = -1;
             Character c1 = makeCharacter(repo, "Bram", "Human", "Blade", t1,
                                          {"Blades", "Athletics", "Command", "Survival"}, "Chain", true);
-            c1.gold = 40;
+            c1.gold = 40; c1.armorDefenseBonus = 2;   // equip profile (save v7)
             c1.inventory = {{"Long sword", "", "", "", 1}, {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2, 50}};
+            c1.inventory[0].slot = 1; c1.inventory[0].damageDie = "1d8"; c1.inventory[0].dropable = false;
             c1.inventory[1].onAcquire = {{"ringWorn", 0, "true"}};     // carried-item hooks (save v5)
             c1.inventory[1].onUnacquire = {{"ringWorn", 0, "false"}};
             c1.ap = 120;
@@ -246,10 +281,11 @@ int main() {
             gs.cursorX = 4; gs.cursorY = 3; gs.faceX = 0; gs.faceY = -1; gs.activeChar = 1;
             gs.controlPoints = {1, 3};
             gs.flags = {"helped_mayor", "found_map"};
-            gs.resolvedAreas = {10, 12};
+            gs.resolvedContexts = {{10, "default"}, {12, "guarded"}};
             gs.globals = {{"questAccepted", "true"}, {"teleportsLeft", "3"}};
             gs.deactivatedAreas = {12};
             gs.deletedContexts = {{10, "default"}, {12, "ambush"}};
+            gs.grantedDropable = {{"Signet Ring", false}, {"Ancient Key", true}};   // v7
             gs.journal = {"Entered the tavern.", "Agreed to rescue the family."};
             gs.party = {c1, c2};
 
@@ -268,8 +304,12 @@ int main() {
                   r.activeChar == 1);
             check("save plot state preserved",
                   r.controlPoints == gs.controlPoints && r.flags == gs.flags &&
-                  r.resolvedAreas == gs.resolvedAreas && r.globals == gs.globals &&
+                  r.resolvedContexts == gs.resolvedContexts && r.globals == gs.globals &&
                   r.deactivatedAreas == gs.deactivatedAreas && r.deletedContexts == gs.deletedContexts);
+            check("save granted dropable preserved (v7)", r.grantedDropable == gs.grantedDropable);
+            check("save item equip profile + armor bonus preserved (v7)",
+                  r.party[0].armorDefenseBonus == 2 && r.party[0].inventory[0].slot == 1 &&
+                  r.party[0].inventory[0].damageDie == "1d8" && r.party[0].inventory[0].dropable == false);
             check("save journal preserved",
                   r.journal.size() == 2 && r.journal[0] == "Entered the tavern." &&
                   r.journal[1] == "Agreed to rescue the family.");
@@ -362,12 +402,15 @@ int main() {
             ch0.grantItem = {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2};  // rich granted item (v16)
             ch0.grantItem.onAcquire = {{"questAccepted", 0, "true"}};   // granted-item hooks (v18)
             ch0.grantItem.onUnacquire = {{"factionName", 0, "cursed"}};
+            ch0.grantItem.slot = 1; ch0.grantItem.damageDie = "1d8";    // equip profile + dropable (v19)
+            ch0.grantItem.weaponBonus = 1; ch0.grantItem.dropable = false;
             ch0.deactivateArea = true;
             ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"}};  // set, subtract
             AreaChoice ch1;
             ch1.label = "Not our problem."; ch1.journalEntry = "Declined the plea.";
             ch1.setFlag = "refused_mayor"; ch1.takeItemName = "Old Map";   // no mutations = "does nothing"
             ch1.deleteContext = true;
+            ch1.dropableSets = {{"Signet Ring", true}};   // "Set item dropable" effect (v19)
             c0.choices = {ch0, ch1};
             c0.altTexts = {{"helped_mayor", "You've agreed to help - see your journal."}};
             // Authored Context characters (v17): a foe and an ally, with child lists.
@@ -509,6 +552,15 @@ int main() {
                   rc->choices[1].setFlag == "refused_mayor" &&
                   rc->choices[1].takeItemName == "Old Map" &&
                   rc->choices[1].deleteContext == true);
+            check("context choice grant equip profile + dropable preserved (v19)", rc &&
+                  rc->choices[0].grantItem.slot == 1 &&
+                  rc->choices[0].grantItem.damageDie == "1d8" &&
+                  rc->choices[0].grantItem.weaponBonus == 1 &&
+                  rc->choices[0].grantItem.dropable == false);
+            check("context choice dropable-set effect preserved (v19)", rc &&
+                  rc->choices[1].dropableSets.size() == 1 &&
+                  rc->choices[1].dropableSets[0].first == "Signet Ring" &&
+                  rc->choices[1].dropableSets[0].second == true);
             check("context choice mutations preserved", rc && rc->choices[0].mutations.size() == 2 &&
                   rc->choices[0].mutations[0].varName == "questAccepted" &&
                   rc->choices[0].mutations[0].op == 0 && rc->choices[0].mutations[0].value == "true" &&
@@ -719,14 +771,26 @@ int main() {
             check("fresh tracker has no flags", !pt.hasFlag("helped_mayor"));
             pt.setFlag("helped_mayor");
             check("flag recorded", pt.hasFlag("helped_mayor") && pt.flags().count("helped_mayor") == 1);
-            check("area not resolved by default", !pt.isChoiceResolved(10));
-            pt.resolveChoiceArea(10);
-            check("area marked resolved", pt.isChoiceResolved(10) &&
-                  pt.resolvedChoiceAreas().count(10) == 1);
+            check("context not resolved by default", !pt.isChoiceResolved(10, "ctxA"));
+            pt.resolveChoiceContext(10, "ctxA");
+            check("context marked resolved", pt.isChoiceResolved(10, "ctxA") &&
+                  pt.resolvedChoiceContexts().count({10, "ctxA"}) == 1);
+            check("sibling context in same area still unresolved", !pt.isChoiceResolved(10, "ctxB"));
             pt.setFlags({"refused_mayor"});
             check("flags restored wholesale", pt.hasFlag("refused_mayor") && !pt.hasFlag("helped_mayor"));
-            pt.setResolvedChoiceAreas({20});
-            check("resolved areas restored wholesale", pt.isChoiceResolved(20) && !pt.isChoiceResolved(10));
+            pt.setResolvedChoiceContexts({{20, "start"}});
+            check("resolved contexts restored wholesale",
+                  pt.isChoiceResolved(20, "start") && !pt.isChoiceResolved(10, "ctxA"));
+
+            // Granted-item dropable status (v19): non-granted always droppable; seed sets a default;
+            // setItemDropable overrides; seed is insert-if-absent.
+            check("unknown item is droppable", pt.isDropable("Random Rock") && !pt.isGrantedName("Random Rock"));
+            pt.seedItemDropable("Cursed Blade", false);
+            check("seeded granted item honors default", pt.isGrantedName("Cursed Blade") && !pt.isDropable("Cursed Blade"));
+            pt.seedItemDropable("Cursed Blade", true);   // insert-if-absent: does not overwrite
+            check("seed does not overwrite existing", !pt.isDropable("Cursed Blade"));
+            pt.setItemDropable("Cursed Blade", true);
+            check("setItemDropable overrides", pt.isDropable("Cursed Blade"));
 
             // v15: global variables, context conditions, and single-active-context selection.
             std::vector<ModuleVariable> vars = {

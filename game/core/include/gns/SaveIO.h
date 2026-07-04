@@ -24,11 +24,16 @@
 // added the save_deactivated_areas + save_deleted_contexts tables (areas/contexts a choice removed).
 // v4 added the save_character_item `value` column (per-item GP worth). v5 added the
 // save_character_item_mutation table (per-item OnAcquire/OnUnacquire global-variable hooks, keyed by
-// owner + item_ord with a kind column: 0 = acquire, 1 = unacquire).
+// owner + item_ord with a kind column: 0 = acquire, 1 = unacquire). v6 replaced the per-area
+// save_resolved_areas table with per-context save_resolved_contexts (area_id, ctx_name), so a later
+// active context in the same area still presents its own choices; the legacy table is no longer read.
+// v7 added the save_character armor_defense_bonus column, the save_character_item equip-profile columns
+// (slot/damage_die/defense_bonus/weapon_bonus/dropable), and the save_granted_dropable table (runtime
+// dropable status of module granted items, by name) -- all tolerant-loaded.
 
 namespace gns {
 
-constexpr int kSaveFormatVersion = 5;
+constexpr int kSaveFormatVersion = 7;
 
 // A complete snapshot of a play-session. PlayState fields are kept flat here so this struct does
 // not track PlayState's own evolution; `mode` is a PlayMode cast to int.
@@ -42,10 +47,11 @@ struct GameSave {
 
     std::set<int> controlPoints;         // PlotTracker completed ids
     std::set<std::string> flags;         // PlotTracker decision flags
-    std::set<int> resolvedAreas;         // areas whose choices were decided
+    std::set<std::pair<int, std::string>> resolvedContexts;  // (areaId, ctxName) whose choices were decided
     std::map<std::string, std::string> globals;  // PlotTracker global-variable values
     std::set<int> deactivatedAreas;      // areas a choice removed from play
     std::set<std::pair<int, std::string>> deletedContexts;  // (areaId, ctxName) a choice removed
+    std::map<std::string, bool> grantedDropable;  // runtime dropable status of module granted items
 
     std::vector<std::string> journal;    // adventure-log lines, in order
     std::vector<Character> party;        // full party (gold + inventory + AP ...)

@@ -86,11 +86,73 @@ Character makeCharacter(const Repository& repo, const std::string& name,
         if (const Armor* sh = repo.armor("Shield")) shieldBonus = sh->defenseBonus;
         else shieldBonus = 1;
     }
+    ch.armorDefenseBonus = armorBonus;
     ch.defense = 10 + traits.grace + armorBonus + shieldBonus;
 
     ch.ap = 0;
     ch.strain = 0;
     return ch;
+}
+
+void recomputeDefense(Character& c) {
+    c.defense = 10 + c.traits.grace + c.armorDefenseBonus + (c.shield ? 1 : 0);
+}
+
+void equipInventoryItem(Character& c, size_t idx) {
+    if (idx >= c.inventory.size()) return;
+    InventoryItem item = c.inventory[idx];   // copy before erase
+    const int slot = item.slot;
+    if (slot < 1 || slot > 3) return;        // only weapon/armor/shield equip
+    c.inventory.erase(c.inventory.begin() + idx);
+    if (slot == 1) {                          // weapon
+        if (!c.weaponName.empty()) {
+            InventoryItem old;
+            old.name = c.weaponName; old.slot = 1;
+            old.damageDie = c.weaponDamageDie; old.weaponBonus = c.weaponBonus;
+            c.inventory.push_back(old);
+        }
+        c.weaponName = item.name;
+        c.weaponDamageDie = item.damageDie.empty() ? "1d6" : item.damageDie;
+        c.weaponBonus = item.weaponBonus;
+    } else if (slot == 2) {                   // armor
+        if (c.armorName != "No armor" && !c.armorName.empty()) {
+            InventoryItem old;
+            old.name = c.armorName; old.slot = 2; old.defenseBonus = c.armorDefenseBonus;
+            c.inventory.push_back(old);
+        }
+        c.armorName = item.name;
+        c.armorDefenseBonus = item.defenseBonus;
+    } else {                                  // shield (name not tracked on the character)
+        if (c.shield) {
+            InventoryItem old; old.name = "Shield"; old.slot = 3; old.defenseBonus = 1;
+            c.inventory.push_back(old);
+        }
+        c.shield = true;
+    }
+    recomputeDefense(c);
+}
+
+void unequipToInventory(Character& c, int slot) {
+    if (slot == 1) {
+        if (c.weaponName.empty()) return;
+        InventoryItem it;
+        it.name = c.weaponName; it.slot = 1;
+        it.damageDie = c.weaponDamageDie; it.weaponBonus = c.weaponBonus;
+        c.inventory.push_back(it);
+        c.weaponName.clear(); c.weaponDamageDie = "1d6"; c.weaponBonus = 0;
+    } else if (slot == 2) {
+        if (c.armorName == "No armor" || c.armorName.empty()) return;
+        InventoryItem it;
+        it.name = c.armorName; it.slot = 2; it.defenseBonus = c.armorDefenseBonus;
+        c.inventory.push_back(it);
+        c.armorName = "No armor"; c.armorDefenseBonus = 0;
+    } else if (slot == 3) {
+        if (!c.shield) return;
+        InventoryItem it; it.name = "Shield"; it.slot = 3; it.defenseBonus = 1;
+        c.inventory.push_back(it);
+        c.shield = false;
+    }
+    recomputeDefense(c);
 }
 
 } // namespace gns

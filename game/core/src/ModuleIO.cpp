@@ -61,6 +61,21 @@ Area* Module::areaById(int id) {
     return nullptr;
 }
 
+std::vector<std::pair<std::string, bool>> collectGrantedItems(const Module& mod) {
+    std::vector<std::pair<std::string, bool>> out;
+    for (const auto& m : mod.maps)
+        for (const auto& a : m.areas)
+            for (const auto& ctx : a.contexts)
+                for (const auto& ch : ctx.choices) {
+                    const std::string& nm = ch.grantItem.name;
+                    if (nm.empty()) continue;
+                    bool seen = false;
+                    for (const auto& p : out) if (p.first == nm) { seen = true; break; }
+                    if (!seen) out.emplace_back(nm, ch.grantItem.dropable);
+                }
+    return out;
+}
+
 // ---- sqlite helpers ---------------------------------------------------------
 
 namespace {
@@ -263,7 +278,13 @@ CREATE TABLE context_choices (
     label      TEXT, journal TEXT, set_flag TEXT,
     cp_id      INTEGER, gold INTEGER, grant_item TEXT, take_item TEXT,
     grant_item_desc TEXT, grant_item_image TEXT, grant_item_path TEXT, grant_item_qty INTEGER,
-    deactivate_area INTEGER, delete_context INTEGER
+    deactivate_area INTEGER, delete_context INTEGER,
+    grant_slot INTEGER, grant_damage_die TEXT, grant_defense_bonus INTEGER, grant_weapon_bonus INTEGER,
+    grant_dropable INTEGER
+);
+CREATE TABLE context_choice_dropable_sets (
+    area_id INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
+    item_name TEXT, dropable INTEGER
 );
 CREATE TABLE context_choice_mutations (
     area_id    INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
@@ -420,11 +441,15 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO context_transitions(area_id,ctx_ord,target_area_id,label) VALUES(?,?,?,?);");
         Stmt ctxChoiceStmt(db,
             "INSERT INTO context_choices(area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
-            "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,deactivate_area,delete_context) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,deactivate_area,delete_context,"
+            "grant_slot,grant_damage_die,grant_defense_bonus,grant_weapon_bonus,grant_dropable) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt ctxChoiceMutStmt(db,
             "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value) "
             "VALUES(?,?,?,?,?,?,?);");
+        Stmt ctxDropSetStmt(db,
+            "INSERT INTO context_choice_dropable_sets(area_id,ctx_ord,choice_ord,ord,item_name,dropable) "
+            "VALUES(?,?,?,?,?,?);");
         Stmt areaEnterMutStmt(db,
             "INSERT INTO area_enter_mutations(area_id,ord,var_name,op,value) VALUES(?,?,?,?,?);");
         Stmt areaExitMutStmt(db,
@@ -608,13 +633,22 @@ void saveModule(const Module& mod, const std::string& path) {
                                      .bind(ch.grantItem.name).bind(ch.takeItemName)
                                      .bind(ch.grantItem.description).bind(ch.grantItem.imageId)
                                      .bind(ch.grantItem.imagePath).bind(ch.grantItem.quantity)
-                                     .bind(ch.deactivateArea ? 1 : 0).bind(ch.deleteContext ? 1 : 0);
+                                     .bind(ch.deactivateArea ? 1 : 0).bind(ch.deleteContext ? 1 : 0)
+                                     .bind(ch.grantItem.slot).bind(ch.grantItem.damageDie)
+                                     .bind(ch.grantItem.defenseBonus).bind(ch.grantItem.weaponBonus)
+                                     .bind(ch.grantItem.dropable ? 1 : 0);
                         ctxChoiceStmt.run();
                         for (size_t mi = 0; mi < ch.mutations.size(); ++mi) {
                             const auto& mu = ch.mutations[mi];
                             ctxChoiceMutStmt.bind(a.id).bind(co).bind((int)k).bind((int)mi)
                                             .bind(mu.varName).bind(mu.op).bind(mu.value);
                             ctxChoiceMutStmt.run();
+                        }
+                        for (size_t di = 0; di < ch.dropableSets.size(); ++di) {
+                            const auto& ds = ch.dropableSets[di];
+                            ctxDropSetStmt.bind(a.id).bind(co).bind((int)k).bind((int)di)
+                                          .bind(ds.first).bind(ds.second ? 1 : 0);
+                            ctxDropSetStmt.run();
                         }
                         // The granted item's own acquire/loss hooks (kind 0/1).
                         for (size_t mi = 0; mi < ch.grantItem.onAcquire.size(); ++mi) {
@@ -1036,9 +1070,16 @@ Module loadModule(const std::string& path) {
     // columns (grant_item_desc/image/path/qty) + deactivate_area/delete_context. `level` 1 = v16,
     // 0 = v15; fall back a tier if the newer columns are missing. Either way the legacy grant_item
     // name migrates into grantItem.name so older/newer readers agree.
+    // v19 appended the granted-item equip profile (grant_slot/damage_die/defense_bonus/weapon_bonus)
+    // and grant_dropable. `level` 2 = v19, 1 = v16, 0 = v15; fall back a tier.
     auto loadChoices = [&](int level) {
         const char* sql =
-            level >= 1 ? "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
+            level >= 2 ? "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
+                         "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,"
+                         "deactivate_area,delete_context,"
+                         "grant_slot,grant_damage_die,grant_defense_bonus,grant_weapon_bonus,grant_dropable "
+                         "FROM context_choices ORDER BY area_id,ctx_ord,ord;"
+          : level >= 1 ? "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
                          "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,"
                          "deactivate_area,delete_context "
                          "FROM context_choices ORDER BY area_id,ctx_ord,ord;"
@@ -1062,10 +1103,17 @@ Module loadModule(const std::string& path) {
                     ch.deactivateArea = colInt(s.s, 14) != 0;
                     ch.deleteContext  = colInt(s.s, 15) != 0;
                 }
+                if (level >= 2) {
+                    ch.grantItem.slot         = colInt(s.s, 16);
+                    ch.grantItem.damageDie    = colText(s.s, 17);
+                    ch.grantItem.defenseBonus = colInt(s.s, 18);
+                    ch.grantItem.weaponBonus  = colInt(s.s, 19);
+                    ch.grantItem.dropable     = colInt(s.s, 20) != 0;
+                }
                 ctx->choices.push_back(std::move(ch));
             }
     };
-    for (int level = 1; ; --level) {
+    for (int level = 2; ; --level) {
         try { loadChoices(level); break; }
         catch (const DbError&) {
             for (auto& m : mod.maps) for (auto& a : m.areas)
@@ -1073,6 +1121,17 @@ Module loadModule(const std::string& path) {
             if (level == 0) break;   // no table at all — leave empty
         }
     }
+    // Choice "Set item dropable" effects (v19), keyed by (area,ctx_ord,choice_ord).
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,item_name,dropable "
+                     "FROM context_choice_dropable_sets ORDER BY area_id,ctx_ord,choice_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
+            int choiceOrd = colInt(s.s, 2);
+            if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size())
+                ctx->choices[choiceOrd].dropableSets.emplace_back(colText(s.s, 3), colInt(s.s, 4) != 0);
+        }
+    } catch (const DbError&) {}
 
     try {
         Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value "

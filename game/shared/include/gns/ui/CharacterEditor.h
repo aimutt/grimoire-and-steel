@@ -36,7 +36,7 @@ struct CharacterDraft {
     int shieldDefenseBonus = 1;             // Defense bonus of the chosen shield (+1)
 
     std::string portraitPath;               // portrait filename ("" = placeholder)
-    int gold = 100;
+    int gold = 25;
     std::vector<InventoryItem> inventory;   // carried items (name/description/value/quantity/art)
 };
 
