@@ -23,6 +23,7 @@ COUNTS = {
     "calling_weapon_option": 10,
     "weapon_category": 5,
     "armor": 5,
+    "equipment": 57,
     "challenge_number": 5,
     "monster": 6,
     "spell": 10,
@@ -31,8 +32,8 @@ COUNTS = {
     "module_completion_award": 4,
     "level_improvement_option": 5,
     "character_sheet": 2,
-    "section": 28,
-    "rules_search": 52,
+    "section": 29,
+    "rules_search": 110,
 }
 
 
@@ -73,6 +74,11 @@ def main() -> int:
         "where c.name='Blade' and a.level=5"), 1000)
     check("Normal challenge target", one(
         "select target_number from challenge_number where name='Normal'"), 12)
+    check("Long Sword damage", one("select damage from equipment where name='Long Sword'"), "1d8")
+    check("Plate Armor protection", one(
+        "select defense_bonus from equipment where name='Plate Armor'"), 3)
+    check("Potion of Healing cost", one(
+        "select cost_gp from equipment where name='Potion of Healing'"), 50)
 
     print("\nIntegrity:")
     check("advancement levels 1..10 per calling", one(
@@ -84,6 +90,13 @@ def main() -> int:
     check("orphan advancement_level", one(
         "select count(*) from advancement_level a "
         "left join calling c on c.calling_id=a.calling_id where c.calling_id is null"), 0)
+    check("every weapon has a damage die", one(
+        "select count(*) from equipment where category='Weapon' and (damage is null or damage='')"), 0)
+    check("armor/shield/helmet carry a Defense bonus", one(
+        "select count(*) from equipment "
+        "where category in ('Armor','Shield','Helmet') and defense_bonus is null"), 0)
+    check("every equipment item has art", one(
+        "select count(*) from equipment where image_id is null or image_id=''"), 0)
 
     print("\nFull-text search:")
     check("section_fts MATCH 'strain'", one(

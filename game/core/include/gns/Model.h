@@ -68,6 +68,23 @@ struct Armor {
     int sortOrder = 0;
 };
 
+// A priced catalog entry from the gns.db `equipment` table: an individual weapon, armor, shield,
+// helmet, potion, crystal, valuable, cloak, gear, or quest item. Weapons carry `damage`;
+// armor/shields/helmets carry `defenseBonus`; consumables/gear carry `effect`. `imageId` matches
+// the baked item-art catalog (and InventoryItem::imageId).
+struct Equipment {
+    int id = 0;
+    std::string category;      // "Weapon", "Armor", "Shield", "Helmet", "Potion", ...
+    std::string name;
+    int costGp = 0;
+    std::string damage;        // weapon damage die (e.g. "1d8"), else ""
+    int defenseBonus = 0;      // Defense from armor/shield/helmet, else 0
+    std::string effect;        // rules effect for potions/crystals/gear, else ""
+    std::string description;
+    std::string imageId;       // baked-in item-art catalog id (filename)
+    int sortOrder = 0;
+};
+
 // A named difficulty band and its target number for the core 1d20 roll.
 struct ChallengeNumber {
     std::string name;        // "Easy", "Normal", ...

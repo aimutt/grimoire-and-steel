@@ -18,6 +18,7 @@ DROP VIEW IF EXISTS v_advancement_table;
 DROP VIEW IF EXISTS v_calling_summary;
 DROP VIEW IF EXISTS v_monster_summary;
 DROP VIEW IF EXISTS v_spell_summary;
+DROP VIEW IF EXISTS v_equipment_summary;
 DROP TABLE IF EXISTS rules_search;
 DROP TABLE IF EXISTS section_fts;
 DROP TABLE IF EXISTS section;
@@ -29,6 +30,7 @@ DROP TABLE IF EXISTS magic_weapon_example;
 DROP TABLE IF EXISTS spell;
 DROP TABLE IF EXISTS monster;
 DROP TABLE IF EXISTS challenge_number;
+DROP TABLE IF EXISTS equipment;
 DROP TABLE IF EXISTS armor;
 DROP TABLE IF EXISTS weapon_category;
 DROP TABLE IF EXISTS calling_weapon_option;
@@ -120,6 +122,28 @@ CREATE TABLE armor (
     notes TEXT,
     sort_order INTEGER NOT NULL UNIQUE
 ) STRICT;
+
+-- Priced adventuring-gear catalog: individual weapons, armor, shields, helmets,
+-- potions, crystals, valuables, and supplies, each mapped to a baked-in art file
+-- (image_id). weapon_category/armor above define the *rules* (dice / Defense
+-- bonuses); this table is the shop & reference price list built on top of them.
+-- Weapons set `damage`; armor/shield/helmet set `defense_bonus`; consumables and
+-- gear set `effect`. Any of those may be NULL when it does not apply.
+CREATE TABLE equipment (
+    equipment_id  INTEGER PRIMARY KEY,
+    category      TEXT NOT NULL,      -- Weapon, Ammunition, Armor, Shield, Helmet, Potion, Crystal, Valuable, Cloak, Gear, Quest Item
+    name          TEXT NOT NULL UNIQUE,
+    cost_gp       INTEGER NOT NULL,
+    damage        TEXT,               -- weapon damage die (NULL for non-weapons)
+    defense_bonus INTEGER,            -- Defense granted by armor/shield/helmet (NULL otherwise)
+    effect        TEXT,               -- rules effect for potions/crystals/gear (NULL otherwise)
+    description   TEXT NOT NULL,
+    image_id      TEXT,               -- baked-in item-art catalog filename
+    sort_order    INTEGER NOT NULL UNIQUE,
+    CHECK (cost_gp >= 0)
+) STRICT;
+
+CREATE INDEX idx_equipment_category ON equipment(category);
 
 CREATE TABLE challenge_number (
     challenge_id INTEGER PRIMARY KEY,
@@ -303,4 +327,16 @@ SELECT
     challenge_number,
     notes
 FROM spell
+ORDER BY sort_order;
+
+CREATE VIEW v_equipment_summary AS
+SELECT
+    category,
+    name,
+    cost_gp,
+    COALESCE(damage,
+             CASE WHEN defense_bonus IS NOT NULL THEN '+' || defense_bonus || ' Defense' END,
+             effect) AS effect,
+    description
+FROM equipment
 ORDER BY sort_order;

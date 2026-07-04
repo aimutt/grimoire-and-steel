@@ -89,7 +89,9 @@ CREATE TABLE save_character (
 );
 CREATE TABLE save_character_training (owner INTEGER, name TEXT);
 CREATE TABLE save_character_spell    (owner INTEGER, name TEXT);
-CREATE TABLE save_character_item     (owner INTEGER, name TEXT);
+CREATE TABLE save_character_item     (owner INTEGER, name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
+CREATE TABLE save_deactivated_areas  (area_id INTEGER);
+CREATE TABLE save_deleted_contexts   (area_id INTEGER, ctx_name TEXT);
 )sql";
 
 } // namespace
@@ -128,6 +130,14 @@ void saveGame(const std::string& path, const GameSave& save) {
         for (const auto& kv : save.globals) { s.bind(kv.first).bind(kv.second); s.run(); }
     }
     {
+        Stmt s(db, "INSERT INTO save_deactivated_areas(area_id) VALUES(?);");
+        for (int id : save.deactivatedAreas) { s.bind(id); s.run(); }
+    }
+    {
+        Stmt s(db, "INSERT INTO save_deleted_contexts(area_id,ctx_name) VALUES(?,?);");
+        for (const auto& dc : save.deletedContexts) { s.bind(dc.first).bind(dc.second); s.run(); }
+    }
+    {
         Stmt s(db, "INSERT INTO save_journal(ord,line) VALUES(?,?);");
         for (size_t i = 0; i < save.journal.size(); ++i) { s.bind((int)i).bind(save.journal[i]); s.run(); }
     }
@@ -140,7 +150,8 @@ void saveGame(const std::string& path, const GameSave& save) {
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt tr(db, "INSERT INTO save_character_training(owner,name) VALUES(?,?);");
         Stmt sp(db, "INSERT INTO save_character_spell(owner,name) VALUES(?,?);");
-        Stmt it(db, "INSERT INTO save_character_item(owner,name) VALUES(?,?);");
+        Stmt it(db, "INSERT INTO save_character_item(owner,name,description,image_id,image_path,quantity,value) "
+                    "VALUES(?,?,?,?,?,?,?);");
         for (size_t i = 0; i < save.party.size(); ++i) {
             const Character& c = save.party[i];
             int owner = (int)i;
@@ -154,7 +165,11 @@ void saveGame(const std::string& path, const GameSave& save) {
             s.run();
             for (const auto& t : c.trainings) { tr.bind(owner).bind(t); tr.run(); }
             for (const auto& x : c.spells)    { sp.bind(owner).bind(x); sp.run(); }
-            for (const auto& x : c.inventory) { it.bind(owner).bind(x); it.run(); }
+            for (const auto& x : c.inventory) {
+                it.bind(owner).bind(x.name).bind(x.description).bind(x.imageId).bind(x.imagePath)
+                  .bind(x.quantity < 1 ? 1 : x.quantity).bind(x.value);
+                it.run();
+            }
         }
     }
   });
@@ -254,7 +269,49 @@ GameSave loadGame(const std::string& path) {
     };
     fillList("SELECT owner,name FROM save_character_training ORDER BY rowid;", &Character::trainings);
     fillList("SELECT owner,name FROM save_character_spell ORDER BY rowid;",    &Character::spells);
-    fillList("SELECT owner,name FROM save_character_item ORDER BY rowid;",     &Character::inventory);
+
+    // save_character_item gained description/image_id/image_path/quantity in v3. Try the rich
+    // layout: level 2 = newest (with value, v4), 1 = v3 (rich, no value), 0 = v2 (name only).
+    auto fillItems = [&](int level) {
+        const char* sql =
+            level >= 2 ? "SELECT owner,name,description,image_id,image_path,quantity,value FROM save_character_item ORDER BY rowid;"
+            : level >= 1 ? "SELECT owner,name,description,image_id,image_path,quantity FROM save_character_item ORDER BY rowid;"
+                         : "SELECT owner,name FROM save_character_item ORDER BY rowid;";
+        Stmt s(conn.db, sql);
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            size_t owner = (size_t)colInt(s.s, 0);
+            if (owner >= save.party.size()) continue;
+            InventoryItem it;
+            it.name = colText(s.s, 1);
+            if (level >= 1) {
+                it.description = colText(s.s, 2);
+                it.imageId     = colText(s.s, 3);
+                it.imagePath   = colText(s.s, 4);
+                it.quantity    = colInt(s.s, 5);
+                if (it.quantity < 1) it.quantity = 1;
+                if (level >= 2) it.value = colInt(s.s, 6);
+            }
+            save.party[owner].inventory.push_back(std::move(it));
+        }
+    };
+    for (int level = 2; ; --level) {
+        try { fillItems(level); break; }
+        catch (const DbError&) {
+            for (auto& c : save.party) c.inventory.clear();
+            if (level == 0) break;
+        }
+    }
+
+    // save_deactivated_areas + save_deleted_contexts were added in v3; tolerate older saves.
+    try {
+        Stmt s(conn.db, "SELECT area_id FROM save_deactivated_areas;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) save.deactivatedAreas.insert(colInt(s.s, 0));
+    } catch (const DbError&) {}
+    try {
+        Stmt s(conn.db, "SELECT area_id,ctx_name FROM save_deleted_contexts;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            save.deletedContexts.insert({colInt(s.s, 0), colText(s.s, 1)});
+    } catch (const DbError&) {}
 
     return save;
 }

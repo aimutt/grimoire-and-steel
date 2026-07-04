@@ -1,13 +1,13 @@
-// Grimoire & Steel — Module Creator (M3).
+// Grimoire & Steel - Module Creator (M3).
 //
 // A mouse-driven grid map editor for authoring adventure modules. Paint terrain
-// and areas onto a fine grid, label areas via a coarse overlay grid (A1, C4…),
+// and areas onto a fine grid, label areas via a coarse overlay grid (A1, C4...),
 // fill in DM/player descriptions and per-area statistics, place plot control
 // points, set area prerequisites, and save/load .gnsmod files (gns::saveModule /
 // gns::loadModule). Reference data (monster names) is pulled from gns.db when
 // present, degrading to free text otherwise.
 //
-// Layout: a main menu bar plus three windows — Tools, Map (canvas), Inspector.
+// Layout: a main menu bar plus three windows -Tools, Map (canvas), Inspector.
 
 #define NOMINMAX
 #include <SDL.h>
@@ -20,9 +20,12 @@
 #include "gns/Database.h"
 #include "gns/Repository.h"
 #include "gns/ui/MapRender.h"   // shared map-render helpers (terrainColor, motifs, etc.)
+#include "gns/ui/CharacterEditor.h"   // shared character builder (Context character authoring)
 #include "embedded_items.h"      // generated: kItemCatalog (shop item-art baked into the binary)
+#include "embedded_portraits.h"  // generated: kEmbeddedPortraits (character portraits baked in)
 
 #include <algorithm>
+#include <memory>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -40,7 +43,7 @@
 #endif
 
 // Map-render helpers (terrainColor, drawTerrainMotif, drawObjectIcon, drawAreaOutline,
-// areaCentroid, runDirection, …) now live in the shared gns_ui library; pull them into
+// areaCentroid, runDirection, ...) now live in the shared gns_ui library; pull them into
 // scope so the existing unqualified call sites keep working.
 using namespace gns::ui;
 
@@ -246,9 +249,12 @@ struct App {
     bool showSaveError = false;   // a save threw; surface it in a modal (don't fail silently)
     std::string saveErrorMsg;     // detail for the save-error modal
 
-    // gns.db reference pickers (optional).
+    // gns.db reference data (optional). Kept alive (not discarded after load) so the shared
+    // character builder and the equipment gallery can query it every frame.
     bool haveRepo = false;
     std::vector<std::string> monsterNames;
+    std::unique_ptr<gns::Database> refDb;
+    std::unique_ptr<gns::Repository> refRepo;
 };
 
 static gns::Map* currentMap(App& app) { return app.mod.mapById(app.currentMapId); }
@@ -280,7 +286,7 @@ static std::string baseName(const std::string& path) {
 }
 
 // Per-module editor layout is kept in a small sidecar next to the .gnsmod (this is local, per-user
-// UI state — the Inspector width and map zoom — not adventure content, so it does NOT belong in the
+// UI state -the Inspector width and map zoom -not adventure content, so it does NOT belong in the
 // module file or its format version). The sidecar shares the module's name with a .gnslayout
 // extension and is safe to delete. (App is defined above.)
 static std::string layoutSidecarPath(const std::string& modulePath) {
@@ -454,13 +460,15 @@ static void loadReference(App& app) {
     std::string dbPath = (base ? base : "") + std::string("data/gns.db");
     if (base) SDL_free(base);
     try {
-        gns::Database db(dbPath);
-        gns::Repository repo(db);
-        for (const auto& mdef : repo.monsters()) app.monsterNames.push_back(mdef.name);
+        app.refDb = std::make_unique<gns::Database>(dbPath);
+        app.refRepo = std::make_unique<gns::Repository>(*app.refDb);
+        for (const auto& mdef : app.refRepo->monsters()) app.monsterNames.push_back(mdef.name);
         std::sort(app.monsterNames.begin(), app.monsterNames.end());
         app.haveRepo = true;
     } catch (const std::exception&) {
         app.haveRepo = false;   // fall back to free-text fields
+        app.refDb.reset();
+        app.refRepo.reset();
     }
 }
 
@@ -517,11 +525,25 @@ static SDL_Texture* itemTexture(App& app, const std::string& file) {
     return tex;
 }
 
+// Lazily load + cache a baked-in character portrait (keyed by "port:<file>" in artCache), mapping
+// the portrait filename to its RCDATA id via kEmbeddedPortraits.
+static SDL_Texture* portraitTexture(App& app, const std::string& file) {
+    if (file.empty() || !app.renderer) return nullptr;
+    std::string key = "port:" + file;
+    auto it = app.artCache.find(key);
+    if (it != app.artCache.end()) return it->second;
+    SDL_Texture* tex = nullptr;
+    for (const auto& p : kEmbeddedPortraits)
+        if (file == p.file) { tex = gns::ui::loadEmbeddedTexture(app.renderer, p.res); break; }
+    app.artCache[key] = tex;
+    return tex;
+}
+
 // The trailing portion of `path` (always keeping the file name) that fits in `width` px,
-// prefixed with an ellipsis when truncated — so small path fields show the file name.
+// prefixed with an ellipsis when truncated -so small path fields show the file name.
 static std::string fitPathTail(const std::string& path, float width) {
     if (path.empty() || ImGui::CalcTextSize(path.c_str()).x <= width) return path;
-    const std::string ell = "\xE2\x80\xA6";   // …
+    const std::string ell = "...";   // ...
     std::string best = ell;
     for (size_t i = path.size(); i-- > 0; ) {
         std::string cand = ell + path.substr(i);
@@ -595,6 +617,62 @@ static void drawImagePathField(App& app, const char* id, std::string* path) {
     }
 }
 
+// Unified item-art picker used wherever an item image is chosen (shop stock + choice-granted
+// items). Shows the current thumbnail, a "Choose art" popup that is FIRST a gallery of the
+// baked-in item catalog (grouped by category, 5 per row) and ALSO a "Browse file..." fallback for
+// art not in the catalog. Writes `imageId` (baked-in filename) XOR `imagePath` (free file);
+// choosing one clears the other. Returns true and marks the module dirty when the art changes.
+static bool drawItemArtPicker(App& app, const char* id, std::string* imageId, std::string* imagePath) {
+    bool changed = false;
+    ImGui::PushID(id);
+    SDL_Texture* cur = nullptr;
+    if (!imageId->empty())        cur = itemTexture(app, *imageId);
+    else if (!imagePath->empty()) cur = artworkTexture(app, *imagePath);
+    if (cur) { ImGui::Image((ImTextureID)cur, ImVec2(48, 64)); ImGui::SameLine(); }
+    ImGui::BeginGroup();
+    if (!imageId->empty()) {
+        ImGui::TextUnformatted(imageId->c_str());
+    } else if (!imagePath->empty()) {
+        ImGui::TextUnformatted(fitPathTail(*imagePath, 220.0f).c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", imagePath->c_str());
+    } else {
+        ImGui::TextDisabled("No image set.");
+    }
+    if (ImGui::SmallButton("Choose art")) ImGui::OpenPopup("artpick");
+    if (!imageId->empty() || !imagePath->empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear")) { imageId->clear(); imagePath->clear(); changed = true; }
+    }
+    ImGui::EndGroup();
+    if (ImGui::BeginPopup("artpick")) {
+        if (ImGui::SmallButton("Browse file...")) {
+            std::string p = imageFileDialog();
+            if (!p.empty()) { *imagePath = p; imageId->clear(); changed = true; ImGui::CloseCurrentPopup(); }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("or pick baked-in art:");
+        ImGui::BeginChild("galscroll", ImVec2(360, 360), ImGuiChildFlags_Borders);
+        std::string cat;
+        int col = 0;
+        for (const auto& ia : kItemCatalog) {
+            if (cat != ia.category) { cat = ia.category; ImGui::SeparatorText(cat.c_str()); col = 0; }
+            if (col++ % 5 != 0) ImGui::SameLine();
+            ImGui::PushID(ia.file);
+            SDL_Texture* tx = itemTexture(app, ia.file);
+            bool clicked = tx ? ImGui::ImageButton(ia.file, (ImTextureID)tx, ImVec2(48, 64))
+                              : ImGui::Button(ia.file, ImVec2(48, 64));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ia.file);
+            if (clicked) { *imageId = ia.file; imagePath->clear(); changed = true; ImGui::CloseCurrentPopup(); }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+    if (changed) app.dirty = true;
+    return changed;
+}
+
 // A music-file path field: shows the path (with tooltip) + Browse/Clear. No preview/playback;
 // the path is authored here and consumed by the engine later.
 static void drawAudioPathField(App& app, const char* id, std::string* path) {
@@ -631,7 +709,7 @@ static void doSave(App& app) {
         writeEditorLayout(app);   // also persist the editor layout (covers Save As to a new path)
         gStatus = "Saved " + baseName(app.path);
     } catch (const std::exception& e) {
-        // Keep dirty=true and surface a modal — a failed save must never look like nothing
+        // Keep dirty=true and surface a modal -a failed save must never look like nothing
         // happened. The save is atomic, so the previous file on disk is still intact and the
         // current edits are still in memory.
         gStatus = std::string("Save failed: ") + e.what();
@@ -672,9 +750,9 @@ static void drawMenuBar(App& app) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New")) newModule(app);
-            if (ImGui::MenuItem("Open…", "Ctrl+O")) doOpen(app);
+            if (ImGui::MenuItem("Open...", "Ctrl+O")) doOpen(app);
             if (ImGui::MenuItem("Save", "Ctrl+S")) doSave(app);
-            if (ImGui::MenuItem("Save As…")) doSaveAs(app);
+            if (ImGui::MenuItem("Save As...")) doSaveAs(app);
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) app.wantClose = true;
             ImGui::EndMenu();
@@ -755,11 +833,11 @@ static void drawToolsWindow(App& app) {
         ImGui::EndChild();
         ImGui::TextDisabled("Click to place. Drag to move.\nR rotates 90\xc2\xb0. Del deletes.");
 
-        // Placed-objects list — click to (re)select one, on the map or after a tool switch.
+        // Placed-objects list -click to (re)select one, on the map or after a tool switch.
         ImGui::SeparatorText("Placed objects");
         if (gns::Map* m = currentMap(app)) {
             if (m->objects.empty()) {
-                ImGui::TextDisabled("None yet — click the map to place.");
+                ImGui::TextDisabled("None yet - click the map to place.");
             } else {
                 for (auto& o : m->objects) {
                     ImGui::PushID(o.id);
@@ -798,7 +876,7 @@ static void drawToolsWindow(App& app) {
                     [&](const gns::MapObject& o) { return o.id == app.selectedObjectId; }), v.end());
                 app.selectedObjectId = 0;
                 app.dirty = true;
-                sel = nullptr;   // erased — don't touch it below
+                sel = nullptr;   // erased -don't touch it below
             }
             // Normalise so the slider stays in range.
             if (sel) {
@@ -824,7 +902,7 @@ static void drawToolsWindow(App& app) {
         ImGui::SeparatorText("Placed text");
         gns::MapText* selT = nullptr;
         if (gns::Map* m = currentMap(app)) {
-            if (m->texts.empty()) ImGui::TextDisabled("None yet — click the map.");
+            if (m->texts.empty()) ImGui::TextDisabled("None yet - click the map.");
             for (auto& tx : m->texts) {
                 ImGui::PushID(tx.id);
                 std::string lbl = "#" + std::to_string(tx.id) + "  " +
@@ -868,7 +946,7 @@ static void drawToolsWindow(App& app) {
             if (ImGui::Selectable(lbl.c_str(), cp.id == app.selectedControlPointId)) app.selectedControlPointId = cp.id;
             ImGui::PopID();
         }
-        if (!any) ImGui::TextDisabled("None yet — click the map.");
+        if (!any) ImGui::TextDisabled("None yet - click the map.");
         for (auto& cp : app.mod.controlPoints) if (cp.id == app.selectedControlPointId) { selCp = &cp; break; }
         if (selCp) {
             ImGui::SeparatorText("Selected control point");
@@ -968,7 +1046,7 @@ static void drawToolsWindow(App& app) {
                                ImVec2(14, 14));
             ImGui::SameLine();
             std::string lbl = (a.label.empty() ? "(area)" : a.label) +
-                              (a.name.empty() ? "" : " — " + a.name);
+                              (a.name.empty() ? "" : " - " + a.name);
             if (ImGui::Selectable(lbl.c_str(), a.id == app.selectedAreaId)) {
                 app.selectedAreaId = a.id;
                 if (app.tool == Tool::PaintTerrain) app.tool = Tool::AssignArea;
@@ -1011,14 +1089,14 @@ static void applyToolAtCell(App& app, gns::Map& m, int cx, int cy) {
     size_t idx = (size_t)cy * m.gridW + cx;
     switch (app.tool) {
         case Tool::PaintTerrain:
-            // Disabled while an area is active — you modify the area instead.
+            // Disabled while an area is active -you modify the area instead.
             if (app.selectedAreaId == 0 && m.cells[idx] != app.paintTerrain) {
                 m.cells[idx] = app.paintTerrain; app.dirty = true;
             }
             break;
         case Tool::AssignArea:
             // Connectivity (#6): only the seed cell, or a cell 4-adjacent to the area's
-            // existing cells, may be assigned — disconnected blobs can't start.
+            // existing cells, may be assigned -disconnected blobs can't start.
             if (app.selectedAreaId != 0 && m.cellArea[idx] != app.selectedAreaId &&
                 (!areaHasCells(m, app.selectedAreaId) ||
                  hasAdjacentSameArea(m, cx, cy, app.selectedAreaId))) {
@@ -1051,7 +1129,7 @@ static void applyBrush(App& app, gns::Map& m, int cx, int cy) {
         }
 }
 
-// Draw an area's perimeter — the cell edges whose 4-neighbour is outside the area.
+// Draw an area's perimeter -the cell edges whose 4-neighbour is outside the area.
 // Used both for outline-only (no-fill) areas and the selected-area glow (#18).
 
 static void drawCanvasWindow(App& app) {
@@ -1063,7 +1141,7 @@ static void drawCanvasWindow(App& app) {
     gns::Map* mp = currentMap(app);
     std::string mapName = mp ? (mp->name.empty() ? "(unnamed)" : mp->name) : "(none)";
     // Display name in the title bar; stable id after ### so renames don't reset the pane.
-    std::string title = "Map \xE2\x80\x94 " + mapName + "###mapwin";
+    std::string title = "Map - " + mapName + "###mapwin";
     ImGui::Begin(title.c_str(), nullptr, kPaneFlags);
 
     if (!mp) { ImGui::TextDisabled("No map. Add one in Tools."); ImGui::End(); return; }
@@ -1152,7 +1230,7 @@ static void drawCanvasWindow(App& app) {
     }
 
     if (dblEdit) {
-        // handled above — skip the normal per-tool interaction this frame
+        // handled above -skip the normal per-tool interaction this frame
     } else if (paintTool && cellValid) {
         if (leftClick) { pushUndo(app); app.strokeOpen = true; }   // one undo entry per stroke
         if (active && leftDown) applyBrush(app, m, cx, cy);
@@ -1416,7 +1494,7 @@ static void drawCanvasWindow(App& app) {
         drawAreaOutline(dl, m, app.selectedAreaId, IM_COL32(90, 220, 255, 255),
                         std::max(2.5f, cs * 0.14f), origin, cs, visMin, visMax);
 
-    // Hover highlight — shows the brush footprint for paint tools.
+    // Hover highlight -shows the brush footprint for paint tools.
     if (cellValid) {
         int r = (paintTool ? app.brushSize : 1) / 2;
         ImVec2 p0 = cellTL(cx - r, cy - r);
@@ -1630,7 +1708,7 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
 
             // Variable mutations: what this choice changes about the world (drives which context
             // becomes active next time). Leaving this empty is a valid "do nothing" choice.
-            ImGui::TextDisabled("Variable changes (optional) — what picking this does");
+            ImGui::TextDisabled("Variable changes (optional) - what picking this does");
             int delMut = -1;
             for (size_t k = 0; k < ch.mutations.size(); ++k) {
                 gns::VarMutation& mu = ch.mutations[k];
@@ -1649,7 +1727,7 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             if (delMut >= 0) { ch.mutations.erase(ch.mutations.begin() + delMut); app.dirty = true; }
             if (ImGui::SmallButton("Add change")) { ch.mutations.push_back(gns::VarMutation{}); app.dirty = true; }
 
-            ImGui::TextDisabled("Complete control point (optional) — unlocks areas gated on it");
+            ImGui::TextDisabled("Complete control point (optional) - unlocks areas gated on it");
             {
                 std::string cur = "(none)";
                 if (ch.completeControlPointId != 0) {
@@ -1674,12 +1752,35 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             ImGui::TextDisabled("Gold given (+) or taken (-) - each party member gets this amount");
             ImGui::SetNextItemWidth(140);
             if (ImGui::InputInt("##chgold", &ch.goldDelta)) app.dirty = true;
-            ImGui::TextDisabled("Grant item (optional) — item name added to the active character");
+            ImGui::TextDisabled("Grant item (optional) - given to the active character when chosen");
+            ImGui::TextDisabled("Item name (leave blank to grant nothing)");
             ImGui::SetNextItemWidth(-1);
-            if (InputStr("##chgrant", &ch.grantItemName)) app.dirty = true;
-            ImGui::TextDisabled("Take item (optional) — item name removed from the active character");
+            if (InputStr("##chgrantname", &ch.grantItem.name)) app.dirty = true;
+            ImGui::TextDisabled("Item description");
+            ImGui::SetNextItemWidth(-1);
+            if (InputStrMultiline("##chgrantdesc", &ch.grantItem.description, ImVec2(-1, 46)))
+                app.dirty = true;
+            ImGui::SetNextItemWidth(140);
+            if (ImGui::InputInt("Quantity##chgrantqty", &ch.grantItem.quantity)) {
+                if (ch.grantItem.quantity < 1) ch.grantItem.quantity = 1;
+                app.dirty = true;
+            }
+            // Always visible so the baked-in art gallery is discoverable: "Choose art" opens the
+            // gallery (grouped by category) with a "Browse file..." filesystem fallback.
+            ImGui::TextDisabled("Item image (pick from the gallery or browse a file)");
+            drawItemArtPicker(app, "chgrantart", &ch.grantItem.imageId, &ch.grantItem.imagePath);
+            ImGui::TextDisabled("Take item (optional) - item name removed from the active character");
             ImGui::SetNextItemWidth(-1);
             if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
+            ImGui::Spacing();
+            if (ImGui::Checkbox("Deactivate this area when chosen", &ch.deactivateArea)) app.dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The area vanishes from the map and stops triggering after this choice.\n"
+                                  "(The module's start and end areas can't be deactivated.)");
+            if (ImGui::Checkbox("Remove this context when chosen", &ch.deleteContext)) app.dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("This context never activates again after this choice - a way to prune\n"
+                                  "contexts so fewer remain to keep mutually exclusive.");
             if (ImGui::SmallButton("Delete choice")) delChoice = (int)i;
         }
         ImGui::PopID();
@@ -1711,6 +1812,48 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
     }
     if (delMonster >= 0) { ctx.monsters.erase(ctx.monsters.begin() + delMonster); app.dirty = true; }
     if (ImGui::SmallButton("Add monster")) { ctx.monsters.push_back(gns::AreaMonster{}); app.dirty = true; }
+
+    // Authored characters (NPCs) — foes fight with the monsters; allies fight for the party.
+    ImGui::Spacing();
+    ImGui::TextDisabled("Characters (people the party may fight or fight beside)");
+    if (!app.refRepo) {
+        ImGui::TextDisabled("(gns.db not loaded - characters need the rules database)");
+    } else {
+        gns::Repository& repo = *app.refRepo;
+        gns::ui::CharacterEditorHost host;
+        host.itemTexture = [&app](const std::string& id) { return itemTexture(app, id); };
+        for (const auto& p : kEmbeddedPortraits) host.portraits.push_back(p.file);
+        host.portraitTexture = [&app](const std::string& f) { return portraitTexture(app, f); };
+        int delChar = -1;
+        for (size_t i = 0; i < ctx.characters.size(); ++i) {
+            gns::AreaCharacter& ac = ctx.characters[i];
+            ImGui::PushID((int)i + 30000);
+            std::string title = (ac.character.name.empty() ? "(unnamed)" : ac.character.name) +
+                                (ac.foe ? "  [Foe]" : "  [Ally]") + "###ctxchar";
+            if (ImGui::CollapsingHeader(title.c_str())) {
+                int side = ac.foe ? 0 : 1;
+                ImGui::SetNextItemWidth(160);
+                if (ImGui::Combo("Side", &side, "Foe (with monsters)\0Ally (with party)\0")) {
+                    ac.foe = (side == 0); app.dirty = true;
+                }
+                // Round-trip the built character through a draft so the shared editor can edit it
+                // in place (no separate per-character draft state to keep in sync).
+                gns::ui::CharacterDraft d = gns::ui::draftFromCharacter(repo, ac.character);
+                if (gns::ui::drawCharacterEditor(repo, d, host)) app.dirty = true;
+                ac.character = gns::ui::buildCharacter(repo, d);
+                if (ImGui::SmallButton("Delete character")) delChar = (int)i;
+            }
+            ImGui::PopID();
+        }
+        if (delChar >= 0) { ctx.characters.erase(ctx.characters.begin() + delChar); app.dirty = true; }
+        if (ImGui::SmallButton("Add character")) {
+            gns::ui::CharacterDraft d;
+            gns::ui::initCharacterDraft(repo, d);
+            ctx.characters.push_back(gns::AreaCharacter{gns::ui::buildCharacter(repo, d), true});
+            app.dirty = true;
+        }
+    }
+
     ImGui::Spacing();
     ImGui::TextDisabled("Treasure (type A-T \xc3\x97 chance %)");
     int delTreasure = -1;
@@ -1738,7 +1881,7 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
     ImGui::SeparatorText("Shop / Market");
     if (ImGui::Checkbox("Party can buy & sell here", &ctx.isShop)) app.dirty = true;
     if (ctx.isShop) {
-        ImGui::TextDisabled("Supply — items the party can buy/sell.");
+        ImGui::TextDisabled("Supply - items the party can buy/sell.");
         int delItem = -1;
         for (size_t i = 0; i < ctx.shopItems.size(); ++i) {
             gns::ShopItem& it = ctx.shopItems[i];
@@ -1759,36 +1902,8 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
                 if (ImGui::InputInt("In stock##si", &it.stock)) {
                     if (it.stock < 0) it.stock = 0; app.dirty = true;
                 }
-                ImGui::TextDisabled("Item art (baked-in catalog, shown in-game)");
-                if (!it.imageId.empty()) {
-                    if (SDL_Texture* tx = itemTexture(app, it.imageId))
-                        ImGui::Image((ImTextureID)tx, ImVec2(48, 64));
-                    ImGui::SameLine();
-                    ImGui::TextUnformatted(it.imageId.c_str());
-                }
-                if (ImGui::SmallButton("Choose art")) ImGui::OpenPopup("itemart");
-                if (!it.imageId.empty()) {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Clear art")) { it.imageId.clear(); app.dirty = true; }
-                }
-                if (ImGui::BeginPopup("itemart")) {
-                    std::string cat;
-                    int col = 0;
-                    for (const auto& ia : kItemCatalog) {
-                        if (cat != ia.category) { cat = ia.category; ImGui::SeparatorText(cat.c_str()); col = 0; }
-                        if (col++ % 5 != 0) ImGui::SameLine();
-                        ImGui::PushID(ia.file);
-                        SDL_Texture* tx = itemTexture(app, ia.file);
-                        bool clicked = tx ? ImGui::ImageButton(ia.file, (ImTextureID)tx, ImVec2(48, 64))
-                                          : ImGui::Button(ia.file, ImVec2(48, 64));
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ia.file);
-                        if (clicked) { it.imageId = ia.file; app.dirty = true; ImGui::CloseCurrentPopup(); }
-                        ImGui::PopID();
-                    }
-                    ImGui::EndPopup();
-                }
-                ImGui::TextDisabled("Or a free-file image (fallback)");
-                drawImagePathField(app, "shopimg", &it.imagePath);
+                ImGui::TextDisabled("Item art (baked-in catalog or a browsed file)");
+                drawItemArtPicker(app, "shopart", &it.imageId, &it.imagePath);
                 if (ImGui::SmallButton("Delete item")) delItem = (int)i;
             }
             ImGui::PopID();
@@ -2115,7 +2230,7 @@ static void drawControlPointsSection(App& app) {
 }
 
 // Draggable vertical divider between the map canvas and the Inspector. Handled manually against
-// the global mouse (not via a tiny ImGui window — those are floored to Style.WindowMinSize, ~32px,
+// the global mouse (not via a tiny ImGui window -those are floored to Style.WindowMinSize, ~32px,
 // so a thin grab strip is impossible). Call this ONCE per frame *before* the panes are drawn so the
 // new width takes effect the same frame and `splitterHot` can suppress canvas painting at the seam.
 static void updatePaneSplitter(App& app) {
@@ -2192,7 +2307,7 @@ static void drawSaveErrorModal(App& app) {
         ImGui::PopTextWrapPos();
         ImGui::Spacing();
         ImGui::TextUnformatted("Your changes are still open and the previous saved file on\n"
-                               "disk is intact. Try saving again, or use File ▸ Save As.");
+                               "disk is intact. Try saving again, or use File > Save As.");
         ImGui::Spacing();
         if (ImGui::Button("OK")) { app.showSaveError = false; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
@@ -2229,7 +2344,7 @@ int main(int, char**) {
     }
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);   // artwork thumbnails (#14)
     SDL_Window* window = SDL_CreateWindow(
-        "Grimoire & Steel — Module Creator",
+        "Grimoire & Steel - Module Creator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 800,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_MAXIMIZED);
     SDL_Renderer* renderer = SDL_CreateRenderer(

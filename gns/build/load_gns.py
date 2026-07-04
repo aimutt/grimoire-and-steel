@@ -20,8 +20,9 @@ SCHEMA = ROOT / "db" / "schema.sql"
 DATA = ROOT / "data"
 DB = ROOT / "gns.db"
 
-# On-disk PRAGMA user_version carried by gns.db (matches the shipped database).
-USER_VERSION = 5
+# On-disk PRAGMA user_version carried by gns.db. Bumped to 6 when the priced
+# `equipment` catalog table (weapons/armor/gear with GP costs) was added.
+USER_VERSION = 6
 
 # Tables loaded in dependency order (parents before children).
 TABLES = [
@@ -34,6 +35,7 @@ TABLES = [
     "calling_weapon_option",
     "weapon_category",
     "armor",
+    "equipment",
     "challenge_number",
     "monster",
     "spell",

@@ -1061,3 +1061,111 @@ ________________________________________________
 
 </div>
 
+## 28. Equipment & Prices
+
+Prices are in gold pieces (GP). Treat them as a starting guide — the Guide may raise or lower a price for a region, a shortage, or a haggling player. Weapon damage follows the weapon types in Section 10; armor and shields use the Defense bonuses from Section 9.
+
+### Weapons
+
+| Weapon | Damage | Cost |
+|---|:--:|--:|
+| Knife | 1d4 | 1 GP |
+| Dagger | 1d4 | 2 GP |
+| Wooden Club | 1d4 | 1 GP |
+| Quarterstaff | 1d6 | 5 GP |
+| Hand Axe | 1d6 | 5 GP |
+| Mace | 1d6 | 8 GP |
+| Hammer | 1d6 | 6 GP |
+| Short Sword | 1d6 | 10 GP |
+| Long Sword | 1d8 | 20 GP |
+| Battle Axe | 1d8 | 15 GP |
+| War Hammer | 1d8 | 15 GP |
+| War Staff | 1d8 | 12 GP |
+| Short Bow | 1d6 | 12 GP |
+| Crossbow | 1d6 | 18 GP |
+
+Ammunition: Arrows (quiver of 20) — 1 GP; Crossbow Bolts (case of 20) — 1 GP.
+
+### Armor, Shields & Helmets
+
+| Item | Type | Protection | Cost |
+|---|---|:--:|--:|
+| Tunic | Armor | none | 1 GP |
+| Leather Armor | Armor | +1 Defense | 20 GP |
+| Chain Mail | Armor | +2 Defense | 75 GP |
+| Plate Armor | Armor | +3 Defense | 200 GP |
+| Buckler | Shield | +1 Defense | 5 GP |
+| Wooden Shield | Shield | +1 Defense | 8 GP |
+| Steel Shield | Shield | +1 Defense | 15 GP |
+| Leather Cap | Helmet | +1 Defense | 8 GP |
+| Full Helm | Helmet | +1 Defense | 25 GP |
+
+Only one suit of body armor and one shield add to Defense at a time. A helmet's +1 Defense is optional gear the Guide may allow, stacking with armor and shield.
+
+### Potions
+
+| Item | Effect | Cost |
+|---|---|--:|
+| Potion of Healing | Restores 1d8 Life when drunk. | 50 GP |
+| Potion of Hover | Drift and hover just above the ground for one scene. | 50 GP |
+| Potion of Strength | +2 Might for one scene. | 50 GP |
+| Potion of Vigor | Clears all Strain and shrugs off fatigue. | 40 GP |
+
+### Crystals
+
+Crystals hold a single charge of minor magic and are spent once unless the Guide says otherwise.
+
+| Item | Effect | Cost |
+|---|---|--:|
+| Sunstone | Sheds warm light on command; grant +1 to one fire spell, then it dims. | 75 GP |
+| Mindshard | Steadies the mind: +1 to one spellcasting check, then goes dull. | 90 GP |
+| Heartstone | Mends its bearer slowly: restore 1 Life at each rest. | 80 GP |
+| Charmstone | +1 to one Persuasion or social check, then it cracks. | 70 GP |
+| Frostshard | Radiates cold; grant +1 to one frost or water spell, then it clouds over. | 100 GP |
+
+### Cloaks
+
+| Item | Effect | Cost |
+|---|---|--:|
+| Traveler's Cloak | Keeps out cold and rain on the road. | 8 GP |
+| Forester's Cloak | +1 to Stealth checks to hide in the wild. | 12 GP |
+| Noble's Cloak | +1 to social checks among the highborn. | 40 GP |
+
+### Valuables & Trinkets
+
+| Item | Note | Cost |
+|---|---|--:|
+| Amulet of Warding | Once per day, add +1 Defense against a magical attack. | 120 GP |
+| Gold Ring | A fine gold band; a keepsake, signet, or ready coin. | 50 GP |
+| Silver Ring | A plain silver ring of modest worth. | 25 GP |
+| Gold Bracelet | A heavy gold bracelet. | 90 GP |
+| Azure Bracelet | Silver set with blue stones. | 60 GP |
+| Garnet Bracelet | Bronze set with red garnets. | 70 GP |
+
+### Adventuring Gear
+
+| Item | Use | Cost |
+|---|---|--:|
+| Torch | Burns about an hour, lighting the way. | 1 GP |
+| Oil Lamp | Casts steady light while its oil lasts. | 5 GP |
+| Rope (25 ft) | Strong hemp rope, 25 feet. | 2 GP |
+| Waterskin | Holds a day's water. | 1 GP |
+| Trail Rations (1 week) | Preserved food for one week. | 5 GP |
+| Adventurer's Pack | A ready kit for the road. | 15 GP |
+| Healer's Kit | +1 to Healing checks; stabilizes a Down ally. | 20 GP |
+| Healing Herbs | Brewed or applied, restore 1d4 Life once. | 10 GP |
+| Spell Scroll | Reads out one stored spell (the Guide sets it), then crumbles to ash. | 100 GP |
+| Tome of Lore | +1 to a Lore check on the subject it covers. | 50 GP |
+
+### Quest Items
+
+These carry the story rather than a price; their worth depends on where they lead.
+
+| Item | Note |
+|---|---|
+| Old Map | Marks a place of interest; its worth depends on where it leads. |
+| Sealed Letter | A message under seal - a quest, clue, or summons. |
+| Iron Key | Opens one specific lock. |
+| Ring of Keys | A jailer's or steward's keys. |
+
+---

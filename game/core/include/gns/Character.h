@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "gns/Item.h"   // gns::InventoryItem
 
 namespace gns {
 
@@ -35,7 +36,7 @@ struct Character {
     int gold = 100;         // gold pieces (starting default; spent at shops)
 
     std::vector<std::string> spells;      // known spell names (Mystics)
-    std::vector<std::string> inventory;   // item names the character carries (bought goods)
+    std::vector<InventoryItem> inventory; // items the character carries (bought goods, granted items)
 
     // Equipment shaping combat (a small profile so the engine needn't re-derive).
     std::string armorName = "No armor";

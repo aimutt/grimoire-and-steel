@@ -73,11 +73,31 @@ public:
     const std::map<std::string, std::string>& globals() const { return globals_; }
     void setGlobals(std::map<std::string, std::string> g) { globals_ = std::move(g); }
 
+    // --- Deactivated areas (set by area choices) ------------------------------
+    // Areas a choice has removed from play: no longer drawn on the map and no longer
+    // triggered when the party walks over them. Serialized into a .gnssav.
+    void deactivateArea(int areaId) { deactivatedAreas_.insert(areaId); }
+    bool isAreaActive(int areaId) const { return deactivatedAreas_.count(areaId) == 0; }
+    const std::set<int>& deactivatedAreas() const { return deactivatedAreas_; }
+    void setDeactivatedAreas(std::set<int> ids) { deactivatedAreas_ = std::move(ids); }
+
+    // --- Deleted contexts (set by area choices) -------------------------------
+    // Contexts a choice has removed, keyed by (areaId, context name). A deleted context
+    // is skipped by activeContext so it never activates again. Serialized into a .gnssav.
+    void deleteContext(int areaId, const std::string& ctxName) { deletedContexts_.insert({areaId, ctxName}); }
+    bool isContextDeleted(int areaId, const std::string& ctxName) const {
+        return deletedContexts_.count({areaId, ctxName}) != 0;
+    }
+    const std::set<std::pair<int, std::string>>& deletedContexts() const { return deletedContexts_; }
+    void setDeletedContexts(std::set<std::pair<int, std::string>> c) { deletedContexts_ = std::move(c); }
+
 private:
     std::set<int> completed_;
     std::set<std::string> flags_;
     std::set<int> resolvedChoiceAreas_;
     std::map<std::string, std::string> globals_;
+    std::set<int> deactivatedAreas_;
+    std::set<std::pair<int, std::string>> deletedContexts_;
 };
 
 // Initialise a tracker's globals from a module's variable declarations (each variable's

@@ -41,7 +41,8 @@ struct Encounter {
     bool occurred = false;        // false when the presence roll failed
     std::string monsterType;      // requested type (gns.db name or free text)
     bool known = false;           // true when resolved to a gns.db MonsterDef
-    std::vector<Combatant> monsters;
+    std::vector<Combatant> monsters;      // enemies (monsters + authored foe characters)
+    std::vector<Character> allies;        // authored ally characters that fight for the party
     Reaction reaction = Reaction::Neutral;
 };
 

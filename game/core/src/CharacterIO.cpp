@@ -76,7 +76,7 @@ CREATE TABLE character (
 );
 CREATE TABLE character_training (name TEXT);
 CREATE TABLE character_spell (name TEXT);
-CREATE TABLE character_item (name TEXT);
+CREATE TABLE character_item (name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
 )sql";
 
 } // namespace
@@ -116,8 +116,13 @@ void saveCharacter(const Character& c, const std::string& path) {
         for (const auto& sp : c.spells) { s.bind(sp); s.run(); }
     }
     {
-        Stmt s(db, "INSERT INTO character_item(name) VALUES(?);");
-        for (const auto& it : c.inventory) { s.bind(it); s.run(); }
+        Stmt s(db, "INSERT INTO character_item(name,description,image_id,image_path,quantity,value) "
+                   "VALUES(?,?,?,?,?,?);");
+        for (const auto& it : c.inventory) {
+            s.bind(it.name).bind(it.description).bind(it.imageId).bind(it.imagePath)
+             .bind(it.quantity < 1 ? 1 : it.quantity).bind(it.value);
+            s.run();
+        }
     }
   });
 }
@@ -182,10 +187,32 @@ Character loadCharacter(const std::string& path) {
         Stmt s(conn.db, "SELECT name FROM character_spell;");
         while (sqlite3_step(s.s) == SQLITE_ROW) c.spells.push_back(colText(s.s, 0));
     } catch (const DbError&) {}
-    try {
-        Stmt s(conn.db, "SELECT name FROM character_item;");
-        while (sqlite3_step(s.s) == SQLITE_ROW) c.inventory.push_back(colText(s.s, 0));
-    } catch (const DbError&) {}
+    // character_item gained description/image_id/image_path/quantity in v4 and `value` in v5.
+    // level 2 = newest (with value), 1 = v4 (no value), 0 = v3 (name only); fall back a tier.
+    auto loadItems = [&](int level) {
+        const char* sql =
+            level >= 2 ? "SELECT name,description,image_id,image_path,quantity,value FROM character_item;"
+            : level >= 1 ? "SELECT name,description,image_id,image_path,quantity FROM character_item;"
+                         : "SELECT name FROM character_item;";
+        Stmt s(conn.db, sql);
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            InventoryItem it;
+            it.name = colText(s.s, 0);
+            if (level >= 1) {
+                it.description = colText(s.s, 1);
+                it.imageId     = colText(s.s, 2);
+                it.imagePath   = colText(s.s, 3);
+                it.quantity    = colInt(s.s, 4);
+                if (it.quantity < 1) it.quantity = 1;
+                if (level >= 2) it.value = colInt(s.s, 5);
+            }
+            c.inventory.push_back(std::move(it));
+        }
+    };
+    for (int level = 2; ; --level) {
+        try { loadItems(level); break; }
+        catch (const DbError&) { c.inventory.clear(); if (level == 0) break; }
+    }
 
     return c;
 }
