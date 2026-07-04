@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "gns/Item.h"        // gns::InventoryItem
+#include "gns/Character.h"   // gns::Character (AreaContext::characters)
 
 // Authored-adventure data model + .gnsmod persistence (milestone M2).
 //
@@ -98,6 +100,14 @@ struct AreaMonster {
     int count = 1;
 };
 
+// A character (NPC) authored onto an area's Context. At play they join the encounter: a Foe
+// fights on the monsters' side against the party; an Ally fights alongside the party against the
+// monsters (allies are transient — they do not persist after the fight).
+struct AreaCharacter {
+    Character character;   // full character build (traits, gear, inventory, ...)
+    bool foe = true;       // true = enemy (with the monsters); false = ally (with the party)
+};
+
 // One treasure-type possibility for an area, with its own independent chance.
 struct AreaTreasure {
     std::string type;     // treasure-type code A-T or free text
@@ -113,6 +123,9 @@ struct ShopItem {
     std::string imagePath;   // optional free-file item image (fallback if no imageId)
     std::string imageId;     // baked-in item-art catalog id (filename), shown in both apps
 };
+
+// (InventoryItem now lives in gns/Item.h so Character.h and Module.h can share it without a
+// cyclic include; see the include above.)
 
 // One of an area's images. `direction` selects it by the party's facing at play time
 // (-1 = any/default-eligible, 0 = North, 1 = East, 2 = South, 3 = West).
@@ -169,9 +182,12 @@ struct AreaChoice {
     std::string setFlag;            // LEGACY decision flag (kept for load/migration; use mutations)
     int completeControlPointId = 0; // 0 = none; else marks a Control Point complete (unlocks gated areas)
     int goldDelta = 0;              // +/- gold applied to EVERY party member (each gets the full amount)
-    std::string grantItemName;      // added to the active character's inventory (empty = none)
+    std::string grantItemName;      // LEGACY plain item name (migrated into grantItem.name on load)
+    InventoryItem grantItem;        // granted to the active character (empty name = none); quantity = count
     std::string takeItemName;       // removed from the active character's inventory (empty = none)
     std::vector<VarMutation> mutations;  // mutations to global variables (empty = none)
+    bool deactivateArea = false;    // when chosen, remove this area from the map + stop triggering it
+    bool deleteContext = false;     // when chosen, stop THIS context from ever activating again
 };
 
 // Player-facing text shown *instead of* Area::playerText when its flag is set. First match
@@ -199,6 +215,7 @@ struct AreaContext {
     int monsterChancePct = 0;
     std::string monsterType;    // legacy single type (kept for backward-compat/migration)
     std::vector<AreaMonster> monsters;
+    std::vector<AreaCharacter> characters;  // authored NPCs (foes fight with monsters, allies with the party)
     int treasureChancePct = 0;
     std::string treasureType;   // legacy single treasure (kept for backward-compat/migration)
     std::vector<AreaTreasure> treasures;
@@ -342,8 +359,13 @@ struct Module {
 // typed globals; the area_contexts table + its context_* child tables -- conditions, monsters,
 // treasures, images, shop_items, transitions, choices, and context_choice_mutations; the areas
 // table dropped its content columns). Pre-v15 modules are migrated on load into one default
-// context per area.
-constexpr int kModuleFormatVersion = 15;
+// context per area. v16 gave context choices a rich granted item (grant_item_desc/image/path/qty
+// columns; the legacy grant_item name migrates into it) plus deactivate_area/delete_context flags
+// (a chosen option can remove its area from play or delete its context). v17 added authored
+// Context characters: the context_characters table (mirroring the .gnschar character columns + a
+// foe flag) and its context_character_training/context_character_spell/context_character_item child
+// tables (the last carrying the per-item value column).
+constexpr int kModuleFormatVersion = 17;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

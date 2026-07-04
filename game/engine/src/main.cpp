@@ -1,4 +1,4 @@
-// Grimoire & Steel — Game Engine (M0 vertical slice).
+// Grimoire & Steel - Game Engine (M0 vertical slice).
 // Proves the toolchain: SDL2 + Dear ImGui + sqlite3 + gns.db all linked & running.
 #define NOMINMAX
 #include <SDL.h>
@@ -22,6 +22,7 @@
 #include "gns/RulesAdjudicator.h"
 #include "gns/Narrator.h"
 #include "gns/ui/MapRender.h"
+#include "gns/ui/CharacterEditor.h"
 
 #include "embedded_assets.h"   // generated: kEmbeddedPortraits (filename -> RCDATA id)
 #include "embedded_items.h"    // generated: kItemCatalog (shop item-art baked into the binary)
@@ -105,7 +106,7 @@ static std::string characterDialog(bool save) {
     return "";
 }
 
-// ImGui InputText bound to a std::string (resizes on demand) — the canonical wrapper.
+// ImGui InputText bound to a std::string (resizes on demand) -the canonical wrapper.
 static int strResizeCb(ImGuiInputTextCallbackData* data) {
     if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
         auto* str = static_cast<std::string*>(data->UserData);
@@ -200,7 +201,7 @@ int main(int, char**) {
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);   // cover-art splash images
 
     SDL_Window* window = SDL_CreateWindow(
-        "Grimoire & Steel — Game Engine (M0)",
+        "Grimoire & Steel - Game Engine (M0)",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1100, 720,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_MAXIMIZED);
     SDL_Renderer* renderer = SDL_CreateRenderer(
@@ -214,7 +215,7 @@ int main(int, char**) {
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
 
-    // Roomier, modern style — more breathing room and left padding than the ImGui defaults.
+    // Roomier, modern style -more breathing room and left padding than the ImGui defaults.
     {
         ImGuiStyle& style = ImGui::GetStyle();
         style.WindowPadding  = ImVec2(16, 14);
@@ -271,28 +272,9 @@ int main(int, char**) {
         for (const auto& s : repo->spells()) spellNames.push_back(s.name);
     }
 
-    // In-progress character selections.
-    struct Draft {
-        std::string name, player, background, goal, personality, notes;
-        std::string kin, calling;
-        int traitVals[4] = {2, 1, 0, -1};   // Might, Grace, Wits, Spirit
-        std::vector<char> trainingSel;       // parallel to trainingNames
-        std::vector<char> spellSel;          // parallel to spellNames
-        std::string weaponCat, weaponName, armorName = "No armor";
-        int weaponBonus = 0;
-        bool shield = false;
-        std::string portraitPath;   // chosen avatar filename ("" = placeholder)
-        int gold = 100;             // starting gold (editable)
-    } draft;
-    draft.trainingSel.assign(trainingNames.size(), 0);
-    draft.spellSel.assign(spellNames.size(), 0);
-    if (!kinNames.empty()) draft.kin = kinNames.front();
-    if (!callingNames.empty()) draft.calling = callingNames.front();
-    if (!weaponCatNames.empty()) {
-        draft.weaponCat = weaponCatNames.front();
-        if (const gns::WeaponCategory* wc = repo->weaponCategory(draft.weaponCat))
-            draft.weaponName = wc->name;
-    }
+    // In-progress character selections (the shared builder from gns_ui, used by both apps).
+    gns::ui::CharacterDraft draft;
+    if (repo) gns::ui::initCharacterDraft(*repo, draft);
     std::string charStatus;
     std::vector<gns::Character> roster;
     int defaultPartyCount = 3;   // Quick Start party size (1-5)
@@ -400,6 +382,59 @@ int main(int, char**) {
         }
         return nullptr;
     };
+    // Best texture for an owned inventory item: same resolution as a shop item (the item now
+    // carries its own art, granted or bought), so gear shows its image anywhere.
+    auto invItemTexture = [&](const gns::InventoryItem& it) -> SDL_Texture* {
+        if (SDL_Texture* t = itemTexture(it.imageId)) return t;
+        if (!it.imagePath.empty()) {
+            std::string base = it.imagePath;
+            size_t s = base.find_last_of("/\\");
+            if (s != std::string::npos) base = base.substr(s + 1);
+            if (SDL_Texture* t = itemTexture(base)) return t;
+            return loadCachedImage(it.imagePath);
+        }
+        return nullptr;
+    };
+    // Map a weapon/armor display name to a baked-in ArmorWeapons catalog filename (best-effort
+    // keyword match) so equipped gear shows a thumbnail on the character sheet. "No armor" maps to
+    // the tunic (clothes). Empty string = no match (the sheet then shows a lettered placeholder).
+    auto gearArtFile = [](std::string name) -> std::string {
+        for (auto& ch : name) ch = (char)std::tolower((unsigned char)ch);
+        auto has = [&](const char* k) { return name.find(k) != std::string::npos; };
+        // Armor / clothes.
+        if (has("plate")) return "armor-platemail.png";
+        if (has("chain") || has("mail")) return "armor-chainmail.png";
+        if (has("leather") || has("light armor")) return "armor-leather.png";
+        if (has("no armor") || has("unarmored") || has("cloth") || has("tunic") || has("robe"))
+            return "tunic.png";
+        // Weapons (check the more specific names first).
+        if (has("war hammer") || has("warhammer")) return "hammer-war.png";
+        if (has("hammer")) return "hammer.png";
+        if (has("war staff") || has("battle staff")) return "staff-war.png";
+        if (has("staff") || has("quarterstaff")) return "staff.png";
+        if (has("battle axe") || has("battleaxe") || has("greataxe")) return "battle-axe.png";
+        if (has("hand axe") || has("handaxe") || has("axe")) return "hand-axe.png";
+        if (has("long sword") || has("longsword") || has("broadsword") || has("greatsword"))
+            return "sword-long.png";
+        if (has("short sword") || has("shortsword") || has("sword")) return "sword-short.png";
+        if (has("dagger")) return "dagger.png";
+        if (has("knife")) return "knife.png";
+        if (has("mace")) return "mace.png";
+        if (has("club") || has("cudgel")) return "club-wooden.png";
+        if (has("crossbow")) return "crossbow.png";
+        if (has("bow")) return "short-bow.png";
+        return "";
+    };
+    // A shield's catalog art. Named shields pick by material; the bare `shield` flag defaults to
+    // the wooden shield.
+    auto shieldArtFile = [](std::string name) -> std::string {
+        for (auto& ch : name) ch = (char)std::tolower((unsigned char)ch);
+        if (name.find("metal") != std::string::npos || name.find("steel") != std::string::npos)
+            return "shield-metal.png";
+        if (name.find("small") != std::string::npos || name.find("buckler") != std::string::npos)
+            return "shield-small.png";
+        return "shield-wooden.png";
+    };
 
     auto openModule = [&](const std::string& path) {
         try {
@@ -432,6 +467,7 @@ int main(int, char**) {
     int cursorX = 0, cursorY = 0;            // party token position, in map cells
     int faceX = 0, faceY = 1;                 // facing direction (default south)
     int shopBuyer = 0;                        // which party member is buying/selling
+    int sheetChar = -1;                       // party member whose full sheet+inventory window is open (-1 none)
     bool areaView = false;                    // left region shows the area view, not the map
     std::string contextError;                 // set when an area has 2+ active contexts (logic halt)
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
@@ -447,7 +483,7 @@ int main(int, char**) {
 
     // Draggable vertical divider between the left and right panes. Handled against the global
     // mouse and drawn on the foreground draw list (not a tiny ImGui window, which ImGui floors to
-    // ~32px) — the same approach as the Creator's updatePaneSplitter. Call ONCE per frame before
+    // ~32px) -the same approach as the Creator's updatePaneSplitter. Call ONCE per frame before
     // the panes are drawn; mutates `rightW` (clamped). Returns true while the seam is hot.
     auto verticalSplitter = [&](float& rightW, float minRight, float minLeft) -> bool {
         const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -479,7 +515,7 @@ int main(int, char**) {
 
     // Write the whole play-session to the sidecar .gnssav. Called after meaningful events
     // (area entry, a decision, a shop transaction) so relaunching can Continue. Non-fatal on
-    // failure — a save error must never interrupt play.
+    // failure -a save error must never interrupt play.
     auto autoSave = [&]() {
         if (!session || modulePath.empty()) return;
         gns::GameSave gs;
@@ -495,6 +531,8 @@ int main(int, char**) {
         gs.flags         = session->plot().flags();
         gs.resolvedAreas = session->plot().resolvedChoiceAreas();
         gs.globals       = session->plot().globals();
+        gs.deactivatedAreas = session->plot().deactivatedAreas();
+        gs.deletedContexts  = session->plot().deletedContexts();
         gs.journal = journal;
         gs.party   = session->party().members;
         try { gns::saveGame(sidecarPath(), gs); haveSaveFile = true; }
@@ -554,13 +592,26 @@ int main(int, char**) {
             if (cp.kind == 0 && cp.areaId == areaId && session->completeControlPoint(cp.id))
                 journal.push_back("Objective reached: " + cp.name);
 
-        if (ctx && ctx->monsterChancePct > 0) {
+        // A fight can start from a monster presence roll OR from authored foe characters on the
+        // context (checkArea sorts out foes vs allies; allies alone never start a fight).
+        if (ctx && (ctx->monsterChancePct > 0 || !ctx->characters.empty())) {
             gns::EncounterDirector dir(*repo, session->dice());
             gns::Encounter enc = dir.checkArea(*ctx);
             if (enc.occurred) {
                 journal.push_back("A fight breaks out!");
+                // Combat party = the real party plus any authored allies (allies are transient:
+                // their post-fight state is discarded; only the real members are copied back).
+                gns::Party fight;
+                fight.members = session->party().members;
+                const size_t realCount = fight.members.size();
+                for (const auto& ally : enc.allies) {
+                    fight.members.push_back(ally);
+                    journal.push_back(ally.name + " fights alongside the party!");
+                }
                 gns::CombatEngine combat(*repo, session->dice());
-                gns::CombatResult r = combat.run(session->party(), enc);
+                gns::CombatResult r = combat.run(fight, enc);
+                for (size_t i = 0; i < realCount && i < fight.members.size(); ++i)
+                    session->party().members[i] = fight.members[i];
                 for (const auto& line : r.log) journal.push_back(line);
                 journal.push_back(r.outcome == gns::CombatOutcome::PartyVictory
                     ? ("Victory! The party gains " + std::to_string(r.apAwarded) + " AP.")
@@ -606,6 +657,14 @@ int main(int, char**) {
             c.weaponName = p.weapon;
             c.weaponDamageDie = p.die;
             c.spells = p.spells;
+            // Baseline kit so every generated character carries a few items, each with a baked-in
+            // thumbnail (names match ArmorWeapons catalog files).
+            c.inventory = {
+                {"Knife",        "A small utility knife.",   "knife.png",       "", 1},
+                {"Wooden club",  "A simple wooden club.",    "club-wooden.png", "", 1},
+                {"Staff",        "A sturdy wooden staff.",   "staff.png",       "", 1},
+                {"Small shield", "A light wooden buckler.",  "shield-small.png","", 1},
+            };
             if (!portraitFiles.empty()) c.portraitPath = portraitFiles[i % portraitFiles.size()];
             roster.push_back(std::move(c));
         }
@@ -654,6 +713,8 @@ int main(int, char**) {
         // The Session ctor already seeded globals from module defaults; override with the saved
         // values when present (older v1 saves have none, so keep the defaults).
         if (!gs.globals.empty()) session->plot().setGlobals(gs.globals);
+        session->plot().setDeactivatedAreas(gs.deactivatedAreas);
+        session->plot().setDeletedContexts(gs.deletedContexts);
         journal = gs.journal;
         cursorX = gs.cursorX; cursorY = gs.cursorY; faceX = gs.faceX; faceY = gs.faceY;
         shopBuyer = gs.activeChar;
@@ -767,7 +828,7 @@ int main(int, char**) {
         // --- Menu bar: open a module (shows its cover), re-show the cover, or exit ---
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Open Module\xE2\x80\xA6")) {
+                if (ImGui::MenuItem("Open Module...")) {
                     std::string p = openModuleDialog();
                     if (!p.empty()) openModule(p);
                 }
@@ -791,7 +852,7 @@ int main(int, char**) {
                 ImGui::Separator();
                 ImGui::TextDisabled("%s", moduleStatus.c_str());
             }
-            // A prominent, green Play button once a module is loaded — the clear "how do I
+            // A prominent, green Play button once a module is loaded -the clear "how do I
             // start?" affordance (Play mode's Adventure panel then guides party setup).
             if (haveModule && repo) {
                 ImGui::Separator();
@@ -805,7 +866,7 @@ int main(int, char**) {
       if (mode == Mode::Browser) {
         ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(420, 690), ImGuiCond_FirstUseEver);
-        ImGui::Begin("Grimoire & Steel — gns.db");
+        ImGui::Begin("Grimoire & Steel - gns.db");
         if (!dbErr.empty()) {
             ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "DB error: %s", dbErr.c_str());
         } else {
@@ -855,47 +916,14 @@ int main(int, char**) {
         ImGui::End();
       } else if (mode == Mode::Characters) {
         // ===================== Characters mode =====================
-        const gns::Kin* kin = repo ? repo->kin(draft.kin) : nullptr;
-        const gns::Calling* calling = repo ? repo->calling(draft.calling) : nullptr;
-
-        // Keep weaponName/damage-die in sync with the chosen weapon category.
-        const gns::WeaponCategory* wcat = repo ? repo->weaponCategory(draft.weaponCat) : nullptr;
-
-        // Build the live character from the current selections (reuses the rules engine).
-        gns::Traits tr;
-        tr.might  = draft.traitVals[0];
-        tr.grace  = draft.traitVals[1];
-        tr.wits   = draft.traitVals[2];
-        tr.spirit = draft.traitVals[3];
-        std::vector<std::string> chosenTrainings;
-        for (size_t i = 0; i < trainingNames.size(); ++i)
-            if (draft.trainingSel[i]) chosenTrainings.push_back(trainingNames[i]);
-        std::vector<std::string> chosenSpells;
-        for (size_t i = 0; i < spellNames.size(); ++i)
-            if (draft.spellSel[i]) chosenSpells.push_back(spellNames[i]);
-
-        gns::Character ch = repo
-            ? gns::makeCharacter(*repo, draft.name, draft.kin, draft.calling, tr,
-                                 chosenTrainings, draft.armorName, draft.shield)
-            : gns::Character{};
-        ch.weaponName = draft.weaponName;
-        ch.weaponDamageDie = wcat ? wcat->damageDie : "1d6";
-        ch.weaponBonus = draft.weaponBonus;
-        ch.spells = chosenSpells;
-        ch.playerName = draft.player;
-        ch.background = draft.background;
-        ch.goal = draft.goal;
-        ch.personality = draft.personality;
-        ch.notes = draft.notes;
-        ch.portraitPath = draft.portraitPath;
-        ch.gold = draft.gold;
-
-        const bool isMystic = (draft.calling == "Mystic");
-        const int needTraining = gns::requiredTrainingCount(draft.kin);
-        const bool traitsOk = gns::validTraitSpread(tr);
-        const bool trainingOk = (int)chosenTrainings.size() == needTraining;
-        const bool spellsOk = !isMystic || chosenSpells.size() == 3;
-        const bool canSave = repo && !draft.name.empty() && traitsOk && trainingOk && spellsOk;
+        // The Create Character UI is the shared gns_ui builder; host callbacks resolve item art
+        // (baked catalog) and portraits (baked RCDATA) so the same editor serves both apps.
+        gns::ui::CharacterEditorHost charHost;
+        charHost.itemTexture = [&](const std::string& id) { return itemTexture(id); };
+        charHost.portraits = portraitFiles;
+        charHost.portraitTexture = [&](const std::string& f) { return portraitTexture(f); };
+        gns::Character ch = repo ? gns::ui::buildCharacter(*repo, draft) : gns::Character{};
+        const bool canSave = repo && gns::ui::characterDraftValid(*repo, draft);
 
         // Two-pane layout: Create Character on the left, Roster on the right, split by a
         // draggable divider (like the Module Creator). The seam width seeds from ~34% of the
@@ -913,153 +941,13 @@ int main(int, char**) {
         if (!repo) {
             ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "DB error: %s", dbErr.c_str());
         } else {
-            const float kFieldW = 240.0f;   // shared width for inputs/combos with short content
-            sectionHeader("Identity");
-            ImGui::SetNextItemWidth(kFieldW); inputText("Name", &draft.name);
-            ImGui::SetNextItemWidth(kFieldW); inputText("Background", &draft.background);
-            ImGui::SetNextItemWidth(kFieldW); inputText("Goal", &draft.goal);
-            ImGui::SetNextItemWidth(120);
-            if (ImGui::InputInt("Gold", &draft.gold) && draft.gold < 0) draft.gold = 0;
-
-            sectionHeader("Portrait");
-            if (portraitFiles.empty()) {
-                ImGui::TextDisabled("No portraits found in assets/portraits.");
-            } else {
-                // 3:4 portrait boxes (matches the source images, so no stretching). ImageButton
-                // adds FramePadding around the image, so a portrait tile is actually
-                // pw + 2*FramePadding.x wide — size the wrap on that or the last column clips.
-                const float pw = 92.0f, ph = 122.0f;
-                ImGuiStyle& st = ImGui::GetStyle();
-                float tileW = pw + st.FramePadding.x * 2.0f;
-                float availW = ImGui::GetContentRegionAvail().x;
-                int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (tileW + st.ItemSpacing.x)));
-                int placed = 0;
-                auto rowBreak = [&]() { if (placed % perRow != 0) ImGui::SameLine(); };
-                rowBreak();
-                if (ImGui::Button("None##port", ImVec2(pw, ph))) draft.portraitPath.clear();
-                ++placed;
-                for (size_t i = 0; i < portraitFiles.size(); ++i) {
-                    rowBreak();
-                    bool sel = (draft.portraitPath == portraitFiles[i]);
-                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.62f, 0.86f, 1.0f));
-                    std::string id = "##port" + std::to_string(i);
-                    SDL_Texture* tex = portraitTexture(portraitFiles[i]);
-                    bool clicked = tex
-                        ? ImGui::ImageButton(id.c_str(), (ImTextureID)tex, ImVec2(pw, ph))
-                        : ImGui::Button((std::to_string(i + 1) + id).c_str(), ImVec2(pw, ph));
-                    if (clicked) draft.portraitPath = portraitFiles[i];
-                    if (sel) ImGui::PopStyleColor();
-                    ++placed;
-                }
-            }
-
-            sectionHeader("Kin & Calling");
-            ImGui::SetNextItemWidth(kFieldW);
-            comboField("Kin", &draft.kin, kinNames);
-            if (kin) ImGui::TextWrapped("Gift (%s): %s", kin->giftName.c_str(),
-                                        kin->giftDescription.c_str());
-            ImGui::SetNextItemWidth(kFieldW);
-            comboField("Calling", &draft.calling, callingNames);
-            if (calling) {
-                ImGui::TextWrapped("Gift (%s): %s", calling->giftName.c_str(),
-                                   calling->giftDescription.c_str());
-                ImGui::TextWrapped("Armor: %s", calling->armorAllowed.c_str());
-                ImGui::TextWrapped("Starting gear: %s", calling->startingGear.c_str());
-            }
-
-            sectionHeader("Traits  (assign +2, +1, +0, -1)");
-            static const char* traitLabels[4] = {"Might", "Grace", "Wits", "Spirit"};
-            static const int traitChoices[4] = {2, 1, 0, -1};
-            ImGui::Columns(2, "traitCols", false);
-            for (int t = 0; t < 4; ++t) {
-                ImGui::PushID(t);
-                ImGui::TextUnformatted(traitLabels[t]); ImGui::SameLine(70);
-                ImGui::SetNextItemWidth(80);
-                std::string cur = (draft.traitVals[t] >= 0 ? "+" : "") +
-                                  std::to_string(draft.traitVals[t]);
-                if (ImGui::BeginCombo("##v", cur.c_str())) {
-                    for (int ci = 0; ci < 4; ++ci) {
-                        std::string lbl = (traitChoices[ci] >= 0 ? "+" : "") +
-                                          std::to_string(traitChoices[ci]);
-                        if (ImGui::Selectable(lbl.c_str(), draft.traitVals[t] == traitChoices[ci]))
-                            draft.traitVals[t] = traitChoices[ci];
-                    }
-                    ImGui::EndCombo();
-                }
-                ImGui::PopID();
-                ImGui::NextColumn();
-            }
-            ImGui::Columns(1);
-            if (!traitsOk)
-                ImGui::TextColored(ImVec4(1, 0.5f, 0.3f, 1),
-                                   "Assign each of +2, +1, +0, -1 exactly once.");
-
-            sectionHeader("Training");
-            ImGui::Text("Choose %d (%d selected)", needTraining, (int)chosenTrainings.size());
-            {
-                int cols = ImGui::GetContentRegionAvail().x > 360 ? 2 : 1;
-                if (cols > 1) ImGui::Columns(cols, "trainingCols", false);
-                for (size_t i = 0; i < trainingNames.size(); ++i) {
-                    bool sel = draft.trainingSel[i] != 0;
-                    bool offered = calling &&
-                        std::find(calling->trainingOptions.begin(), calling->trainingOptions.end(),
-                                  trainingNames[i]) != calling->trainingOptions.end();
-                    std::string lbl = trainingNames[i] + (offered ? "  (calling)" : "");
-                    if (ImGui::Checkbox(lbl.c_str(), &sel)) draft.trainingSel[i] = sel ? 1 : 0;
-                    if (cols > 1) ImGui::NextColumn();
-                }
-                if (cols > 1) ImGui::Columns(1);
-            }
-
-            sectionHeader("Equipment");
-            ImGui::SetNextItemWidth(kFieldW);
-            if (comboField("Weapon type", &draft.weaponCat, weaponCatNames)) {
-                if (const gns::WeaponCategory* w = repo->weaponCategory(draft.weaponCat))
-                    draft.weaponName = w->name;   // seed a sensible default name
-            }
-            ImGui::SetNextItemWidth(kFieldW); inputText("Main attack", &draft.weaponName);
-            ImGui::SetNextItemWidth(120);
-            ImGui::SliderInt("Weapon bonus", &draft.weaponBonus, 0, 3);
-            std::vector<std::string> armorOpts = allowedArmors(calling, *repo);
-            // Snap armor to an allowed option if the calling forbids the current pick.
-            if (std::find(armorOpts.begin(), armorOpts.end(), draft.armorName) == armorOpts.end()
-                && !armorOpts.empty())
-                draft.armorName = armorOpts.front();
-            ImGui::SetNextItemWidth(kFieldW);
-            comboField("Armor", &draft.armorName, armorOpts);
-            if (callingAllowsShield(calling)) ImGui::Checkbox("Shield (+1 Defense)", &draft.shield);
-            else draft.shield = false;
-
-            if (isMystic) {
-                sectionHeader("Spells  (choose 3)");
-                ImGui::Text("%d selected", (int)chosenSpells.size());
-                int cols = ImGui::GetContentRegionAvail().x > 360 ? 2 : 1;
-                if (cols > 1) ImGui::Columns(cols, "spellCols", false);
-                for (size_t i = 0; i < spellNames.size(); ++i) {
-                    bool sel = draft.spellSel[i] != 0;
-                    bool atLimit = chosenSpells.size() >= 3 && !sel;
-                    if (atLimit) ImGui::BeginDisabled();
-                    if (ImGui::Checkbox(spellNames[i].c_str(), &sel))
-                        draft.spellSel[i] = sel ? 1 : 0;
-                    if (atLimit) ImGui::EndDisabled();
-                    if (cols > 1) ImGui::NextColumn();
-                }
-                if (cols > 1) ImGui::Columns(1);
-            }
-
-            sectionHeader("Derived");
-            ImGui::Text("Life %d   Defense %d", ch.maxLife, ch.defense);
-            ImGui::Text("Melee +%d   Ranged +%d   Strain limit %d",
-                        gns::meleeAttackBonus(ch), gns::rangedAttackBonus(ch),
-                        gns::strainLimit(ch));
-            if (isMystic) ImGui::Text("Spell cast bonus +%d", gns::spellCastBonus(ch));
-
-            ImGui::TextUnformatted("Notes");
-            inputTextMultiline("##notes", &draft.notes, ImVec2(-1, 50));
+            // The whole builder (identity, portrait, traits, training, equipment gallery, spells,
+            // inventory with editable name/value) is the shared gns_ui component.
+            gns::ui::drawCharacterEditor(*repo, draft, charHost);
 
             ImGui::Separator();
             if (!canSave) ImGui::BeginDisabled();
-            if (ImGui::Button("Save Character\xE2\x80\xA6")) {
+            if (ImGui::Button("Save Character...")) {
                 std::string p = characterDialog(/*save=*/true);
                 if (!p.empty()) {
                     try { gns::saveCharacter(ch, p); charStatus = "Saved: " + ch.name; }
@@ -1068,26 +956,16 @@ int main(int, char**) {
             }
             if (!canSave) ImGui::EndDisabled();
             ImGui::SameLine();
-            if (ImGui::Button("Reset")) { draft = Draft{};
-                draft.trainingSel.assign(trainingNames.size(), 0);
-                draft.spellSel.assign(spellNames.size(), 0);
-                if (!kinNames.empty()) draft.kin = kinNames.front();
-                if (!callingNames.empty()) draft.calling = callingNames.front();
-                if (!weaponCatNames.empty()) {
-                    draft.weaponCat = weaponCatNames.front();
-                    if (const gns::WeaponCategory* w = repo->weaponCategory(draft.weaponCat))
-                        draft.weaponName = w->name;
-                }
-            }
+            if (ImGui::Button("Reset")) { draft = gns::ui::CharacterDraft{}; gns::ui::initCharacterDraft(*repo, draft); }
             if (!charStatus.empty()) { ImGui::SameLine(); ImGui::TextDisabled("%s", charStatus.c_str()); }
         }
         ImGui::End();
 
-        // ----- Roster (loaded characters; the future party) — right pane -----
+        // ----- Roster (loaded characters; the future party) -right pane -----
         ImGui::SetNextWindowPos(ImVec2(charVp->WorkPos.x + createW, charVp->WorkPos.y));
         ImGui::SetNextWindowSize(ImVec2(rosterW, charVp->WorkSize.y));
         ImGui::Begin("Roster / Party", nullptr, paneFlags);
-        if (ImGui::Button("Load Character\xE2\x80\xA6")) {
+        if (ImGui::Button("Load Character...")) {
             std::string p = characterDialog(/*save=*/false);
             if (!p.empty()) {
                 try { roster.push_back(gns::loadCharacter(p)); charStatus = "Loaded a character."; }
@@ -1212,7 +1090,7 @@ int main(int, char**) {
             return true;
         };
         // Wrapped paragraph with extra line leading (each wrapped line is its own item, so
-        // ItemSpacing.y separates them) — far less crowded than a single TextWrapped block.
+        // ItemSpacing.y separates them) -far less crowded than a single TextWrapped block.
         auto drawProse = [&](const std::string& text, float leading) {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, leading));
             float wrapW = ImGui::GetContentRegionAvail().x;
@@ -1243,20 +1121,21 @@ int main(int, char**) {
             ImGui::PopStyleVar();
         };
 
-        // Which defined area (if any) the party token currently stands on — drives whether the
+        // Which defined area (if any) the party token currently stands on -drives whether the
         // left region shows the map or the full area/shop view.
         gns::Area* hereArea = nullptr;
         if (session) {
             if (const gns::Map* cmh = session->currentMap())
                 if (cursorX >= 0 && cursorY >= 0 && cursorX < cmh->gridW && cursorY < cmh->gridH) {
                     int aid = cmh->cellArea[(size_t)cursorY * cmh->gridW + cursorX];
-                    if (aid) hereArea = mod.areaById(aid);
+                    // A deactivated area (removed by a choice) is inert: no area view, just map.
+                    if (aid && session->plot().isAreaActive(aid)) hereArea = mod.areaById(aid);
                 }
         }
 
         // Full-window area view: replaces the map while the party is "inside" a defined area.
         // Shows the area art + description; for shops, clickable buy/sell grids with confirm
-        // popups. Clicking an item never buys/sells directly — it opens a Yes/No dialog.
+        // popups. Clicking an item never buys/sells directly -it opens a Yes/No dialog.
         auto drawAreaView = [&](gns::Area* a, gns::AreaContext* ctx) {
             if (!a || !ctx || !session) return;
             auto& party = session->party().members;
@@ -1278,7 +1157,7 @@ int main(int, char**) {
             ImGui::SeparatorText(areaLabel(a).c_str());
             // Left column = the area art with, beneath it, a compact bordered "dialog" box for
             // any open decision. The description fills the space to the right. When the area has
-            // neither art nor a decision the description simply spans the full width — a defined
+            // neither art nor a decision the description simply spans the full width -a defined
             // area must always show its text (art is optional).
             float topAvail = ImGui::GetContentRegionAvail().x;
             float imgW = std::min(560.0f, topAvail * 0.42f);
@@ -1316,12 +1195,32 @@ int main(int, char**) {
                             // items still go to the active character.
                             if (ch.goldDelta != 0)
                                 for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
-                            if (!ch.grantItemName.empty()) who.inventory.push_back(ch.grantItemName);
+                            // Grant a rich item to the active character; identical names stack.
+                            if (!ch.grantItem.name.empty()) {
+                                int qty = ch.grantItem.quantity < 1 ? 1 : ch.grantItem.quantity;
+                                auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
+                                    [&](const gns::InventoryItem& x){ return x.name == ch.grantItem.name; });
+                                if (it != who.inventory.end()) it->quantity += qty;
+                                else { gns::InventoryItem gi = ch.grantItem; gi.quantity = qty; who.inventory.push_back(gi); }
+                            }
                             if (!ch.takeItemName.empty()) {
-                                auto it = std::find(who.inventory.begin(), who.inventory.end(), ch.takeItemName);
-                                if (it != who.inventory.end()) who.inventory.erase(it);
+                                auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
+                                    [&](const gns::InventoryItem& x){ return x.name == ch.takeItemName; });
+                                if (it != who.inventory.end()) {
+                                    if (--it->quantity <= 0) who.inventory.erase(it);
+                                }
                             }
                             if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
+                            // A choice may remove its context (never activates again) and/or deactivate
+                            // its area (vanishes from the map + stops triggering). Never deactivate the
+                            // module's start or end area, so the adventure stays completable.
+                            if (ch.deleteContext) session->plot().deleteContext(a->id, ctx->name);
+                            if (ch.deactivateArea) {
+                                if (a->id == mod.startAreaId || a->id == mod.endAreaId)
+                                    journal.push_back("(The way here cannot be sealed off.)");
+                                else
+                                    session->plot().deactivateArea(a->id);
+                            }
                             session->plot().resolveChoiceArea(a->id);
                             autoSave();
                         }
@@ -1382,8 +1281,11 @@ int main(int, char**) {
                                                            : IM_COL32(40, 44, 58, 255), 6.0f);
                 ImU32 borderCol = (hov && invalid) ? IM_COL32(225, 70, 70, 255) : IM_COL32(20, 16, 24, 255);
                 dl->AddRect(p0, p1, borderCol, 6.0f, 0, (hov && invalid) ? 3.0f : 2.0f);
-                float imgS = tileSz.x - 24.0f;
-                ImVec2 ip0(p0.x + 12.0f, p0.y + 10.0f), ip1(ip0.x + imgS, ip0.y + imgS);
+                // Item art is 3:4 (portrait); size the image box to that ratio and center it so it
+                // never stretches. Leave ~70px below for the caption lines.
+                float imgH = tileSz.y - 70.0f;
+                float imgW = imgH * 3.0f / 4.0f;
+                ImVec2 ip0(p0.x + (tileSz.x - imgW) * 0.5f, p0.y + 8.0f), ip1(ip0.x + imgW, ip0.y + imgH);
                 if (tx) dl->AddImage((ImTextureID)tx, ip0, ip1);
                 else { dl->AddRectFilled(ip0, ip1, IM_COL32(28, 30, 40, 255), 4.0f);
                        dl->AddRect(ip0, ip1, IM_COL32(70, 74, 90, 255), 4.0f); }
@@ -1408,10 +1310,9 @@ int main(int, char**) {
             // the active character's items on the right (shown even when empty, for future
             // drag-and-drop). OpenPopup is deferred to after EndChild so its id matches the modal.
             bool openBuy = false, openSell = false, openCantSell = false;
-            // Resolve an owned item's art + description from any shop in the module, so a
-            // character's gear shows its image even at a shop that doesn't stock that item.
-            auto ownedItemArt = [&](const std::string& nm, SDL_Texture*& tx, std::string& desc) {
-                tx = nullptr; desc.clear();
+            // Fallback resolver: for an owned item lacking its own art/description (e.g. legacy
+            // saves), borrow them from any shop in the module that stocks the same name.
+            auto ownedItemArtByName = [&](const std::string& nm, SDL_Texture*& tx, std::string& desc) {
                 for (const auto& mp : mod.maps)
                     for (const auto& ar : mp.areas)
                         for (const auto& cx : ar.contexts)
@@ -1459,16 +1360,19 @@ int main(int, char**) {
                 int perRow = gridPerRow();
                 int placed = 0;
                 for (size_t k = 0; k < buyer.inventory.size(); ++k) {
-                    const std::string& nm = buyer.inventory[k];
+                    const gns::InventoryItem& item = buyer.inventory[k];
+                    const std::string& nm = item.name;
                     int cost = 0;
                     for (const auto& it : ctx->shopItems)
                         if (it.name == nm) { cost = it.costGp; break; }
-                    SDL_Texture* tx = nullptr; std::string desc;
-                    ownedItemArt(nm, tx, desc);    // art from any shop in the module
+                    SDL_Texture* tx = invItemTexture(item);   // the item's own art
+                    std::string desc = item.description;
+                    if (!tx || desc.empty()) ownedItemArtByName(nm, tx, desc);  // fallback for legacy items
                     bool sellable = cost > 0;
                     if (placed % perRow != 0) ImGui::SameLine();
-                    std::string l1 = sellable ? ("sell " + std::to_string(cost / 2) + " gp") : std::string();
-                    std::string l2 = sellable ? std::string() : std::string("not sold here");
+                    // Stack count on the first line; the price/"not sold here" note on the second.
+                    std::string l1 = item.quantity > 1 ? ("x" + std::to_string(item.quantity)) : std::string();
+                    std::string l2 = sellable ? ("sell " + std::to_string(cost / 2) + " gp") : std::string("not sold here");
                     // Always clickable: selling here confirms, otherwise explains it can't be sold
                     // (and the tile glows red on hover to flag it as not sellable here).
                     if (itemTile("sell" + std::to_string(k), tx, nm, l1, l2, /*enabled=*/true, desc,
@@ -1527,7 +1431,11 @@ int main(int, char**) {
                     int choice = confirmButtons(/*yesEnabled=*/ok);
                     if (choice == 1) {
                         buyer.gold -= price; it.stock -= 1;
-                        buyer.inventory.push_back(it.name);
+                        // Add to inventory; identical names stack.
+                        auto inv = std::find_if(buyer.inventory.begin(), buyer.inventory.end(),
+                            [&](const gns::InventoryItem& x){ return x.name == it.name; });
+                        if (inv != buyer.inventory.end()) inv->quantity += 1;
+                        else buyer.inventory.push_back(gns::InventoryItem{it.name, it.description, it.imageId, it.imagePath, 1});
                         journal.push_back(buyer.name + " buys " + it.name + " for " +
                                           std::to_string(price) + " gp.");
                         autoSave();
@@ -1540,7 +1448,7 @@ int main(int, char**) {
             }
             if (ImGui::BeginPopupModal("Confirm Sale", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 if (pendingSell >= 0 && pendingSell < (int)buyer.inventory.size()) {
-                    const std::string nm = buyer.inventory[pendingSell];
+                    const std::string nm = buyer.inventory[pendingSell].name;
                     int cost = 0;
                     for (const auto& it : ctx->shopItems) if (it.name == nm) { cost = it.costGp; break; }
                     int gain = cost / 2;
@@ -1549,7 +1457,9 @@ int main(int, char**) {
                     int choice = confirmButtons(/*yesEnabled=*/true);
                     if (choice == 1) {
                         buyer.gold += gain;
-                        buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
+                        // Sell one unit off the stack; drop the entry when the last one is gone.
+                        if (--buyer.inventory[pendingSell].quantity <= 0)
+                            buyer.inventory.erase(buyer.inventory.begin() + pendingSell);
                         journal.push_back(buyer.name + " sells " + nm + " for " +
                                           std::to_string(gain) + " gp.");
                         autoSave();
@@ -1562,7 +1472,7 @@ int main(int, char**) {
             }
             if (ImGui::BeginPopupModal("Cannot Sell", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 if (pendingSell >= 0 && pendingSell < (int)buyer.inventory.size())
-                    ImGui::Text("You cannot sell %s at this shop.", buyer.inventory[pendingSell].c_str());
+                    ImGui::Text("You cannot sell %s at this shop.", buyer.inventory[pendingSell].name.c_str());
                 else
                     ImGui::TextUnformatted("You cannot sell that item at this shop.");
                 ImGui::Spacing();
@@ -1572,7 +1482,7 @@ int main(int, char**) {
         };
 
         // Rich, clickable party cards for the in-session right panel. Clicking a card (or the
-        // up/down arrows while in an area) makes that character active — the highlighted frame
+        // up/down arrows while in an area) makes that character active -the highlighted frame
         // marks the current one, and the active index drives the shop's buyer/seller.
         auto drawPartyPanel = [&](std::vector<gns::Character>& members) {
             ImGuiStyle& st = ImGui::GetStyle();
@@ -1623,9 +1533,124 @@ int main(int, char**) {
                 ImGui::PopStyleVar();
                 ImGui::PopStyleColor();
                 if (hov && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) shopBuyer = (int)i;
+                // Open the full character sheet + inventory window for this member.
+                if (ImGui::SmallButton("View details / inventory")) { shopBuyer = (int)i; sheetChar = (int)i; }
                 ImGui::PopID();
                 ImGui::Spacing();
             }
+        };
+
+        // Floating window: a character's full sheet + inventory. Opened from a party card's
+        // "View details" button; closed with the window's X (or when the party changes). Every
+        // carried item shows a name + thumbnail; hovering a tile reveals its description.
+        auto drawCharacterSheet = [&](const gns::Character& pc) {
+            ImGui::SetNextWindowSize(ImVec2(460, 520), ImGuiCond_Appearing);
+            bool open = true;
+            std::string title = (pc.name.empty() ? std::string("Character") : pc.name) + "###charsheet";
+            if (ImGui::Begin(title.c_str(), &open)) {
+                if (ImGui::BeginTable("sheettop", 2)) {
+                    ImGui::TableSetupColumn("av", ImGuiTableColumnFlags_WidthFixed, 108.0f);
+                    ImGui::TableSetupColumn("id", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    drawAvatar(pc, 100.0f);
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                    ImGui::TextDisabled("%s %s  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                    ImGui::Text("Life %d/%d", pc.life, pc.maxLife);
+                    ImGui::Text("Defense %d", pc.defense);
+                    ImGui::Text("AP %d   Strain %d", pc.ap, pc.strain);
+                    ImGui::Text("Gold %d gp", pc.gold);
+                    ImGui::EndTable();
+                }
+                ImGui::SeparatorText("Traits");
+                ImGui::Text("Might %+d   Grace %+d   Wits %+d   Spirit %+d",
+                            pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
+                // Shared thumbnail tile: icon (or a lettered placeholder) with a wrapped caption,
+                // and a name+description tooltip on hover. Used for equipped gear and inventory so
+                // every item on the sheet shows a thumbnail.
+                const float iconSz = 56.0f;
+                const float iconH = iconSz * 4.0f / 3.0f;   // item art is 3:4 (portrait), never square
+                auto tile = [&](const std::string& id, SDL_Texture* tx, const std::string& label,
+                                const std::string& tipTitle, const std::string& tipDesc) {
+                    ImGui::PushID(id.c_str());
+                    ImGui::BeginGroup();
+                    if (tx) {
+                        ImGui::Image((ImTextureID)tx, ImVec2(iconSz, iconH));
+                    } else {
+                        std::string ph(1, label.empty() ? '?' : (char)std::toupper((unsigned char)label[0]));
+                        ImGui::Button(ph.c_str(), ImVec2(iconSz, iconH));
+                    }
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + iconSz);
+                    ImGui::TextUnformatted(label.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndGroup();
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(tipTitle.empty() ? label.c_str() : tipTitle.c_str());
+                        if (!tipDesc.empty()) {
+                            ImGui::Separator();
+                            ImGui::PushTextWrapPos(320.0f);
+                            ImGui::TextUnformatted(tipDesc.c_str());
+                            ImGui::PopTextWrapPos();
+                        }
+                        ImGui::EndTooltip();
+                    }
+                    ImGui::PopID();
+                };
+
+                ImGui::SeparatorText("Gear");
+                {
+                    // Weapon.
+                    std::string weap = pc.weaponName.empty() ? std::string("Unarmed") : pc.weaponName;
+                    std::string weapTip = weap + " (" +
+                        (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
+                    if (pc.weaponBonus) weapTip += " +" + std::to_string(pc.weaponBonus);
+                    tile("gw", itemTexture(gearArtFile(pc.weaponName)), weap, weapTip, "");
+                    ImGui::SameLine();
+                    // Armor - the tunic stands in as everyday clothes when the character wears none.
+                    bool noArmor = pc.armorName.empty() || pc.armorName == "No armor";
+                    std::string armLabel = noArmor ? std::string("Clothes") : pc.armorName;
+                    tile("ga", itemTexture(gearArtFile(noArmor ? std::string("No armor") : pc.armorName)),
+                         armLabel, noArmor ? std::string("Tunic (no armor)") : pc.armorName, "");
+                    if (pc.shield) {
+                        ImGui::SameLine();
+                        tile("gs", itemTexture(shieldArtFile("")), "Shield", "Shield", "");
+                    }
+                }
+                if (!pc.trainings.empty()) {
+                    ImGui::SeparatorText("Trainings");
+                    std::string t;
+                    for (size_t i = 0; i < pc.trainings.size(); ++i) { if (i) t += ", "; t += pc.trainings[i]; }
+                    ImGui::TextWrapped("%s", t.c_str());
+                }
+                if (!pc.spells.empty()) {
+                    ImGui::SeparatorText("Spells");
+                    std::string s;
+                    for (size_t i = 0; i < pc.spells.size(); ++i) { if (i) s += ", "; s += pc.spells[i]; }
+                    ImGui::TextWrapped("%s", s.c_str());
+                }
+                ImGui::SeparatorText("Inventory");
+                if (pc.inventory.empty()) {
+                    ImGui::TextDisabled("(carrying nothing)");
+                } else {
+                    ImGuiStyle& st = ImGui::GetStyle();
+                    float availW = ImGui::GetContentRegionAvail().x;
+                    int perRow = std::max(1, (int)((availW + st.ItemSpacing.x) / (iconSz + st.ItemSpacing.x)));
+                    int placed = 0;
+                    for (size_t k = 0; k < pc.inventory.size(); ++k) {
+                        const gns::InventoryItem& it = pc.inventory[k];
+                        if (placed % perRow != 0) ImGui::SameLine();
+                        std::string nm = it.name.empty() ? std::string("(item)") : it.name;
+                        std::string lbl = nm;
+                        if (it.quantity > 1) lbl += " x" + std::to_string(it.quantity);
+                        tile("inv" + std::to_string(k), invItemTexture(it), lbl, nm, it.description);
+                        ++placed;
+                    }
+                }
+            }
+            ImGui::End();
+            if (!open) sheetChar = -1;
         };
 
         // --- Map canvas (left) ---
@@ -1649,7 +1674,7 @@ int main(int, char**) {
             ImGui::TextWrapped("%s", hereConflict.c_str());
             ImGui::PopStyleColor();
             ImGui::Spacing();
-            ImGui::TextWrapped("Gameplay is paused. Only one context may be active at a time \xE2\x80\x94 "
+            ImGui::TextWrapped("Gameplay is paused. Only one context may be active at a time - "
                                "fix the contexts' conditions in the Module Creator so they cannot "
                                "hold simultaneously.");
         } else if (session && areaView && hereArea && hereCtx) {
@@ -1657,7 +1682,7 @@ int main(int, char**) {
         } else if (!session) {
             ImGui::TextWrapped("%s", haveModule
                 ? "Press \"Start Adventure\" in the Adventure panel."
-                : "Open a module first (File \xE2\x96\xB8 Open Module).");
+                : "Open a module first (File > Open Module).");
         } else if (const gns::Map* cm = session->currentMap()) {
             const gns::Map& m = *cm;
             ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1670,7 +1695,7 @@ int main(int, char**) {
             ImVec2 visMin = ImGui::GetWindowPos();
             ImVec2 visMax(visMin.x + ImGui::GetWindowSize().x, visMin.y + ImGui::GetWindowSize().y);
             gns::ui::renderMapView(dl, m, mod.controlPoints, m.id, origin, cs, visMin, visMax,
-                                   /*hideHiddenAreas=*/true);
+                                   /*hideHiddenAreas=*/true, &session->plot().deactivatedAreas());
 
             // Highlight the currently-displayed area for orientation.
             const gns::Area* ca = session->currentArea();
@@ -1709,17 +1734,20 @@ int main(int, char**) {
                 }
                 int curId = session->currentArea() ? session->currentArea()->id : 0;
                 if (target == 0) return;            // undefined cell: HUD shows party details
+                // An area a choice deactivated behaves like undefined ground: invisible on the
+                // map (see renderMapView) and no longer triggered when walked over.
+                if (!session->plot().isAreaActive(target)) return;
                 if (!session->isAreaEnterable(target)) {
                     std::string need;
                     if (const gns::Area* ta = mod.areaById(target))
                         for (int cpid : ta->prerequisiteControlPointIds)
                             for (const auto& cp : mod.controlPoints)
                                 if (cp.id == cpid) { if (!need.empty()) need += ", "; need += cp.name; }
-                    playStatus = "Locked \xE2\x80\x94 requires: " + (need.empty() ? "an objective" : need);
+                    playStatus = "Locked - requires: " + (need.empty() ? "an objective" : need);
                     return;
                 }
                 // Run the enter "beat" (narration/encounter) only on a fresh entry, but always
-                // (re)open the area view — so stepping off and back onto a shop re-opens it.
+                // (re)open the area view -so stepping off and back onto a shop re-opens it.
                 if (target != curId) { enterArea(target); playStatus.clear(); }
                 areaView = true;
             };
@@ -1783,7 +1811,7 @@ int main(int, char**) {
         ImGui::SetNextWindowSize(ImVec2(rightW, ws.y));
         ImGui::Begin("Adventure", nullptr, pf);
         if (!haveModule) {
-            ImGui::TextWrapped("Open a module to begin (File \xE2\x96\xB8 Open Module).");
+            ImGui::TextWrapped("Open a module to begin (File > Open Module).");
         } else {
             ImGui::TextWrapped("%s", mod.name.empty() ? "(untitled module)" : mod.name.c_str());
             if (!mod.summary.empty()) { ImGui::Spacing(); ImGui::TextWrapped("%s", mod.summary.c_str()); }
@@ -1849,7 +1877,7 @@ int main(int, char**) {
                 }
                 ImGui::TextDisabled("Arrows move the party \xC2\xB7 Enter to act \xC2\xB7 in a shop Up/Down pick character");
                 ImGui::Separator();
-                // Journal is collapsed by default — expand to read. Fixed-height scroll child so
+                // Journal is collapsed by default -expand to read. Fixed-height scroll child so
                 // it doesn't eat the panel above when open.
                 if (ImGui::CollapsingHeader("Journal")) {
                     ImGui::BeginChild("journal", ImVec2(0, 150), ImGuiChildFlags_Borders);
@@ -1860,6 +1888,13 @@ int main(int, char**) {
             }
         }
         ImGui::End();
+
+        // Floating character sheet (opened from a party card). Guarded so a stale index or a
+        // reset party can't dereference out of range.
+        if (session && sheetChar >= 0 && sheetChar < (int)session->party().members.size())
+            drawCharacterSheet(session->party().members[sheetChar]);
+        else
+            sheetChar = -1;
       }
 
         ImGui::Render();

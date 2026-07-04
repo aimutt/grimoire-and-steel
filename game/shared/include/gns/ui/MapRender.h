@@ -3,6 +3,7 @@
 #include "gns/Module.h"
 
 #include <cstdint>
+#include <set>
 #include <vector>
 
 struct SDL_Renderer;   // SDL forward decls (avoid pulling SDL into this header)
@@ -43,10 +44,13 @@ void areaCentroid(const gns::Map& m, int areaId, int& outX, int& outY);
 // objects + texts + control-point markers + no-fill area outlines. No selection/brush UI.
 // When `hideHiddenAreas` is true (engine play view), areas flagged `hidden` get no tint/outline
 // so players can't see them (terrain still draws). Objects are scaled by `MapObject::scale`.
+// `suppressedAreaIds` (optional) lists areas removed at play time (deactivated by a choice) —
+// treated exactly like hidden areas (no tint/outline/label) regardless of `hideHiddenAreas`.
 void renderMapView(ImDrawList* dl, const gns::Map& m,
                    const std::vector<gns::ControlPoint>& cps, int mapId,
                    ImVec2 origin, float cs, ImVec2 visMin, ImVec2 visMax,
-                   bool hideHiddenAreas = false);
+                   bool hideHiddenAreas = false,
+                   const std::set<int>* suppressedAreaIds = nullptr);
 
 // Load a baked-in RCDATA resource (PNG) into an SDL_Texture (Windows-only; nullptr elsewhere
 // or on failure). Caller owns the texture. Used for the item-art catalog embedded in both apps.

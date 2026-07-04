@@ -78,6 +78,21 @@ void Repository::load() {
         armorByName_[a.name] = (int)armors_.size();
         armors_.push_back(std::move(a));
     }
+    // The priced equipment catalog (v6 of gns.db). Tolerate its absence on older databases so the
+    // apps still open a pre-equipment gns.db (the gallery is simply empty).
+    try {
+        for (auto& r : db_.query(
+                "SELECT equipment_id, category, name, COALESCE(cost_gp,0), COALESCE(damage,''), "
+                "COALESCE(defense_bonus,0), COALESCE(effect,''), COALESCE(description,''), "
+                "COALESCE(image_id,''), sort_order FROM equipment ORDER BY sort_order")) {
+            Equipment e{toInt(r[0]), r[1], r[2], toInt(r[3]), r[4],
+                        toInt(r[5]), r[6], r[7], r[8], toInt(r[9])};
+            equipmentByName_[e.name] = (int)equipment_.size();
+            equipment_.push_back(std::move(e));
+        }
+    } catch (const DbError&) {
+        equipment_.clear();
+    }
     for (auto& r : db_.query(
             "SELECT name, target_number, COALESCE(description,''), sort_order "
             "FROM challenge_number ORDER BY sort_order")) {
@@ -153,6 +168,10 @@ const WeaponCategory* Repository::weaponCategory(const std::string& name) const 
 const Armor* Repository::armor(const std::string& name) const {
     auto it = armorByName_.find(name);
     return it == armorByName_.end() ? nullptr : &armors_[it->second];
+}
+const Equipment* Repository::equipment(const std::string& name) const {
+    auto it = equipmentByName_.find(name);
+    return it == equipmentByName_.end() ? nullptr : &equipment_[it->second];
 }
 const MonsterDef* Repository::monster(const std::string& name) const {
     auto it = monsterByName_.find(name);

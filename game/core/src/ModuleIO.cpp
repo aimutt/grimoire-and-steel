@@ -261,7 +261,9 @@ CREATE TABLE context_transitions (
 CREATE TABLE context_choices (
     area_id    INTEGER, ctx_ord INTEGER, ord INTEGER,
     label      TEXT, journal TEXT, set_flag TEXT,
-    cp_id      INTEGER, gold INTEGER, grant_item TEXT, take_item TEXT
+    cp_id      INTEGER, gold INTEGER, grant_item TEXT, take_item TEXT,
+    grant_item_desc TEXT, grant_item_image TEXT, grant_item_path TEXT, grant_item_qty INTEGER,
+    deactivate_area INTEGER, delete_context INTEGER
 );
 CREATE TABLE context_choice_mutations (
     area_id    INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
@@ -270,6 +272,22 @@ CREATE TABLE context_choice_mutations (
 CREATE TABLE context_alt_texts (
     area_id INTEGER, ctx_ord INTEGER, ord INTEGER,
     flag    TEXT, text TEXT
+);
+CREATE TABLE context_characters (
+    area_id INTEGER, ctx_ord INTEGER, ord INTEGER, foe INTEGER,
+    name TEXT, player_name TEXT, kin TEXT, calling TEXT, level INTEGER,
+    might INTEGER, grace INTEGER, wits INTEGER, spirit INTEGER,
+    max_life INTEGER, life INTEGER, defense INTEGER, ap INTEGER, strain INTEGER,
+    armor_name TEXT, shield INTEGER,
+    weapon_name TEXT, weapon_damage_die TEXT, weapon_bonus INTEGER,
+    background TEXT, goal TEXT, personality TEXT, notes TEXT,
+    portrait TEXT, gold INTEGER
+);
+CREATE TABLE context_character_training (area_id INTEGER, ctx_ord INTEGER, char_ord INTEGER, name TEXT);
+CREATE TABLE context_character_spell    (area_id INTEGER, ctx_ord INTEGER, char_ord INTEGER, name TEXT);
+CREATE TABLE context_character_item (
+    area_id INTEGER, ctx_ord INTEGER, char_ord INTEGER,
+    name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER
 );
 CREATE TABLE control_points (
     id INTEGER PRIMARY KEY,
@@ -381,13 +399,26 @@ void saveModule(const Module& mod, const std::string& path) {
         Stmt ctxTransStmt(db,
             "INSERT INTO context_transitions(area_id,ctx_ord,target_area_id,label) VALUES(?,?,?,?);");
         Stmt ctxChoiceStmt(db,
-            "INSERT INTO context_choices(area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?);");
+            "INSERT INTO context_choices(area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
+            "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,deactivate_area,delete_context) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt ctxChoiceMutStmt(db,
             "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value) "
             "VALUES(?,?,?,?,?,?,?);");
         Stmt ctxAltStmt(db,
             "INSERT INTO context_alt_texts(area_id,ctx_ord,ord,flag,text) VALUES(?,?,?,?,?);");
+        Stmt ctxCharStmt(db,
+            "INSERT INTO context_characters(area_id,ctx_ord,ord,foe,name,player_name,kin,calling,level,"
+            "might,grace,wits,spirit,max_life,life,defense,ap,strain,armor_name,shield,"
+            "weapon_name,weapon_damage_die,weapon_bonus,background,goal,personality,notes,portrait,gold) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+        Stmt ctxCharTrainStmt(db,
+            "INSERT INTO context_character_training(area_id,ctx_ord,char_ord,name) VALUES(?,?,?,?);");
+        Stmt ctxCharSpellStmt(db,
+            "INSERT INTO context_character_spell(area_id,ctx_ord,char_ord,name) VALUES(?,?,?,?);");
+        Stmt ctxCharItemStmt(db,
+            "INSERT INTO context_character_item(area_id,ctx_ord,char_ord,name,description,image_id,"
+            "image_path,quantity,value) VALUES(?,?,?,?,?,?,?,?,?);");
         Stmt objStmt(db,
             "INSERT INTO map_objects(id,map_id,type,x,y,rot,scale) VALUES(?,?,?,?,?,?,?);");
         Stmt textStmt(db,
@@ -520,7 +551,10 @@ void saveModule(const Module& mod, const std::string& path) {
                         ctxChoiceStmt.bind(a.id).bind(co).bind((int)k).bind(ch.label)
                                      .bind(ch.journalEntry).bind(ch.setFlag)
                                      .bind(ch.completeControlPointId).bind(ch.goldDelta)
-                                     .bind(ch.grantItemName).bind(ch.takeItemName);
+                                     .bind(ch.grantItem.name).bind(ch.takeItemName)
+                                     .bind(ch.grantItem.description).bind(ch.grantItem.imageId)
+                                     .bind(ch.grantItem.imagePath).bind(ch.grantItem.quantity)
+                                     .bind(ch.deactivateArea ? 1 : 0).bind(ch.deleteContext ? 1 : 0);
                         ctxChoiceStmt.run();
                         for (size_t mi = 0; mi < ch.mutations.size(); ++mi) {
                             const auto& mu = ch.mutations[mi];
@@ -533,6 +567,36 @@ void saveModule(const Module& mod, const std::string& path) {
                         ctxAltStmt.bind(a.id).bind(co).bind((int)k)
                                   .bind(ctx.altTexts[k].requiredFlag).bind(ctx.altTexts[k].text);
                         ctxAltStmt.run();
+                    }
+                    // Authored Context characters (v17): the full character build + a foe flag,
+                    // with the same child-table shape as a .gnschar (trainings/spells/items).
+                    for (size_t k = 0; k < ctx.characters.size(); ++k) {
+                        const Character& pc = ctx.characters[k].character;
+                        int chOrd = (int)k;
+                        ctxCharStmt.bind(a.id).bind(co).bind(chOrd)
+                                   .bind(ctx.characters[k].foe ? 1 : 0)
+                                   .bind(pc.name).bind(pc.playerName).bind(pc.kin).bind(pc.calling).bind(pc.level)
+                                   .bind(pc.traits.might).bind(pc.traits.grace).bind(pc.traits.wits).bind(pc.traits.spirit)
+                                   .bind(pc.maxLife).bind(pc.life).bind(pc.defense).bind(pc.ap).bind(pc.strain)
+                                   .bind(pc.armorName).bind(pc.shield ? 1 : 0)
+                                   .bind(pc.weaponName).bind(pc.weaponDamageDie).bind(pc.weaponBonus)
+                                   .bind(pc.background).bind(pc.goal).bind(pc.personality).bind(pc.notes)
+                                   .bind(pc.portraitPath).bind(pc.gold);
+                        ctxCharStmt.run();
+                        for (const auto& t : pc.trainings) {
+                            ctxCharTrainStmt.bind(a.id).bind(co).bind(chOrd).bind(t);
+                            ctxCharTrainStmt.run();
+                        }
+                        for (const auto& sp : pc.spells) {
+                            ctxCharSpellStmt.bind(a.id).bind(co).bind(chOrd).bind(sp);
+                            ctxCharSpellStmt.run();
+                        }
+                        for (const auto& it : pc.inventory) {
+                            ctxCharItemStmt.bind(a.id).bind(co).bind(chOrd).bind(it.name).bind(it.description)
+                                           .bind(it.imageId).bind(it.imagePath)
+                                           .bind(it.quantity < 1 ? 1 : it.quantity).bind(it.value);
+                            ctxCharItemStmt.run();
+                        }
                     }
                 }
             }
@@ -886,19 +950,47 @@ Module loadModule(const std::string& path) {
                 ctx->transitions.push_back(AreaTransition{colInt(s.s, 2), colText(s.s, 3)});
     } catch (const DbError&) {}
 
-    try {
-        Stmt s(c.db, "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item "
-                     "FROM context_choices ORDER BY area_id,ctx_ord,ord;");
+    // context_choices arrived in v15 (grant_item is a bare name); v16 added the rich granted-item
+    // columns (grant_item_desc/image/path/qty) + deactivate_area/delete_context. `level` 1 = v16,
+    // 0 = v15; fall back a tier if the newer columns are missing. Either way the legacy grant_item
+    // name migrates into grantItem.name so older/newer readers agree.
+    auto loadChoices = [&](int level) {
+        const char* sql =
+            level >= 1 ? "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item,"
+                         "grant_item_desc,grant_item_image,grant_item_path,grant_item_qty,"
+                         "deactivate_area,delete_context "
+                         "FROM context_choices ORDER BY area_id,ctx_ord,ord;"
+                       : "SELECT area_id,ctx_ord,ord,label,journal,set_flag,cp_id,gold,grant_item,take_item "
+                         "FROM context_choices ORDER BY area_id,ctx_ord,ord;";
+        Stmt s(c.db, sql);
         while (sqlite3_step(s.s) == SQLITE_ROW)
             if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1))) {
                 AreaChoice ch;
                 ch.label = colText(s.s, 3); ch.journalEntry = colText(s.s, 4);
                 ch.setFlag = colText(s.s, 5); ch.completeControlPointId = colInt(s.s, 6);
-                ch.goldDelta = colInt(s.s, 7); ch.grantItemName = colText(s.s, 8);
+                ch.goldDelta = colInt(s.s, 7);
+                ch.grantItem.name = colText(s.s, 8);   // migrate legacy grant_item name into grantItem
                 ch.takeItemName = colText(s.s, 9);
+                if (level >= 1) {
+                    ch.grantItem.description = colText(s.s, 10);
+                    ch.grantItem.imageId    = colText(s.s, 11);
+                    ch.grantItem.imagePath  = colText(s.s, 12);
+                    ch.grantItem.quantity   = colInt(s.s, 13);
+                    if (ch.grantItem.quantity < 1) ch.grantItem.quantity = 1;
+                    ch.deactivateArea = colInt(s.s, 14) != 0;
+                    ch.deleteContext  = colInt(s.s, 15) != 0;
+                }
                 ctx->choices.push_back(std::move(ch));
             }
-    } catch (const DbError&) {}
+    };
+    for (int level = 1; ; --level) {
+        try { loadChoices(level); break; }
+        catch (const DbError&) {
+            for (auto& m : mod.maps) for (auto& a : m.areas)
+                for (auto& ctx : a.contexts) ctx.choices.clear();
+            if (level == 0) break;   // no table at all — leave empty
+        }
+    }
 
     try {
         Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value "
@@ -918,6 +1010,64 @@ Module loadModule(const std::string& path) {
         while (sqlite3_step(s.s) == SQLITE_ROW)
             if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
                 ctx->altTexts.push_back(AreaConditionalText{colText(s.s, 2), colText(s.s, 3)});
+    } catch (const DbError&) {}
+
+    // context_characters (v17): authored NPCs on a context. Tolerated as absent on older modules.
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,ord,foe,name,player_name,kin,calling,level,"
+                     "might,grace,wits,spirit,max_life,life,defense,ap,strain,armor_name,shield,"
+                     "weapon_name,weapon_damage_die,weapon_bonus,background,goal,personality,notes,portrait,gold "
+                     "FROM context_characters ORDER BY area_id,ctx_ord,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1))) {
+                AreaCharacter ac;
+                ac.foe = colInt(s.s, 3) != 0;
+                Character& pc = ac.character;
+                pc.name = colText(s.s, 4); pc.playerName = colText(s.s, 5); pc.kin = colText(s.s, 6);
+                pc.calling = colText(s.s, 7); pc.level = colInt(s.s, 8);
+                pc.traits.might = colInt(s.s, 9); pc.traits.grace = colInt(s.s, 10);
+                pc.traits.wits = colInt(s.s, 11); pc.traits.spirit = colInt(s.s, 12);
+                pc.maxLife = colInt(s.s, 13); pc.life = colInt(s.s, 14); pc.defense = colInt(s.s, 15);
+                pc.ap = colInt(s.s, 16); pc.strain = colInt(s.s, 17);
+                pc.armorName = colText(s.s, 18); pc.shield = colInt(s.s, 19) != 0;
+                pc.weaponName = colText(s.s, 20); pc.weaponDamageDie = colText(s.s, 21);
+                pc.weaponBonus = colInt(s.s, 22);
+                pc.background = colText(s.s, 23); pc.goal = colText(s.s, 24);
+                pc.personality = colText(s.s, 25); pc.notes = colText(s.s, 26);
+                pc.portraitPath = colText(s.s, 27); pc.gold = colInt(s.s, 28);
+                ctx->characters.push_back(std::move(ac));
+            }
+    } catch (const DbError&) {}
+
+    auto ctxCharAt = [&](int areaId, int ctxOrd, int charOrd) -> Character* {
+        AreaContext* ctx = ctxAt(areaId, ctxOrd);
+        if (!ctx || charOrd < 0 || charOrd >= (int)ctx->characters.size()) return nullptr;
+        return &ctx->characters[charOrd].character;
+    };
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,char_ord,name FROM context_character_training ORDER BY rowid;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Character* pc = ctxCharAt(colInt(s.s, 0), colInt(s.s, 1), colInt(s.s, 2)))
+                pc->trainings.push_back(colText(s.s, 3));
+    } catch (const DbError&) {}
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,char_ord,name FROM context_character_spell ORDER BY rowid;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Character* pc = ctxCharAt(colInt(s.s, 0), colInt(s.s, 1), colInt(s.s, 2)))
+                pc->spells.push_back(colText(s.s, 3));
+    } catch (const DbError&) {}
+    try {
+        Stmt s(c.db, "SELECT area_id,ctx_ord,char_ord,name,description,image_id,image_path,quantity,value "
+                     "FROM context_character_item ORDER BY rowid;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Character* pc = ctxCharAt(colInt(s.s, 0), colInt(s.s, 1), colInt(s.s, 2))) {
+                InventoryItem it;
+                it.name = colText(s.s, 3); it.description = colText(s.s, 4);
+                it.imageId = colText(s.s, 5); it.imagePath = colText(s.s, 6);
+                it.quantity = colInt(s.s, 7); if (it.quantity < 1) it.quantity = 1;
+                it.value = colInt(s.s, 8);
+                pc->inventory.push_back(std::move(it));
+            }
     } catch (const DbError&) {}
 
     // Migration: any area with no contexts (pre-v15 file) gets one "default" context (empty
@@ -1057,6 +1207,18 @@ Module loadModule(const std::string& path) {
     } catch (const DbError&) {
         // no map_texts table — leave texts empty
     }
+
+    // Normalize legacy granted items: pre-v16 choices (incl. those migrated from v14 area_choices)
+    // carry a bare grantItemName. Fold it into grantItem.name and clear the legacy field so the
+    // rest of the code path reads a single source of truth.
+    for (auto& m : mod.maps)
+        for (auto& a : m.areas)
+            for (auto& ctx : a.contexts)
+                for (auto& ch : ctx.choices)
+                    if (ch.grantItem.name.empty() && !ch.grantItemName.empty()) {
+                        ch.grantItem.name = ch.grantItemName;
+                        ch.grantItemName.clear();
+                    }
 
     return mod;
 }

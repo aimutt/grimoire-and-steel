@@ -87,6 +87,7 @@ const AreaContext* activeContext(const Area& area, const PlotTracker& plot,
                                  std::string* conflict) {
     const AreaContext* found = nullptr;
     for (const auto& ctx : area.contexts) {
+        if (plot.isContextDeleted(area.id, ctx.name)) continue;   // removed by a choice
         if (!contextConditionHolds(ctx, plot, vars)) continue;
         if (found) {
             if (conflict) {

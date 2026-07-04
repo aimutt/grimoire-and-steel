@@ -455,10 +455,12 @@ void drawAreaOutline(ImDrawList* dl, const gns::Map& m, int areaId, ImU32 col, f
 void renderMapView(ImDrawList* dl, const gns::Map& m,
                    const std::vector<gns::ControlPoint>& cps, int mapId,
                    ImVec2 origin, float cs, ImVec2 visMin, ImVec2 visMax,
-                   bool hideHiddenAreas) {
+                   bool hideHiddenAreas, const std::set<int>* suppressedAreaIds) {
     auto cellTL = [&](int x, int y) { return ImVec2(origin.x + x * cs, origin.y + y * cs); };
     auto isHidden = [&](int areaId) {
-        if (!hideHiddenAreas || areaId == 0) return false;
+        if (areaId == 0) return false;
+        if (suppressedAreaIds && suppressedAreaIds->count(areaId)) return true;  // deactivated at play
+        if (!hideHiddenAreas) return false;
         for (const auto& a : m.areas) if (a.id == areaId) return a.hidden;
         return false;
     };

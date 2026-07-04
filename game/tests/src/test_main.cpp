@@ -173,7 +173,9 @@ int main() {
             c.weaponBonus = 1;
             c.spells = {"Flame", "Heal", "Veil"};
             c.ap = 250; c.level = 2; c.life = 7; c.strain = 1;
-            c.gold = 275; c.inventory = {"Torch", "Rope (25')"};   // economy (v3)
+            c.gold = 275;   // economy (v3); rich inventory items (v4); per-item value (v5)
+            c.inventory = {{"Torch", "A pitch-soaked brand.", "torch.png", "", 3, 1},
+                           {"Lake Charles Map", "A map of the town.", "map.png", "", 1, 25}};
 
             const std::string path = "gns_character_roundtrip_test.gnschar";
             std::remove(path.c_str());
@@ -199,8 +201,11 @@ int main() {
                   r.notes == "Owes a debt to the river spirits.");
             check("character portrait preserved", r.portraitPath == "portrait05.png");
             check("character gold + inventory preserved", r.gold == 275 &&
-                  r.inventory.size() == 2 && r.inventory[0] == "Torch" &&
-                  r.inventory[1] == "Rope (25')");
+                  r.inventory.size() == 2 && r.inventory[0].name == "Torch" &&
+                  r.inventory[0].description == "A pitch-soaked brand." &&
+                  r.inventory[0].imageId == "torch.png" && r.inventory[0].quantity == 3 &&
+                  r.inventory[1].name == "Lake Charles Map" && r.inventory[1].quantity == 1 &&
+                  r.inventory[1].value == 25);
             check("character trainings preserved",
                   r.trainings.size() == 3 && r.trainings[0] == "Sorcery" &&
                   r.trainings[1] == "Lore" && r.trainings[2] == "Healing");
@@ -215,11 +220,13 @@ int main() {
             Traits t1; t1.might = 2; t1.grace = 1; t1.wits = 0; t1.spirit = -1;
             Character c1 = makeCharacter(repo, "Bram", "Human", "Blade", t1,
                                          {"Blades", "Athletics", "Command", "Survival"}, "Chain", true);
-            c1.gold = 40; c1.inventory = {"Long sword", "Signet Ring"}; c1.ap = 120;
+            c1.gold = 40;
+            c1.inventory = {{"Long sword", "", "", "", 1}, {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2, 50}};
+            c1.ap = 120;
             Traits t2; t2.might = -1; t2.grace = 0; t2.wits = 1; t2.spirit = 2;
             Character c2 = makeCharacter(repo, "Lyra", "Elf", "Mystic", t2,
                                          {"Sorcery", "Lore", "Healing"}, "No armor", false);
-            c2.gold = 90; c2.spells = {"Flame", "Veil"}; c2.inventory = {"Rope (25')"};
+            c2.gold = 90; c2.spells = {"Flame", "Veil"}; c2.inventory = {{"Rope (25')", "", "", "", 1}};
 
             GameSave gs;
             gs.modulePath = "modules/GoblinKingsHollow.gnsmod";
@@ -230,6 +237,8 @@ int main() {
             gs.flags = {"helped_mayor", "found_map"};
             gs.resolvedAreas = {10, 12};
             gs.globals = {{"questAccepted", "true"}, {"teleportsLeft", "3"}};
+            gs.deactivatedAreas = {12};
+            gs.deletedContexts = {{10, "default"}, {12, "ambush"}};
             gs.journal = {"Entered the tavern.", "Agreed to rescue the family."};
             gs.party = {c1, c2};
 
@@ -248,7 +257,8 @@ int main() {
                   r.activeChar == 1);
             check("save plot state preserved",
                   r.controlPoints == gs.controlPoints && r.flags == gs.flags &&
-                  r.resolvedAreas == gs.resolvedAreas && r.globals == gs.globals);
+                  r.resolvedAreas == gs.resolvedAreas && r.globals == gs.globals &&
+                  r.deactivatedAreas == gs.deactivatedAreas && r.deletedContexts == gs.deletedContexts);
             check("save journal preserved",
                   r.journal.size() == 2 && r.journal[0] == "Entered the tavern." &&
                   r.journal[1] == "Agreed to rescue the family.");
@@ -256,8 +266,11 @@ int main() {
                   r.party.size() == 2 && r.party[0].name == "Bram" && r.party[1].name == "Lyra");
             check("save party gold/inventory preserved",
                   r.party[0].gold == 40 && r.party[0].inventory.size() == 2 &&
-                  r.party[0].inventory[0] == "Long sword" &&
-                  r.party[0].inventory[1] == "Signet Ring" &&
+                  r.party[0].inventory[0].name == "Long sword" &&
+                  r.party[0].inventory[1].name == "Signet Ring" &&
+                  r.party[0].inventory[1].imageId == "ring-gold.png" &&
+                  r.party[0].inventory[1].quantity == 2 &&
+                  r.party[0].inventory[1].value == 50 &&
                   r.party[1].gold == 90 && r.party[1].ap == c2.ap);
             check("save party spells/trainings preserved",
                   r.party[0].trainings.size() == 4 && r.party[1].spells.size() == 2 &&
@@ -323,13 +336,27 @@ int main() {
             AreaChoice ch0;
             ch0.label = "We'll help you."; ch0.journalEntry = "Agreed to rescue the family.";
             ch0.setFlag = "helped_mayor"; ch0.completeControlPointId = 1; ch0.goldDelta = 50;
-            ch0.grantItemName = "Signet Ring";
+            ch0.grantItem = {"Signet Ring", "A gold signet.", "ring-gold.png", "", 2};  // rich granted item (v16)
+            ch0.deactivateArea = true;
             ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"}};  // set, subtract
             AreaChoice ch1;
             ch1.label = "Not our problem."; ch1.journalEntry = "Declined the plea.";
             ch1.setFlag = "refused_mayor"; ch1.takeItemName = "Old Map";   // no mutations = "does nothing"
+            ch1.deleteContext = true;
             c0.choices = {ch0, ch1};
             c0.altTexts = {{"helped_mayor", "You've agreed to help - see your journal."}};
+            // Authored Context characters (v17): a foe and an ally, with child lists.
+            Character foeChar;
+            foeChar.name = "Bandit Chief"; foeChar.kin = "Human"; foeChar.calling = "Blade";
+            foeChar.maxLife = 14; foeChar.life = 14; foeChar.defense = 12;
+            foeChar.weaponName = "Long Sword"; foeChar.weaponDamageDie = "1d8";
+            foeChar.trainings = {"Blades"};
+            foeChar.inventory = {{"Gold Ring", "A signet.", "ring-gold.png", "", 1, 50}};
+            Character allyChar;
+            allyChar.name = "Town Guard"; allyChar.kin = "Dwarf"; allyChar.calling = "Blade";
+            allyChar.maxLife = 12; allyChar.life = 12; allyChar.defense = 13;
+            allyChar.weaponDamageDie = "1d6";
+            c0.characters = {{foeChar, true}, {allyChar, false}};
 
             // Second context, active once the quest is accepted -- proves multiple contexts persist.
             AreaContext c1;
@@ -433,9 +460,14 @@ int main() {
                   rc->choices[0].setFlag == "helped_mayor" &&
                   rc->choices[0].completeControlPointId == 1 &&
                   rc->choices[0].goldDelta == 50 &&
-                  rc->choices[0].grantItemName == "Signet Ring" &&
+                  rc->choices[0].grantItem.name == "Signet Ring" &&
+                  rc->choices[0].grantItem.description == "A gold signet." &&
+                  rc->choices[0].grantItem.imageId == "ring-gold.png" &&
+                  rc->choices[0].grantItem.quantity == 2 &&
+                  rc->choices[0].deactivateArea == true &&
                   rc->choices[1].setFlag == "refused_mayor" &&
-                  rc->choices[1].takeItemName == "Old Map");
+                  rc->choices[1].takeItemName == "Old Map" &&
+                  rc->choices[1].deleteContext == true);
             check("context choice mutations preserved", rc && rc->choices[0].mutations.size() == 2 &&
                   rc->choices[0].mutations[0].varName == "questAccepted" &&
                   rc->choices[0].mutations[0].op == 0 && rc->choices[0].mutations[0].value == "true" &&
@@ -445,6 +477,17 @@ int main() {
             check("context alt texts preserved", rc && rc->altTexts.size() == 1 &&
                   rc->altTexts[0].requiredFlag == "helped_mayor" &&
                   rc->altTexts[0].text == "You've agreed to help - see your journal.");
+            check("context characters preserved", rc && rc->characters.size() == 2 &&
+                  rc->characters[0].foe == true &&
+                  rc->characters[0].character.name == "Bandit Chief" &&
+                  rc->characters[0].character.weaponDamageDie == "1d8" &&
+                  rc->characters[0].character.trainings.size() == 1 &&
+                  rc->characters[0].character.trainings[0] == "Blades" &&
+                  rc->characters[0].character.inventory.size() == 1 &&
+                  rc->characters[0].character.inventory[0].value == 50 &&
+                  rc->characters[1].foe == false &&
+                  rc->characters[1].character.name == "Town Guard" &&
+                  rc->characters[1].character.defense == 13);
             const AreaContext* rc1 = (ra && ra->contexts.size() == 2) ? &ra->contexts[1] : nullptr;
             check("second context preserved", rc1 && rc1->name == "afterQuest" &&
                   rc1->conditions.size() == 1 && rc1->conditions[0].value == "true" &&
@@ -692,6 +735,14 @@ int main() {
             conflict.clear();
             check("two active contexts report a conflict",
                   activeContext(two, pt3, vars, &conflict) == nullptr && !conflict.empty());
+
+            // A choice-deleted context is skipped, so the remaining one becomes the sole active
+            // context (a conflict becomes a clean single-active resolution).
+            pt3.deleteContext(42, "ca");
+            conflict.clear();
+            const AreaContext* actDel = activeContext(two, pt3, vars, &conflict);
+            check("deleted context is skipped by activeContext",
+                  actDel && actDel->name == "cb" && conflict.empty());
         }
 
         // ---- Narrator: authored text + provider seam (M4 slice 3) ----

@@ -86,18 +86,43 @@ Encounter EncounterDirector::checkArea(const Area& area) {
     return e;
 }
 
+// Convert an authored character into an enemy combatant (route: fights alongside monsters).
+static Combatant combatantFromCharacter(const Character& pc) {
+    Combatant c;
+    c.name = pc.name.empty() ? "Enemy" : pc.name;
+    c.maxLife = std::max(1, pc.maxLife);
+    c.life = c.maxLife;
+    c.defense = pc.defense;
+    c.attackBonus = meleeAttackBonus(pc);
+    c.damage = pc.weaponDamageDie.empty() ? "1d6" : pc.weaponDamageDie;
+    if (pc.weaponBonus > 0) c.damage += "+" + std::to_string(pc.weaponBonus);
+    c.apValue = std::max(1, pc.maxLife / 2);   // AP worth derived from toughness
+    return c;
+}
+
 Encounter EncounterDirector::checkArea(const AreaContext& ctx) {
-    if (!dice_.percent(ctx.monsterChancePct)) return Encounter{};   // occurred = false
-    if (ctx.monsters.empty())
-        return makeEncounter(ctx.monsterType, 1);
+    bool hasFoe = false;
+    for (const auto& ac : ctx.characters) if (ac.foe) { hasFoe = true; break; }
 
     Encounter e;
-    e.occurred = true;
-    e.monsterType = ctx.monsters.front().type;         // representative label
+    // Monsters appear only when the presence roll passes; authored foes always appear.
+    if (dice_.percent(ctx.monsterChancePct)) {
+        if (ctx.monsters.empty() && !ctx.monsterType.empty()) {
+            appendMonsters(e, ctx.monsterType, 1);
+            e.monsterType = ctx.monsterType;
+        } else {
+            if (!ctx.monsters.empty()) e.monsterType = ctx.monsters.front().type;
+            for (const auto& am : ctx.monsters) appendMonsters(e, am.type, am.count);
+        }
+    }
+    // Authored characters: foes join the enemy side; allies fight for the party.
+    for (const auto& ac : ctx.characters) {
+        if (ac.foe) e.monsters.push_back(combatantFromCharacter(ac.character));
+        else        e.allies.push_back(ac.character);
+    }
+    e.occurred = !e.monsters.empty() || hasFoe;   // allies alone do not start a fight
     e.known = (repo_.monster(e.monsterType) != nullptr);
-    for (const auto& am : ctx.monsters)
-        appendMonsters(e, am.type, am.count);
-    e.reaction = rollReaction();
+    if (e.occurred) e.reaction = rollReaction();
     return e;
 }
 
