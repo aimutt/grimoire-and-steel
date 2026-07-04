@@ -22,11 +22,13 @@
 // v2 added the save_globals table (current values of the module's typed global variables).
 // v3 gave save_character_item rich columns (description, image_id, image_path, quantity) and
 // added the save_deactivated_areas + save_deleted_contexts tables (areas/contexts a choice removed).
-// v4 added the save_character_item `value` column (per-item GP worth).
+// v4 added the save_character_item `value` column (per-item GP worth). v5 added the
+// save_character_item_mutation table (per-item OnAcquire/OnUnacquire global-variable hooks, keyed by
+// owner + item_ord with a kind column: 0 = acquire, 1 = unacquire).
 
 namespace gns {
 
-constexpr int kSaveFormatVersion = 4;
+constexpr int kSaveFormatVersion = 5;
 
 // A complete snapshot of a play-session. PlayState fields are kept flat here so this struct does
 // not track PlayState's own evolution; `mode` is a PlayMode cast to int.

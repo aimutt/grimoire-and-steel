@@ -77,6 +77,12 @@ CREATE TABLE character (
 CREATE TABLE character_training (name TEXT);
 CREATE TABLE character_spell (name TEXT);
 CREATE TABLE character_item (name TEXT, description TEXT, image_id TEXT, image_path TEXT, quantity INTEGER, value INTEGER);
+CREATE TABLE character_item_mutation (
+    item_ord INTEGER,
+    kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
+    ord      INTEGER,
+    var_name TEXT, op INTEGER, value TEXT
+);
 )sql";
 
 } // namespace
@@ -118,10 +124,23 @@ void saveCharacter(const Character& c, const std::string& path) {
     {
         Stmt s(db, "INSERT INTO character_item(name,description,image_id,image_path,quantity,value) "
                    "VALUES(?,?,?,?,?,?);");
-        for (const auto& it : c.inventory) {
+        Stmt mu(db, "INSERT INTO character_item_mutation(item_ord,kind,ord,var_name,op,value) "
+                    "VALUES(?,?,?,?,?,?);");
+        for (size_t i = 0; i < c.inventory.size(); ++i) {
+            const auto& it = c.inventory[i];
             s.bind(it.name).bind(it.description).bind(it.imageId).bind(it.imagePath)
              .bind(it.quantity < 1 ? 1 : it.quantity).bind(it.value);
             s.run();
+            for (size_t k = 0; k < it.onAcquire.size(); ++k) {
+                const auto& m = it.onAcquire[k];
+                mu.bind((int)i).bind(0).bind((int)k).bind(m.varName).bind(m.op).bind(m.value);
+                mu.run();
+            }
+            for (size_t k = 0; k < it.onUnacquire.size(); ++k) {
+                const auto& m = it.onUnacquire[k];
+                mu.bind((int)i).bind(1).bind((int)k).bind(m.varName).bind(m.op).bind(m.value);
+                mu.run();
+            }
         }
     }
   });
@@ -213,6 +232,19 @@ Character loadCharacter(const std::string& path) {
         try { loadItems(level); break; }
         catch (const DbError&) { c.inventory.clear(); if (level == 0) break; }
     }
+    // Item acquire/loss mutations (v6), keyed by item_ord: kind 0 = onAcquire, 1 = onUnacquire.
+    try {
+        Stmt s(conn.db, "SELECT item_ord,kind,var_name,op,value FROM character_item_mutation "
+                        "ORDER BY item_ord,kind,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW) {
+            int itemOrd = colInt(s.s, 0);
+            if (itemOrd >= 0 && itemOrd < (int)c.inventory.size()) {
+                VarMutation m{colText(s.s, 2), colInt(s.s, 3), colText(s.s, 4)};
+                if (colInt(s.s, 1) == 0) c.inventory[itemOrd].onAcquire.push_back(std::move(m));
+                else                     c.inventory[itemOrd].onUnacquire.push_back(std::move(m));
+            }
+        }
+    } catch (const DbError&) {}
 
     return c;
 }

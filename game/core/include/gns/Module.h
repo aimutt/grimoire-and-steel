@@ -114,7 +114,8 @@ struct AreaTreasure {
     int chancePct = 0;    // 0-100
 };
 
-// A purchasable item in a shop/market area, priced in gold pieces.
+// A purchasable item in a shop/market area, priced in gold pieces. Its acquire/loss mutation lists
+// are copied onto the InventoryItem when bought, so a later sale can still fire the loss hook.
 struct ShopItem {
     std::string name;        // e.g. "Long sword", "Rations (1 week)"
     std::string description; // flavour / details shown to the party
@@ -122,6 +123,8 @@ struct ShopItem {
     int stock = 0;           // number available in stock
     std::string imagePath;   // optional free-file item image (fallback if no imageId)
     std::string imageId;     // baked-in item-art catalog id (filename), shown in both apps
+    std::vector<VarMutation> onAcquire;    // applied when a party member buys this item
+    std::vector<VarMutation> onUnacquire;  // applied when this item later leaves the inventory
 };
 
 // (InventoryItem now lives in gns/Item.h so Character.h and Module.h can share it without a
@@ -163,14 +166,8 @@ struct ContextClause {
     std::string value;   // canonical literal, compared per the variable's VarType
 };
 
-// A choice's mutation of a global variable. op: 0 set, 1 add, 2 subtract (add/subtract are
-// Int/Float only; Bool/String support set). An AreaChoice with no mutations (and no other
-// effect) is the "do nothing" choice.
-struct VarMutation {
-    std::string varName;
-    int op = 0;
-    std::string value;   // canonical literal operand
-};
+// VarMutation (a global-variable mutation used by choices, area enter/exit, and item acquire/loss)
+// now lives in gns/Item.h so InventoryItem can carry mutation lists without a cyclic include.
 
 // A single decision the party can make at an area (cap 3 per context). Every effect field is
 // optional -- an empty/zero field means "no effect". Presented inline in the engine's area
@@ -261,6 +258,12 @@ struct Area {
 
     // Control points that must be completed before a party may enter this area.
     std::vector<int> prerequisiteControlPointIds;
+
+    // Global-variable mutations fired automatically when the party enters/leaves this area
+    // (unconditional -- independent of which context is active). onEnter fires once per fresh
+    // entry; onExit fires when the party steps to a different area.
+    std::vector<VarMutation> onEnter;
+    std::vector<VarMutation> onExit;
 
     // --- LEGACY (v<=14) content fields: populated only when loading an old module, then folded
     // into a synthesized default context by loadModule. Unused once migrated; not written in v15+.
@@ -364,8 +367,11 @@ struct Module {
 // (a chosen option can remove its area from play or delete its context). v17 added authored
 // Context characters: the context_characters table (mirroring the .gnschar character columns + a
 // foe flag) and its context_character_training/context_character_spell/context_character_item child
-// tables (the last carrying the per-item value column).
-constexpr int kModuleFormatVersion = 17;
+// tables (the last carrying the per-item value column). v18 added global-variable mutation hooks
+// that fire automatically: Area OnEnter/OnExit (area_enter_mutations/area_exit_mutations tables) and
+// item OnAcquire/OnUnacquire (context_shop_item_mutations + context_choice_grant_mutations, each with
+// a kind column: 0 = acquire, 1 = unacquire).
+constexpr int kModuleFormatVersion = 18;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

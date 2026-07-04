@@ -1654,6 +1654,36 @@ static bool drawVarValueField(App& app, const char* id, const std::string& varNa
     return changed;
 }
 
+// Mutation op labels (index 0 = set, 1 = add, 2 = subtract; add/subtract are Int/Float only).
+static const char* kMutOpNames[] = {"set", "add", "subtract"};
+
+// Renders an editable list of VarMutation rows (variable + op + value + a delete button) plus an
+// "Add change" button. Returns true if the list changed. idPrefix keeps ImGui ids unique so the
+// same widget can appear several times per frame (choices, area enter/exit, item acquire/loss).
+static bool drawMutationList(App& app, const char* idPrefix, std::vector<gns::VarMutation>& list) {
+    bool changed = false;
+    ImGui::PushID(idPrefix);
+    int del = -1;
+    for (size_t k = 0; k < list.size(); ++k) {
+        gns::VarMutation& mu = list[k];
+        ImGui::PushID((int)k);
+        ImGui::SetNextItemWidth(150);
+        if (drawVarCombo(app, "##mvar", &mu.varName)) changed = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(90);
+        if (ImGui::Combo("##mop", &mu.op, kMutOpNames, IM_ARRAYSIZE(kMutOpNames))) changed = true;
+        ImGui::SameLine();
+        if (drawVarValueField(app, "mval", mu.varName, &mu.value)) changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) del = (int)k;
+        ImGui::PopID();
+    }
+    if (del >= 0) { list.erase(list.begin() + del); changed = true; }
+    if (ImGui::SmallButton("Add change")) { list.push_back(gns::VarMutation{}); changed = true; }
+    ImGui::PopID();
+    return changed;
+}
+
 // The full editor for one Context: its name + activation condition, then all of the area's
 // branchable content (descriptions, choices, statistics, shop, images, music, transitions).
 static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
@@ -1692,7 +1722,6 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
                         "Every effect is optional; a choice with no effects \"does nothing\".");
     ImGui::TextDisabled("Prompt (the question)");
     if (InputStrMultiline("##choiceprompt", &ctx.choicePrompt, ImVec2(-1, 50))) app.dirty = true;
-    static const char* kMutOps[] = {"set", "add", "subtract"};
     int delChoice = -1;
     for (size_t i = 0; i < ctx.choices.size(); ++i) {
         gns::AreaChoice& ch = ctx.choices[i];
@@ -1709,23 +1738,7 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             // Variable mutations: what this choice changes about the world (drives which context
             // becomes active next time). Leaving this empty is a valid "do nothing" choice.
             ImGui::TextDisabled("Variable changes (optional) - what picking this does");
-            int delMut = -1;
-            for (size_t k = 0; k < ch.mutations.size(); ++k) {
-                gns::VarMutation& mu = ch.mutations[k];
-                ImGui::PushID((int)k + 100);
-                ImGui::SetNextItemWidth(150);
-                if (drawVarCombo(app, "##mvar", &mu.varName)) app.dirty = true;
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(90);
-                if (ImGui::Combo("##mop", &mu.op, kMutOps, IM_ARRAYSIZE(kMutOps))) app.dirty = true;
-                ImGui::SameLine();
-                if (drawVarValueField(app, "mval", mu.varName, &mu.value)) app.dirty = true;
-                ImGui::SameLine();
-                if (ImGui::SmallButton("X")) delMut = (int)k;
-                ImGui::PopID();
-            }
-            if (delMut >= 0) { ch.mutations.erase(ch.mutations.begin() + delMut); app.dirty = true; }
-            if (ImGui::SmallButton("Add change")) { ch.mutations.push_back(gns::VarMutation{}); app.dirty = true; }
+            if (drawMutationList(app, "chmut", ch.mutations)) app.dirty = true;
 
             ImGui::TextDisabled("Complete control point (optional) - unlocks areas gated on it");
             {
@@ -1769,6 +1782,10 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             // gallery (grouped by category) with a "Browse file..." filesystem fallback.
             ImGui::TextDisabled("Item image (pick from the gallery or browse a file)");
             drawItemArtPicker(app, "chgrantart", &ch.grantItem.imageId, &ch.grantItem.imagePath);
+            ImGui::TextDisabled("On acquire - variable changes when this item is gained");
+            if (drawMutationList(app, "chgrantacq", ch.grantItem.onAcquire)) app.dirty = true;
+            ImGui::TextDisabled("On unacquire - variable changes when this item is later lost");
+            if (drawMutationList(app, "chgrantunacq", ch.grantItem.onUnacquire)) app.dirty = true;
             ImGui::TextDisabled("Take item (optional) - item name removed from the active character");
             ImGui::SetNextItemWidth(-1);
             if (InputStr("##chtake", &ch.takeItemName)) app.dirty = true;
@@ -1904,6 +1921,10 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
                 }
                 ImGui::TextDisabled("Item art (baked-in catalog or a browsed file)");
                 drawItemArtPicker(app, "shopart", &it.imageId, &it.imagePath);
+                ImGui::TextDisabled("On acquire - variable changes when a party member buys this");
+                if (drawMutationList(app, "shopacq", it.onAcquire)) app.dirty = true;
+                ImGui::TextDisabled("On unacquire - variable changes when this item is later sold/lost");
+                if (drawMutationList(app, "shopunacq", it.onUnacquire)) app.dirty = true;
                 if (ImGui::SmallButton("Delete item")) delItem = (int)i;
             }
             ImGui::PopID();
@@ -2060,6 +2081,14 @@ static void drawAreaInspector(App& app, gns::Area& a) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hidden areas are invisible on the map during play, but the party\n"
                           "still triggers their info/contents when walking over them.");
+
+    ImGui::SeparatorText("On enter / On exit");
+    ImGui::TextDisabled("Global-variable changes fired automatically when the party enters or leaves\n"
+                        "this area (regardless of which context is active).");
+    ImGui::TextDisabled("On enter");
+    if (drawMutationList(app, "areaenter", a.onEnter)) app.dirty = true;
+    ImGui::TextDisabled("On exit");
+    if (drawMutationList(app, "areaexit", a.onExit)) app.dirty = true;
 
     ImGui::SeparatorText("Contexts");
     ImGui::TextDisabled("Each context holds this area's content for one situation. Exactly one may be\n"
@@ -2280,6 +2309,13 @@ static void drawInspectorWindow(App& app) {
     ImGui::Indent(2.0f);
     gns::Area* a = app.mod.areaById(app.selectedAreaId);
     if (a) {
+        // A quick way back to the module-level settings (deselecting the area). Without this the
+        // only path back is clicking the Paint Terrain tool, which isn't discoverable.
+        if (ImGui::Button("< Module settings", ImVec2(-1, 0))) {
+            app.selectedAreaId = 0;
+            if (app.tool == Tool::AssignArea) app.tool = Tool::PaintTerrain;
+        }
+        ImGui::Separator();
         // Per-area markers live in drawAreaInspector; no module-wide list here so
         // each area shows only its own Control Points & Items.
         drawAreaInspector(app, *a);
