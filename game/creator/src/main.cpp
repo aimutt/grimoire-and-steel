@@ -2119,8 +2119,6 @@ static void drawAreaInspector(App& app, gns::Area& a) {
     }
 
     if (ImGui::Checkbox("Hide at play time (easter egg)", &a.hidden)) app.dirty = true;
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hidden areas are invisible on the map during play, but the party\n"
                           "still triggers their info/contents when walking over them.");
