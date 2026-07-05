@@ -255,6 +255,8 @@ struct Area {
     bool fillEnabled = true;    // false = outline only (no fill tint drawn)
 
     bool hidden = false;        // hidden at play time (invisible on the map, still playable)
+    bool offLimits = false;     // party can trigger this area from the border but cannot walk
+                                // the token into its cells (v20)
 
     // All branchable content lives in contexts now. Exactly one is active at play time (see
     // AreaContext). A fresh area gets one empty-condition default context so it plays at once.
@@ -377,8 +379,9 @@ struct Module {
 // a kind column: 0 = acquire, 1 = unacquire). v19 gave granted items an equip profile + dropable flag
 // (context_choices columns grant_slot/grant_damage_die/grant_defense_bonus/grant_weapon_bonus/
 // grant_dropable) and added the context_choice_dropable_sets table (a choice's "Set item dropable"
-// effects: item_name -> dropable), all tolerant-loaded.
-constexpr int kModuleFormatVersion = 19;
+// effects: item_name -> dropable), all tolerant-loaded. v20 added the areas.off_limits flag (party
+// triggers the area from its border but cannot move the token into its cells).
+constexpr int kModuleFormatVersion = 20;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

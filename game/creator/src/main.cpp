@@ -2123,6 +2123,11 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         ImGui::SetTooltip("Hidden areas are invisible on the map during play, but the party\n"
                           "still triggers their info/contents when walking over them.");
 
+    if (ImGui::Checkbox("Off-limits (trigger from border, cannot enter)", &a.offLimits)) app.dirty = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The party triggers this area's context by touching its border,\n"
+                          "but cannot move the party token into the area's cells.");
+
     ImGui::SeparatorText("On enter / On exit");
     ImGui::TextDisabled("Global-variable changes fired automatically when the party enters or leaves\n"
                         "this area (regardless of which context is active).");
