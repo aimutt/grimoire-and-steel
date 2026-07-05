@@ -367,6 +367,7 @@ int main() {
             Area a1; a1.id = 10; a1.label = "A1"; a1.name = "Entry";
             a1.color = 0x4F8FE0FF;
             a1.hidden = true;                                        // hidden at play (v13)
+            a1.offLimits = true;                                     // trigger-from-border, no entry (v20)
             a1.fillEnabled = false;                                 // outline-only (#18)
             a1.labelAuto = false;                                    // hand-edited label (v9)
             a1.prerequisiteControlPointIds = {1};
@@ -486,8 +487,8 @@ int main() {
 
             const Area* ra = r.areaById(10);
             check("area identity preserved", ra && ra->label == "A1" && ra->name == "Entry" &&
-                  ra->color == 0x4F8FE0FF && ra->hidden == true && ra->fillEnabled == false &&
-                  ra->labelAuto == false);
+                  ra->color == 0x4F8FE0FF && ra->hidden == true && ra->offLimits == true &&
+                  ra->fillEnabled == false && ra->labelAuto == false);
             check("area prerequisites preserved", ra && ra->prerequisiteControlPointIds.size() == 1 &&
                   ra->prerequisiteControlPointIds[0] == 1);
             check("area onEnter/onExit mutations preserved (v18)",

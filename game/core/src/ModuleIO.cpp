@@ -176,7 +176,8 @@ CREATE TABLE areas (
     is_shop         INTEGER,
     music           TEXT,
     hidden          INTEGER,
-    choice_prompt   TEXT
+    choice_prompt   TEXT,
+    off_limits      INTEGER
 );
 CREATE TABLE area_images (
     area_id    INTEGER,
@@ -398,8 +399,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
             "trap_chance,trap_desc,lock_chance,lock_desc,hidden_chance,hidden_desc,"
-            "artwork_path,fill_enabled,label_auto,is_shop,music,hidden,choice_prompt) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            "artwork_path,fill_enabled,label_auto,is_shop,music,hidden,choice_prompt,off_limits) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt prereqStmt(db,
             "INSERT INTO area_prerequisites(area_id,control_point_id) VALUES(?,?);");
         Stmt monsterStmt(db,
@@ -508,7 +509,7 @@ void saveModule(const Module& mod, const std::string& path) {
                         .bind(a.hiddenChancePct).bind(a.hiddenDescription)
                         .bind(a.artworkPath).bind(a.fillEnabled ? 1 : 0).bind(a.labelAuto ? 1 : 0)
                         .bind(a.isShop ? 1 : 0).bind(a.musicPath).bind(a.hidden ? 1 : 0)
-                        .bind(a.choicePrompt);
+                        .bind(a.choicePrompt).bind(a.offLimits ? 1 : 0);
                 areaStmt.run();
 
                 for (size_t i = 0; i < a.images.size(); ++i) {
@@ -781,12 +782,12 @@ Module loadModule(const std::string& path) {
     }
 
     // The areas table grew optional trailing columns over time: fill_enabled (v6),
-    // label_auto (v9), is_shop (v10), music (v12). `opt` = how many of those trailing columns
-    // the file has; we try the newest layout first and fall back one column at a time so older
-    // files still load (older rows default fillEnabled=true, labelAuto=false, isShop=false,
-    // music="").
+    // label_auto (v9), is_shop (v10), music (v12), hidden (v13), choice_prompt (v14),
+    // off_limits (v20). `opt` = how many of those trailing columns the file has; we try the newest
+    // layout first and fall back one column at a time so older files still load (older rows default
+    // fillEnabled=true, labelAuto=false, isShop=false, music="", hidden=false, offLimits=false).
     static const char* kAreaOptCols[] = {"fill_enabled", "label_auto", "is_shop", "music", "hidden",
-                                         "choice_prompt"};
+                                         "choice_prompt", "off_limits"};
     auto loadAreas = [&](int opt) {
         std::string sql =
             "SELECT id,map_id,label,name,color,dm_text,player_text,"
@@ -822,10 +823,11 @@ Module loadModule(const std::string& path) {
             a.musicPath         = opt >= 4 ? colText(s.s, 21) : "";
             a.hidden            = opt >= 5 ? (colInt(s.s, 22) != 0) : false;
             a.choicePrompt      = opt >= 6 ? colText(s.s, 23) : "";
+            a.offLimits         = opt >= 7 ? (colInt(s.s, 24) != 0) : false;
             if (Map* m = mod.mapById(mapId)) m->areas.push_back(std::move(a));
         }
     };
-    for (int opt = 6; ; --opt) {
+    for (int opt = 7; ; --opt) {
         try { loadAreas(opt); break; }
         catch (const DbError&) {
             for (auto& m : mod.maps) m.areas.clear();   // partial read from failed attempt

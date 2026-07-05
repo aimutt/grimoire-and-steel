@@ -33,6 +33,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <random>
@@ -51,6 +52,32 @@ static std::string basePath() {
     return p;
 }
 static std::string dbPath() { return basePath() + "data/gns.db"; }
+
+// Tiny app-preferences store: a key=value text file next to the executable. Currently holds only
+// the Play-mode area-text font scale. TODO: move alongside saves to %APPDATA% eventually.
+static std::string settingsPath() { return basePath() + "engine_settings.ini"; }
+
+// Read the persisted area-text font scale, clamped to [1.0, 2.5]. Returns `fallback` if absent.
+static float loadAreaFontScale(float fallback) {
+    std::ifstream f(settingsPath());
+    if (!f) return fallback;
+    std::string line;
+    while (std::getline(f, line)) {
+        const std::string key = "area_font_scale=";
+        if (line.rfind(key, 0) == 0) {
+            try {
+                float v = std::stof(line.substr(key.size()));
+                return std::max(1.0f, std::min(2.5f, v));
+            } catch (...) { return fallback; }
+        }
+    }
+    return fallback;
+}
+
+static void saveAreaFontScale(float scale) {
+    std::ofstream f(settingsPath(), std::ios::trunc);
+    if (f) f << "area_font_scale=" << scale << "\n";
+}
 
 // Native open dialog for a .gnsmod module. Returns "" if cancelled / unsupported.
 static std::string openModuleDialog() {
@@ -480,6 +507,8 @@ int main(int, char**) {
     int sheetChar = -1;                       // party member whose full sheet+inventory window is open (-1 none)
     std::string sheetMsg;                     // transient note on the character sheet (e.g. undroppable item)
     bool areaView = false;                    // left region shows the area view, not the map
+    int  viewArea = 0;                         // off-limits area held open from its border (0 = none)
+    float areaFontScale = loadAreaFontScale(1.35f);  // area/story text zoom (persisted; default larger)
     std::string contextError;                 // set when an area has 2+ active contexts (logic halt)
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
     int pendingSell = -1;                     // buyer inventory index awaiting sell confirmation
@@ -722,7 +751,7 @@ int main(int, char**) {
         session = std::make_unique<gns::Session>(mod, party, /*seed=*/1234u);
         journal.clear();
         playStatus.clear();
-        areaView = false;
+        areaView = false; viewArea = 0;
         if (const gns::Area* a = session->currentArea()) {
             // Seat the party token on the start area's centroid.
             if (const gns::Map* sm = session->currentMap()) {
@@ -767,7 +796,7 @@ int main(int, char**) {
         cursorX = gs.cursorX; cursorY = gs.cursorY; faceX = gs.faceX; faceY = gs.faceY;
         shopBuyer = gs.activeChar;
         playStatus.clear();
-        areaView = false;
+        areaView = false; viewArea = 0;
     };
 
     // Startup splash: the baked-in G&S splash, shown briefly on launch (skippable).
@@ -894,6 +923,19 @@ int main(int, char**) {
                     mode = Mode::Characters;
                 if (ImGui::MenuItem("Reference Browser", nullptr, mode == Mode::Browser))
                     mode = Mode::Browser;
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Options")) {
+                ImGui::TextDisabled("Area text size");
+                float prevScale = areaFontScale;
+                ImGui::SetNextItemWidth(180.0f);
+                if (ImGui::SliderFloat("##areafont", &areaFontScale, 1.0f, 2.5f, "%.2fx"))
+                    areaFontScale = std::max(1.0f, std::min(2.5f, areaFontScale));
+                // Quick presets for people who would rather not drag the slider.
+                if (ImGui::MenuItem("Normal",  nullptr, false)) areaFontScale = 1.0f;
+                if (ImGui::MenuItem("Large",   nullptr, false)) areaFontScale = 1.35f;
+                if (ImGui::MenuItem("X-Large", nullptr, false)) areaFontScale = 1.8f;
+                if (areaFontScale != prevScale) saveAreaFontScale(areaFontScale);
                 ImGui::EndMenu();
             }
             if (!moduleStatus.empty()) {
@@ -1179,6 +1221,11 @@ int main(int, char**) {
                     // A deactivated area (removed by a choice) is inert: no area view, just map.
                     if (aid && session->plot().isAreaActive(aid)) hereArea = mod.areaById(aid);
                 }
+            // Off-limits area triggered from the border: the token stands outside it, so fall back
+            // to the area held open in viewArea (cleared once the party moves away). Token-cell area
+            // always takes precedence.
+            if (!hereArea && viewArea != 0 && session->plot().isAreaActive(viewArea))
+                hereArea = mod.areaById(viewArea);
         }
 
         // Full-window area view: replaces the map while the party is "inside" a defined area.
@@ -1847,7 +1894,11 @@ int main(int, char**) {
                                "fix the contexts' conditions in the Module Creator so they cannot "
                                "hold simultaneously.");
         } else if (session && areaView && hereArea && hereCtx) {
+            // Enlarge only the area/story text (title + prose + decision text). drawProse wraps via
+            // CalcTextSize/GetContentRegionAvail, both of which honor the window font scale.
+            ImGui::SetWindowFontScale(areaFontScale);
             drawAreaView(hereArea, hereCtx);
+            ImGui::SetWindowFontScale(1.0f);
         } else if (!session) {
             ImGui::TextWrapped("%s", haveModule
                 ? "Press \"Start Adventure\" in the Adventure panel."
@@ -1926,6 +1977,19 @@ int main(int, char**) {
                 areaView = true;
             };
 
+            // An off-limits area can be triggered from its border but not walked into. Returns the
+            // area id of the cell (cx,cy) when it belongs to an *active* off-limits area the token
+            // would be moving *into* (fromArea = the token's current cell area); else 0. Deactivated
+            // areas behave like ground and are not blocked.
+            auto offLimitsBlock = [&](int cx, int cy, int fromArea) -> int {
+                if (cx < 0 || cy < 0 || cx >= m.gridW || cy >= m.gridH) return 0;
+                int aid = m.cellArea[(size_t)cy * m.gridW + cx];
+                if (aid == 0 || aid == fromArea) return 0;
+                if (!session->plot().isAreaActive(aid)) return 0;
+                const gns::Area* a = mod.areaById(aid);
+                return (a && a->offLimits) ? aid : 0;
+            };
+
             // Keyboard: arrow keys glide the party token (and set facing); holding Space turns
             // the party in place (facing only). Enter acts on the token's cell.
             ImGuiIO& io = ImGui::GetIO();
@@ -1939,9 +2003,18 @@ int main(int, char**) {
                 if (dx || dy) {
                     faceX = dx; faceY = dy;          // face the pressed direction
                     if (!turnOnly) {                  // and step there unless turning in place
-                        cursorX = std::min(m.gridW - 1, std::max(0, cursorX + dx));
-                        cursorY = std::min(m.gridH - 1, std::max(0, cursorY + dy));
-                        actOnCell(cursorX, cursorY);  // auto-enter/show the area we stepped onto
+                        int nx = std::min(m.gridW - 1, std::max(0, cursorX + dx));
+                        int ny = std::min(m.gridH - 1, std::max(0, cursorY + dy));
+                        int fromArea = m.cellArea[(size_t)cursorY * m.gridW + cursorX];
+                        if (int blockId = offLimitsBlock(nx, ny, fromArea)) {
+                            // Bumped an off-limits border: trigger its context, keep the token out.
+                            actOnCell(nx, ny);
+                            viewArea = blockId;
+                        } else {
+                            cursorX = nx; cursorY = ny;
+                            viewArea = 0;               // walked away: drop any held border view
+                            actOnCell(cursorX, cursorY);  // auto-enter/show the area we stepped onto
+                        }
                     }
                 }
                 if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
@@ -1953,8 +2026,16 @@ int main(int, char**) {
                 ImVec2 mp = io.MousePos;
                 int cx = (int)((mp.x - origin.x) / cs), cy = (int)((mp.y - origin.y) / cs);
                 if (cx >= 0 && cy >= 0 && cx < m.gridW && cy < m.gridH) {
-                    cursorX = cx; cursorY = cy;
-                    actOnCell(cx, cy);
+                    int fromArea = m.cellArea[(size_t)cursorY * m.gridW + cursorX];
+                    if (int blockId = offLimitsBlock(cx, cy, fromArea)) {
+                        // Clicking an off-limits area triggers it without moving the token inside.
+                        actOnCell(cx, cy);
+                        viewArea = blockId;
+                    } else {
+                        cursorX = cx; cursorY = cy;
+                        viewArea = 0;
+                        actOnCell(cx, cy);
+                    }
                 }
             }
 
@@ -2078,14 +2159,14 @@ int main(int, char**) {
                                            !session->plot().isChoiceResolved(hereArea->id, hereCtx->name);
                     bool enter = !io.WantTextInput && !popupOpen && !pendingDecision &&
                                  (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter));
-                    if (exitClicked || enter) areaView = false;
+                    if (exitClicked || enter) { areaView = false; viewArea = 0; }
                 }
                 if (openRestart) ImGui::OpenPopup("Confirm Restart");
                 if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     ImGui::TextUnformatted("Restart the game? All current progress will be lost.");
                     ImGui::Spacing();
                     if (ImGui::Button("Yes, restart", ImVec2(130, 0))) {
-                        session.reset(); journal.clear(); playStatus.clear(); areaView = false;
+                        session.reset(); journal.clear(); playStatus.clear(); areaView = false; viewArea = 0;
                         std::error_code ec; std::filesystem::remove(sidecarPath(), ec);
                         haveSaveFile = false;
                         ImGui::CloseCurrentPopup();
