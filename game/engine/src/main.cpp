@@ -1646,6 +1646,18 @@ int main(int, char**) {
                 ImGui::SeparatorText("Traits");
                 ImGui::Text("Might %+d   Grace %+d   Wits %+d   Spirit %+d",
                             pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
+                if (!pc.trainings.empty()) {
+                    ImGui::SeparatorText("Trainings");
+                    std::string t;
+                    for (size_t i = 0; i < pc.trainings.size(); ++i) { if (i) t += ", "; t += pc.trainings[i]; }
+                    ImGui::TextWrapped("%s", t.c_str());
+                }
+                if (!pc.spells.empty()) {
+                    ImGui::SeparatorText("Spells");
+                    std::string s;
+                    for (size_t i = 0; i < pc.spells.size(); ++i) { if (i) s += ", "; s += pc.spells[i]; }
+                    ImGui::TextWrapped("%s", s.c_str());
+                }
                 // Shared thumbnail tile: icon (or a lettered placeholder) with a wrapped caption,
                 // and a name+description tooltip on hover. Used for equipped gear and inventory so
                 // every item on the sheet shows a thumbnail.
@@ -1711,18 +1723,6 @@ int main(int, char**) {
                                   pc.shield ? std::string("Shield") : std::string("No shield"),
                                   pc.shield ? std::string("Shield (+1 Defense)") : std::string("No shield"),
                                   pc.shield);
-                }
-                if (!pc.trainings.empty()) {
-                    ImGui::SeparatorText("Trainings");
-                    std::string t;
-                    for (size_t i = 0; i < pc.trainings.size(); ++i) { if (i) t += ", "; t += pc.trainings[i]; }
-                    ImGui::TextWrapped("%s", t.c_str());
-                }
-                if (!pc.spells.empty()) {
-                    ImGui::SeparatorText("Spells");
-                    std::string s;
-                    for (size_t i = 0; i < pc.spells.size(); ++i) { if (i) s += ", "; s += pc.spells[i]; }
-                    ImGui::TextWrapped("%s", s.c_str());
                 }
                 ImGui::SeparatorText("Inventory");
                 ImGui::TextDisabled("(Carried items - not equipped, no combat effect.)");
@@ -1868,7 +1868,7 @@ int main(int, char**) {
 
             // Highlight the currently-displayed area for orientation.
             const gns::Area* ca = session->currentArea();
-            if (ca)
+            if (ca && !ca->hidden)   // hidden (easter-egg) areas stay invisible even after a visit
                 gns::ui::drawAreaOutline(dl, m, ca->id, IM_COL32(90, 220, 255, 255),
                                          std::max(2.5f, cs * 0.14f), origin, cs, visMin, visMax);
 
@@ -2060,7 +2060,25 @@ int main(int, char**) {
                 if (ImGui::Button("Restart")) openRestart = true;
                 if (areaView && hereArea) {
                     ImGui::SameLine();
-                    if (ImGui::Button((hereCtx && hereCtx->isShop) ? "Leave Shop" : "Exit")) areaView = false;
+                    const char* exitLbl = (hereCtx && hereCtx->isShop) ? "Leave Shop" : "Exit";
+                    // Render Exit in the same "keyboard-default" highlight used by shop confirm
+                    // buttons so it reads as the default action (Enter leaves the area).
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.47f, 0.78f, 1.0f, 1.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+                    bool exitClicked = ImGui::Button(exitLbl);
+                    ImGui::PopStyleVar(); ImGui::PopStyleColor(2);
+                    // Enter leaves the area, but only when nothing else owns the key: no open
+                    // popup (shop confirm modals use Enter) and no pending inline decision (the
+                    // party should pick a choice, not skip it). The map's Enter->actOnCell handler
+                    // does not run while in area view, so there is no double-fire.
+                    ImGuiIO& io = ImGui::GetIO();
+                    bool popupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+                    bool pendingDecision = hereCtx && !hereCtx->choices.empty() &&
+                                           !session->plot().isChoiceResolved(hereArea->id, hereCtx->name);
+                    bool enter = !io.WantTextInput && !popupOpen && !pendingDecision &&
+                                 (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter));
+                    if (exitClicked || enter) areaView = false;
                 }
                 if (openRestart) ImGui::OpenPopup("Confirm Restart");
                 if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
