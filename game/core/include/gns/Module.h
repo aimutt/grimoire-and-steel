@@ -321,6 +321,8 @@ struct Map {
     std::vector<Area> areas;
     std::vector<MapObject> objects;   // sub-grid props
     std::vector<MapText> texts;       // free text labels
+    int minutesPerStep = 10;          // in-game minutes each grid step costs (v21)
+    int fatigueRestHours = 0;         // party must rest every N game-hours or lose Life (0 = none) (v21)
 };
 
 // A complete adventure module.
@@ -337,6 +339,11 @@ struct Module {
     int startMapId = 0;   // beginning of the adventure
     int startAreaId = 0;
     int endAreaId = 0;    // end of the adventure
+    int startDay = 1;     // in-game starting date/time shown on the play clock (v21)
+    int startHour = 8;    // 0-23
+    int startMinute = 0;  // 0-59
+    int startYear = 1125; // in-game calendar year shown on the clock (v22)
+    std::string eraName = "the Age of Ashes";  // fictitious name for the year/era (v22)
 
     // Find the next unused id across maps / areas / control points so the editor
     // can hand out stable ids without collisions.
@@ -380,8 +387,11 @@ struct Module {
 // (context_choices columns grant_slot/grant_damage_die/grant_defense_bonus/grant_weapon_bonus/
 // grant_dropable) and added the context_choice_dropable_sets table (a choice's "Set item dropable"
 // effects: item_name -> dropable), all tolerant-loaded. v20 added the areas.off_limits flag (party
-// triggers the area from its border but cannot move the token into its cells).
-constexpr int kModuleFormatVersion = 20;
+// triggers the area from its border but cannot move the token into its cells). v21 added per-map
+// time columns (maps.minutes_per_step / maps.fatigue_rest_hours) and module starting date/time
+// (module.start_day / start_hour / start_minute). v22 added the in-game calendar year + era name
+// (module.start_year / era_name).
+constexpr int kModuleFormatVersion = 22;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

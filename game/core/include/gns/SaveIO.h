@@ -30,10 +30,12 @@
 // v7 added the save_character armor_defense_bonus column, the save_character_item equip-profile columns
 // (slot/damage_die/defense_bonus/weapon_bonus/dropable), and the save_granted_dropable table (runtime
 // dropable status of module granted items, by name) -- all tolerant-loaded.
+// v8 added the save_meta game-clock columns (elapsed_minutes, paused, minutes_since_rest), read with a
+// tolerant fallback so v7 saves still load (clock defaults to the module's starting date/time).
 
 namespace gns {
 
-constexpr int kSaveFormatVersion = 7;
+constexpr int kSaveFormatVersion = 8;
 
 // A complete snapshot of a play-session. PlayState fields are kept flat here so this struct does
 // not track PlayState's own evolution; `mode` is a PlayMode cast to int.
@@ -44,6 +46,7 @@ struct GameSave {
     int mapId = 0, areaId = 0, turnCount = 0, mode = 0;      // PlayState
     int cursorX = 0, cursorY = 0, faceX = 0, faceY = 1;      // party token position + facing
     int activeChar = 0;                                      // selected party member (shopBuyer)
+    int elapsedMinutes = 0, paused = 0, minutesSinceRest = 0;  // game clock (v8)
 
     std::set<int> controlPoints;         // PlotTracker completed ids
     std::set<std::string> flags;         // PlotTracker decision flags

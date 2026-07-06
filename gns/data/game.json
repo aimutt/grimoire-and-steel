@@ -3,10 +3,10 @@
     "game_id": 1,
     "title": "Grimoire & Steel",
     "abbreviation": "G&S",
-    "version": "0.5",
+    "version": "0.5.1",
     "source_file": "grimoire_and_steel_rules_bible_v0_5_condensed_sheets.md",
     "source_sha256": "ac9e2d76f7f9d8aba6588507e2566cc4c0c944ea46075c45b8d0e546b5a50eb0",
-    "created_utc": "2026-06-28T03:18:39+00:00",
-    "notes": "Original rules bible database for the Grimoire & Steel role-playing game."
+    "created_utc": "2026-07-05T00:00:00+00:00",
+    "notes": "Rules bible database for the Grimoire & Steel role-playing game. v0.5.1 added section 29 (Time and Travel) and expanded sections 12 (Combat timing) and 13 (making camp / terrain fatigue). source_sha256 is advisory and refers to the original condensed source, which is not recomputed by the loader."
   }
 ]

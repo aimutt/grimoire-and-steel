@@ -279,6 +279,7 @@ int main() {
             gs.seed = 0xFEEDFACEC0FFEEULL;
             gs.mapId = 1; gs.areaId = 10; gs.turnCount = 7; gs.mode = 2;
             gs.cursorX = 4; gs.cursorY = 3; gs.faceX = 0; gs.faceY = -1; gs.activeChar = 1;
+            gs.elapsedMinutes = 545; gs.paused = 1; gs.minutesSinceRest = 120;   // game clock (v8)
             gs.controlPoints = {1, 3};
             gs.flags = {"helped_mayor", "found_map"};
             gs.resolvedContexts = {{10, "default"}, {12, "guarded"}};
@@ -302,6 +303,8 @@ int main() {
             check("save cursor/facing/active preserved",
                   r.cursorX == 4 && r.cursorY == 3 && r.faceX == 0 && r.faceY == -1 &&
                   r.activeChar == 1);
+            check("save game clock preserved (v8)",
+                  r.elapsedMinutes == 545 && r.paused == 1 && r.minutesSinceRest == 120);
             check("save plot state preserved",
                   r.controlPoints == gs.controlPoints && r.flags == gs.flags &&
                   r.resolvedContexts == gs.resolvedContexts && r.globals == gs.globals &&
@@ -346,6 +349,8 @@ int main() {
             m.coverArtPath = "art/cover.png";   // module splash image (v8)
             m.splashMusicPath = "audio/splash.mp3";     // module splash/default music (v12)
             m.defaultMusicPath = "audio/overworld.ogg";
+            m.startDay = 3; m.startHour = 14; m.startMinute = 30;   // starting date/time (v21)
+            m.startYear = 1147; m.eraName = "the Ember Reign";      // calendar year + era name (v22)
             m.variables = {                              // typed globals (v15)
                 {"questAccepted", VarType::Bool, "false"},
                 {"teleportsLeft", VarType::Int, "5"},
@@ -357,6 +362,7 @@ int main() {
             map.id = 1; map.name = "Level 1";
             map.gridW = 4; map.gridH = 3;
             map.overlayW = 2; map.overlayH = 1;
+            map.minutesPerStep = 25; map.fatigueRestHours = 6;   // per-map game-time tuning (v21)
             map.cells.assign(4 * 3, static_cast<int>(Terrain::Empty));
             map.cellArea.assign(4 * 3, 0);
             map.cells[0] = static_cast<int>(Terrain::Floor);
@@ -470,10 +476,16 @@ int main() {
             check("module cover art preserved", r.coverArtPath == "art/cover.png");
             check("module music preserved", r.splashMusicPath == "audio/splash.mp3" &&
                   r.defaultMusicPath == "audio/overworld.ogg");
+            check("module start date/time preserved (v21)",
+                  r.startDay == 3 && r.startHour == 14 && r.startMinute == 30);
+            check("module year + era name preserved (v22)",
+                  r.startYear == 1147 && r.eraName == "the Ember Reign");
             check("start/end markers preserved", r.startMapId == 1 && r.startAreaId == 10 && r.endAreaId == 11);
             check("one map preserved", r.maps.size() == 1);
             check("grid dims preserved", r.maps[0].gridW == 4 && r.maps[0].gridH == 3);
             check("overlay dims preserved", r.maps[0].overlayW == 2 && r.maps[0].overlayH == 1);
+            check("map game-time fields preserved (v21)",
+                  r.maps[0].minutesPerStep == 25 && r.maps[0].fatigueRestHours == 6);
             check("cell arrays preserved", r.maps[0].cells == m.maps[0].cells &&
                                            r.maps[0].cellArea == m.maps[0].cellArea);
             check("two areas preserved", r.maps[0].areas.size() == 2);

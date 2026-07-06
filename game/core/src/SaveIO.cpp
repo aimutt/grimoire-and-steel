@@ -69,7 +69,8 @@ CREATE TABLE save_meta (
     seed         TEXT,
     map_id       INTEGER, area_id INTEGER, turn_count INTEGER, mode INTEGER,
     cursor_x     INTEGER, cursor_y INTEGER, face_x INTEGER, face_y INTEGER,
-    active_char  INTEGER
+    active_char  INTEGER,
+    elapsed_minutes    INTEGER, paused INTEGER, minutes_since_rest INTEGER
 );
 CREATE TABLE save_control_points (cp_id INTEGER);
 CREATE TABLE save_flags (flag TEXT);
@@ -114,12 +115,14 @@ void saveGame(const std::string& path, const GameSave& save) {
 
     {
         Stmt s(db, "INSERT INTO save_meta(id,module_path,seed,map_id,area_id,turn_count,mode,"
-                   "cursor_x,cursor_y,face_x,face_y,active_char) "
-                   "VALUES(1,?,?,?,?,?,?,?,?,?,?,?);");
+                   "cursor_x,cursor_y,face_x,face_y,active_char,"
+                   "elapsed_minutes,paused,minutes_since_rest) "
+                   "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         s.bind(save.modulePath).bind(std::to_string(save.seed))
          .bind(save.mapId).bind(save.areaId).bind(save.turnCount).bind(save.mode)
          .bind(save.cursorX).bind(save.cursorY).bind(save.faceX).bind(save.faceY)
-         .bind(save.activeChar);
+         .bind(save.activeChar)
+         .bind(save.elapsedMinutes).bind(save.paused).bind(save.minutesSinceRest);
         s.run();
     }
     {
@@ -212,9 +215,14 @@ GameSave loadGame(const std::string& path) {
         fail(conn.db, "cannot open '" + path + "'");
 
     GameSave save;
-    {
-        Stmt s(conn.db, "SELECT module_path,seed,map_id,area_id,turn_count,mode,"
-                        "cursor_x,cursor_y,face_x,face_y,active_char FROM save_meta WHERE id=1;");
+    // save_meta gained the game-clock columns in v8; read them when present, else keep the defaults
+    // (0) so older saves resume at the module's starting date/time.
+    auto loadMeta = [&](bool withTime) {
+        std::string sql = "SELECT module_path,seed,map_id,area_id,turn_count,mode,"
+                          "cursor_x,cursor_y,face_x,face_y,active_char";
+        if (withTime) sql += ",elapsed_minutes,paused,minutes_since_rest";
+        sql += " FROM save_meta WHERE id=1;";
+        Stmt s(conn.db, sql.c_str());
         if (sqlite3_step(s.s) != SQLITE_ROW) fail(conn.db, "save_meta row missing");
         save.modulePath = colText(s.s, 0);
         try { save.seed = std::stoull(colText(s.s, 1)); } catch (...) { save.seed = 0; }
@@ -227,7 +235,14 @@ GameSave loadGame(const std::string& path) {
         save.faceX      = colInt(s.s, 8);
         save.faceY      = colInt(s.s, 9);
         save.activeChar = colInt(s.s, 10);
-    }
+        if (withTime) {
+            save.elapsedMinutes   = colInt(s.s, 11);
+            save.paused           = colInt(s.s, 12);
+            save.minutesSinceRest = colInt(s.s, 13);
+        }
+    };
+    try { loadMeta(true); }
+    catch (const DbError&) { loadMeta(false); }
     {
         Stmt s(conn.db, "SELECT cp_id FROM save_control_points;");
         while (sqlite3_step(s.s) == SQLITE_ROW) save.controlPoints.insert(colInt(s.s, 0));

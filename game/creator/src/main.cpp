@@ -1011,6 +1011,12 @@ static void drawToolsWindow(App& app) {
         if (ImGui::InputInt("Rows", &h)) { pushUndo(app); resizeMapGrid(*m, m->gridW, h); app.dirty = true; }
         ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay cols", &m->overlayW)) { m->overlayW = std::max(1, m->overlayW); relabelAreas(*m); app.dirty = true; }
         ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Overlay rows", &m->overlayH)) { m->overlayH = std::max(1, m->overlayH); relabelAreas(*m); app.dirty = true; }
+        // Game-time tuning: how much in-game time each grid step costs on this map, and how often
+        // (in game-hours) grueling terrain forces the party to rest before losing Life (0 = never).
+        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Minutes / step", &m->minutesPerStep)) { m->minutesPerStep = std::max(0, m->minutesPerStep); app.dirty = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("In-game minutes that pass each time the party moves one\ncell on this map (a room might be 1, a wilderness 30-60).");
+        ImGui::SetNextItemWidth(100); if (ImGui::InputInt("Rest needed (hrs, 0 = none)", &m->fatigueRestHours)) { m->fatigueRestHours = std::max(0, m->fatigueRestHours); app.dirty = true; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Harsh terrain: the party must rest at least this often (in\ngame-hours) or lose 1 Life per member each interval past it.\n0 disables fatigue on this map.");
     }
 
     // Remove-map confirmation modal (#2).
@@ -2302,6 +2308,15 @@ static void drawModuleInspector(App& app) {
     mapCombo("Start map", &app.mod.startMapId);
     areaCombo("Start area", &app.mod.startAreaId);
     areaCombo("End area", &app.mod.endAreaId);
+
+    ImGui::SeparatorText("Starting Date & Time");
+    ImGui::TextDisabled("The in-game clock the party begins with (shown on the play dashboard).");
+    ImGui::SetNextItemWidth(90); if (ImGui::InputInt("Day", &app.mod.startDay)) { app.mod.startDay = std::max(1, app.mod.startDay); app.dirty = true; }
+    ImGui::SetNextItemWidth(90); if (ImGui::InputInt("Hour (0-23)", &app.mod.startHour)) { app.mod.startHour = std::max(0, std::min(23, app.mod.startHour)); app.dirty = true; }
+    ImGui::SetNextItemWidth(90); if (ImGui::InputInt("Minute (0-59)", &app.mod.startMinute)) { app.mod.startMinute = std::max(0, std::min(59, app.mod.startMinute)); app.dirty = true; }
+    ImGui::SetNextItemWidth(120); if (ImGui::InputInt("Year", &app.mod.startYear)) app.dirty = true;
+    if (InputStr("Era name", &app.mod.eraName)) app.dirty = true;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("A fictitious name for the year/era, e.g. \"the Age of Ashes\".\nShown on the play dashboard beside the calendar year.");
 }
 
 static void drawControlPointsSection(App& app) {
