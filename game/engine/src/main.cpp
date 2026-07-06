@@ -567,6 +567,9 @@ int main(int, char**) {
         gs.mode       = (int)session->state().mode;
         gs.cursorX = cursorX; gs.cursorY = cursorY; gs.faceX = faceX; gs.faceY = faceY;
         gs.activeChar = shopBuyer;
+        gs.elapsedMinutes   = session->state().elapsedMinutes;
+        gs.paused           = session->state().paused ? 1 : 0;
+        gs.minutesSinceRest = session->state().minutesSinceRest;
         gs.controlPoints = session->plot().completedIds();
         gs.flags         = session->plot().flags();
         gs.resolvedContexts = session->plot().resolvedChoiceContexts();
@@ -615,6 +618,192 @@ int main(int, char**) {
     auto fireAcquire = [&](const auto& item) { for (const auto& mu : item.onAcquire) applyMutation(mu); };
     auto fireUnacquire = [&](const auto& item) { for (const auto& mu : item.onUnacquire) applyMutation(mu); };
 
+    // ---- In-game clock (game time), rest, and pause ----
+    // Decompose the current in-game time into Day (1-based) + 24h hour/minute from the module's
+    // authored start plus the elapsed minutes stored on the play-state.
+    auto gameClock = [&](int& day, int& hour, int& minute) {
+        int startAbs = (mod.startDay - 1) * 1440 + mod.startHour * 60 + mod.startMinute;
+        int elapsed  = session ? session->state().elapsedMinutes : 0;
+        int abs = startAbs + elapsed;
+        if (abs < 0) abs = 0;
+        day    = abs / 1440 + 1;
+        hour   = (abs % 1440) / 60;
+        minute = abs % 60;
+    };
+    auto isNight = [](int hour) { return hour < 6 || hour >= 18; };   // day runs 06:00-18:00
+
+    // Advance the clock by `minutes` (no-op while paused). Traveling a fatigue-enabled map long
+    // enough without resting costs each party member Life.
+    auto advanceTime = [&](int minutes) {
+        if (!session || minutes <= 0 || session->state().paused) return;
+        gns::PlayState& st = session->state();
+        int before = st.minutesSinceRest;
+        st.elapsedMinutes   += minutes;
+        st.minutesSinceRest += minutes;
+        const gns::Map* cm = session->currentMap();
+        int restHours = cm ? cm->fatigueRestHours : 0;
+        if (restHours > 0) {
+            int interval = restHours * 60;
+            int penalties = st.minutesSinceRest / interval - before / interval;
+            if (penalties > 0) {
+                for (auto& pc : session->party().members)
+                    pc.life = std::max(0, pc.life - penalties);
+                journal.push_back("The harsh terrain wears the party down (-" + std::to_string(penalties)
+                                  + " Life). They need to rest.");
+            }
+        }
+    };
+
+    // R: the party makes camp for 5-8 game-hours, recovering some Life + easing Strain, and the
+    // fatigue timer resets (resting itself does not fatigue the party).
+    auto restParty = [&]() {
+        if (!session || session->state().paused) return;   // resting is an action; not while paused
+        int hours = session->dice().rollExpr("5-8");
+        if (hours < 5) hours = 5;
+        session->state().elapsedMinutes += hours * 60;
+        session->state().minutesSinceRest = 0;
+        for (auto& pc : session->party().members) {
+            pc.life   = std::min(pc.maxLife, pc.life + session->dice().rollExpr("1d6"));
+            pc.strain = std::max(0, pc.strain - 2);
+        }
+        journal.push_back("The party makes camp and rests for " + std::to_string(hours)
+                          + " hours, recovering some Life and easing their Strain.");
+        playStatus = "The party rested for " + std::to_string(hours) + " hours.";
+        autoSave();
+    };
+
+    // P: pause/resume. While paused the clock is frozen and the party token cannot move.
+    auto togglePause = [&]() {
+        if (!session) return;
+        session->state().paused = !session->state().paused;
+        playStatus = session->state().paused ? "Game paused - press P to resume." : "";
+    };
+
+    // A prominent day/night dashboard for the top of the Adventure panel: a sky band whose gradient
+    // and sun/moon track the in-game hour, the running Day + 24h clock, and two custom (non-default)
+    // Rest / Pause buttons. All drawn with the window draw list.
+    auto drawTimeDashboard = [&]() {
+        if (!session) return;
+        int day, hour, minute; gameClock(day, hour, minute);
+        int mod24 = hour * 60 + minute;
+        bool paused  = session->state().paused;
+        bool dayTime = (hour >= 6 && hour < 18);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        float availW = ImGui::GetContentRegionAvail().x;
+        ImVec2 b0 = ImGui::GetCursorScreenPos();
+        const float bandH = 92.0f;
+        ImVec2 b1(b0.x + availW, b0.y + bandH);
+
+        // Sky gradient by time of day.
+        ImU32 top, bot;
+        if      (hour >= 6 && hour < 8)   { top = IM_COL32(250,170,110,255); bot = IM_COL32(120,150,205,255); } // dawn
+        else if (hour >= 8 && hour < 17)  { top = IM_COL32( 82,146,232,255); bot = IM_COL32(176,210,248,255); } // day
+        else if (hour >= 17 && hour < 19) { top = IM_COL32(248,138, 82,255); bot = IM_COL32( 66, 58,108,255); } // dusk
+        else                              { top = IM_COL32( 18, 24, 54,255); bot = IM_COL32(  6,  8, 22,255); } // night
+        dl->AddRectFilledMultiColor(b0, b1, top, top, bot, bot);
+        dl->PushClipRect(b0, b1, true);
+
+        // Stars at night (deterministic scatter so they do not shimmer frame to frame).
+        if (!dayTime) {
+            unsigned seed = 12345u;
+            auto rnd = [&]() { seed = seed * 1103515245u + 12345u; return (seed >> 16) & 0x7fff; };
+            for (int i = 0; i < 40; ++i) {
+                float sx = b0.x + (rnd() % 1000) / 1000.0f * availW;
+                float sy = b0.y + (rnd() % 1000) / 1000.0f * (bandH * 0.7f);
+                float sr = 0.6f + (rnd() % 100) / 100.0f * 1.1f;
+                dl->AddCircleFilled(ImVec2(sx, sy), sr, IM_COL32(235, 238, 255, 120 + (int)(rnd() % 120)));
+            }
+        }
+
+        // Sun (day, 06:00-18:00) or moon (night) arcing across the band by fraction of its span.
+        float margin = 28.0f, trackW = availW - margin * 2.0f;
+        float f = dayTime ? (mod24 - 360) / 720.0f : (((mod24 - 1080 + 1440) % 1440) / 720.0f);
+        if (f < 0.0f) f = 0.0f; if (f > 1.0f) f = 1.0f;
+        float cx = b0.x + margin + f * trackW;
+        float cy = b1.y - 16.0f - std::sin(f * 3.14159f) * 46.0f;
+        const float disc = 16.0f;
+        if (dayTime) {
+            dl->AddCircleFilled(ImVec2(cx, cy), disc * 1.9f, IM_COL32(255, 225, 120, 55));  // glow
+            for (int i = 0; i < 12; ++i) {                                                   // rays
+                float a = i * 3.14159f / 6.0f;
+                dl->AddLine(ImVec2(cx + std::cos(a) * (disc + 3), cy + std::sin(a) * (disc + 3)),
+                            ImVec2(cx + std::cos(a) * (disc + 10), cy + std::sin(a) * (disc + 10)),
+                            IM_COL32(255, 224, 130, 220), 2.0f);
+            }
+            dl->AddCircleFilled(ImVec2(cx, cy), disc, IM_COL32(255, 236, 150, 255));
+            dl->AddCircle(ImVec2(cx, cy), disc, IM_COL32(230, 180, 60, 255), 0, 2.0f);
+        } else {
+            dl->AddCircleFilled(ImVec2(cx, cy), disc * 1.8f, IM_COL32(220, 225, 255, 40));   // glow
+            dl->AddCircleFilled(ImVec2(cx, cy), disc, IM_COL32(232, 236, 250, 255));
+            dl->AddCircleFilled(ImVec2(cx + disc * 0.55f, cy - disc * 0.15f), disc * 0.92f, bot);  // carve crescent
+        }
+        dl->PopClipRect();
+        dl->AddRect(b0, b1, IM_COL32(0, 0, 0, 90), 0.0f, 0, 1.0f);
+
+        // Calendar year + fictitious era name (top line, above the big clock).
+        char eraLine[96];
+        if (!mod.eraName.empty())
+            std::snprintf(eraLine, sizeof(eraLine), "%d - %s", mod.startYear, mod.eraName.c_str());
+        else
+            std::snprintf(eraLine, sizeof(eraLine), "Year %d", mod.startYear);
+        dl->AddText(ImVec2(b0.x + 15.0f, b0.y + 7.0f), IM_COL32(0, 0, 0, 150), eraLine);   // shadow
+        dl->AddText(ImVec2(b0.x + 14.0f, b0.y + 6.0f), IM_COL32(246, 238, 214, 235), eraLine);
+
+        // Big clock readout with a soft shadow for legibility over the sky.
+        char clk[48]; std::snprintf(clk, sizeof(clk), "Day %d    %02d:%02d", day, hour, minute);
+        ImFont* cf = headingFont ? headingFont : ImGui::GetFont();
+        ImVec2 tp(b0.x + 14.0f, b0.y + 26.0f);
+        dl->AddText(cf, 32.0f, ImVec2(tp.x + 1.5f, tp.y + 1.5f), IM_COL32(0, 0, 0, 160), clk);
+        dl->AddText(cf, 32.0f, tp, IM_COL32(255, 255, 255, 255), clk);
+        dl->AddText(ImVec2(b0.x + 15.0f, b0.y + 66.0f), IM_COL32(240, 240, 255, 205),
+                    dayTime ? "Daytime" : "Night");
+        if (paused) {   // prominent PAUSED badge
+            const char* pz = "PAUSED";
+            ImVec2 psz = ImGui::CalcTextSize(pz);
+            ImVec2 pp(b1.x - psz.x - 16.0f, b0.y + 12.0f);
+            dl->AddRectFilled(ImVec2(pp.x - 8, pp.y - 4), ImVec2(pp.x + psz.x + 8, pp.y + psz.y + 4),
+                              IM_COL32(200, 60, 60, 230), 5.0f);
+            dl->AddText(pp, IM_COL32(255, 255, 255, 255), pz);
+        }
+
+        ImGui::Dummy(ImVec2(availW, bandH + 6.0f));   // reserve the band in ImGui layout
+
+        // Two custom Rest / Pause buttons (InvisibleButton + drawlist, deliberately not the default
+        // blue ImGui buttons).
+        auto skyButton = [&](const char* id, const char* label, int icon, ImU32 accent, bool on) -> bool {
+            ImVec2 sz((availW - 8.0f) * 0.5f, 46.0f);
+            ImGui::PushID(id);
+            ImVec2 q0 = ImGui::GetCursorScreenPos();
+            bool pressed = ImGui::InvisibleButton("b", sz);
+            bool hov = ImGui::IsItemHovered();
+            ImVec2 q1(q0.x + sz.x, q0.y + sz.y);
+            ImU32 base = on ? accent : (hov ? IM_COL32(56, 62, 84, 255) : IM_COL32(40, 44, 60, 255));
+            dl->AddRectFilled(q0, q1, base, 8.0f);
+            dl->AddRect(q0, q1, hov ? accent : IM_COL32(90, 98, 120, 255), 8.0f, 0, hov ? 2.5f : 1.5f);
+            float icx = q0.x + 24.0f, icy = (q0.y + q1.y) * 0.5f;
+            ImU32 icol = IM_COL32(240, 244, 255, 255);
+            if (icon == 0) {              // rest: crescent moon + Zzz
+                dl->AddCircleFilled(ImVec2(icx, icy), 10.0f, icol);
+                dl->AddCircleFilled(ImVec2(icx + 4.0f, icy - 2.0f), 9.0f, base);
+                dl->AddText(ImVec2(icx + 9.0f, icy - 15.0f), icol, "Zzz");
+            } else if (icon == 1) {       // pause: two bars
+                dl->AddRectFilled(ImVec2(icx - 6, icy - 9), ImVec2(icx - 1, icy + 9), icol, 1.5f);
+                dl->AddRectFilled(ImVec2(icx + 1, icy - 9), ImVec2(icx + 6, icy + 9), icol, 1.5f);
+            } else {                      // resume: play triangle
+                dl->AddTriangleFilled(ImVec2(icx - 6, icy - 9), ImVec2(icx - 6, icy + 9),
+                                      ImVec2(icx + 9, icy), icol);
+            }
+            dl->AddText(ImVec2(q0.x + 44.0f, icy - ImGui::GetFontSize() * 0.5f), icol, label);
+            ImGui::PopID();
+            return pressed;
+        };
+        if (skyButton("rest", "Rest (R)", 0, IM_COL32(70, 90, 150, 255), false)) restParty();
+        ImGui::SameLine(0.0f, 8.0f);
+        if (paused) { if (skyButton("pause", "Resume (P)", 2, IM_COL32(60, 130, 74, 255), true))  togglePause(); }
+        else        { if (skyButton("pause", "Pause (P)",  1, IM_COL32(120, 60, 60, 255), false)) togglePause(); }
+    };
+
     // Run the "beat" for entering an area: seat there, narrate, pick up Control Points
     // located here, resolve any encounter, and run trap/lock/hidden checks.
     auto enterArea = [&](int areaId) {
@@ -662,6 +851,11 @@ int main(int, char**) {
                 journal.push_back(r.outcome == gns::CombatOutcome::PartyVictory
                     ? ("Victory! The party gains " + std::to_string(r.apAwarded) + " AP.")
                     : "The party has fallen...");
+                // Combat time: each round is about ten seconds; advance the clock accordingly.
+                int combatMin = std::max(1, (r.rounds * 10 + 59) / 60);
+                journal.push_back("The fight lasted " + std::to_string(r.rounds) + " rounds (~"
+                                  + std::to_string(combatMin) + " min).");
+                advanceTime(combatMin);
             }
         }
         if (ctx) {
@@ -781,6 +975,9 @@ int main(int, char**) {
         session->state().areaId    = gs.areaId;
         session->state().turnCount = gs.turnCount;
         session->state().mode      = (gns::PlayMode)gs.mode;
+        session->state().elapsedMinutes   = gs.elapsedMinutes;
+        session->state().paused           = gs.paused != 0;
+        session->state().minutesSinceRest = gs.minutesSinceRest;
         session->plot().setCompletedIds(gs.controlPoints);
         session->plot().setFlags(gs.flags);
         session->plot().setResolvedChoiceContexts(gs.resolvedContexts);
@@ -1993,14 +2190,21 @@ int main(int, char**) {
             // Keyboard: arrow keys glide the party token (and set facing); holding Space turns
             // the party in place (facing only). Enter acts on the token's cell.
             ImGuiIO& io = ImGui::GetIO();
+            bool timePaused = session && session->state().paused;
+            bool anyPopup = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
             if (!io.WantTextInput) {
+                // R rests the party; P pauses/resumes. (Not while a confirm popup is up.)
+                if (session && !anyPopup) {
+                    if (ImGui::IsKeyPressed(ImGuiKey_P)) togglePause();
+                    if (ImGui::IsKeyPressed(ImGuiKey_R)) restParty();
+                }
                 bool turnOnly = ImGui::IsKeyDown(ImGuiKey_Space);
                 int dx = 0, dy = 0;
                 if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))  dx = -1;
                 if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) dx = +1;
                 if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    dy = -1;
                 if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  dy = +1;
-                if (dx || dy) {
+                if ((dx || dy) && !timePaused) {   // paused: token cannot move or turn
                     faceX = dx; faceY = dy;          // face the pressed direction
                     if (!turnOnly) {                  // and step there unless turning in place
                         int nx = std::min(m.gridW - 1, std::max(0, cursorX + dx));
@@ -2013,6 +2217,7 @@ int main(int, char**) {
                         } else {
                             cursorX = nx; cursorY = ny;
                             viewArea = 0;               // walked away: drop any held border view
+                            advanceTime(m.minutesPerStep);   // a grid step passes game time
                             actOnCell(cursorX, cursorY);  // auto-enter/show the area we stepped onto
                         }
                     }
@@ -2021,8 +2226,8 @@ int main(int, char**) {
                     actOnCell(cursorX, cursorY);
             }
             // Mouse: clicking a cell moves the token there and acts on it (but not when the
-            // click is grabbing the pane divider at the map's right edge).
-            if (!splitterHot && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            // click is grabbing the pane divider at the map's right edge, and not while paused).
+            if (!timePaused && !splitterHot && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 mp = io.MousePos;
                 int cx = (int)((mp.x - origin.x) / cs), cy = (int)((mp.y - origin.y) / cs);
                 if (cx >= 0 && cy >= 0 && cx < m.gridW && cy < m.gridH) {
@@ -2032,8 +2237,10 @@ int main(int, char**) {
                         actOnCell(cx, cy);
                         viewArea = blockId;
                     } else {
+                        bool moved = (cx != cursorX || cy != cursorY);
                         cursorX = cx; cursorY = cy;
                         viewArea = 0;
+                        if (moved) advanceTime(m.minutesPerStep);   // clicking to a new cell = travel
                         actOnCell(cx, cy);
                     }
                 }
@@ -2123,6 +2330,11 @@ int main(int, char**) {
                 }
                 ImGui::TextDisabled("or build a party in Characters mode, then Load it.");
             } else {
+                // Prominent day/night time dashboard with the Day + clock, sun/moon, and the
+                // custom Rest (R) / Pause (P) buttons.
+                drawTimeDashboard();
+                ImGui::Spacing();
+
                 // Party panel: rich, clickable cards. Clicking a card (or up/down arrows while
                 // in an area) picks the active character; the area/shop content fills the left
                 // region via drawAreaView. `hereArea` is computed once before the windows.
@@ -2175,7 +2387,7 @@ int main(int, char**) {
                     if (ImGui::Button("Cancel", ImVec2(110, 0))) ImGui::CloseCurrentPopup();
                     ImGui::EndPopup();
                 }
-                ImGui::TextDisabled("Arrows move the party \xC2\xB7 Enter to act \xC2\xB7 in a shop Up/Down pick character");
+                ImGui::TextDisabled("Arrows move the party \xC2\xB7 Enter to act \xC2\xB7 R rest \xC2\xB7 P pause \xC2\xB7 in a shop Up/Down pick character");
                 ImGui::Separator();
                 // Journal is collapsed by default -expand to read. Fixed-height scroll child so
                 // it doesn't eat the panel above when open.

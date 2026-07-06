@@ -150,7 +150,9 @@ CREATE TABLE module (
     name          TEXT, author TEXT, summary TEXT,
     start_map_id  INTEGER, start_area_id INTEGER, end_area_id INTEGER,
     cover_art     TEXT,
-    splash_music  TEXT, default_music TEXT
+    splash_music  TEXT, default_music TEXT,
+    start_day     INTEGER, start_hour INTEGER, start_minute INTEGER,
+    start_year    INTEGER, era_name TEXT
 );
 CREATE TABLE maps (
     id        INTEGER PRIMARY KEY,
@@ -158,7 +160,9 @@ CREATE TABLE maps (
     grid_w    INTEGER, grid_h INTEGER,
     overlay_w INTEGER, overlay_h INTEGER,
     cells     BLOB,
-    cell_area BLOB
+    cell_area BLOB,
+    minutes_per_step   INTEGER,
+    fatigue_rest_hours INTEGER
 );
 CREATE TABLE areas (
     id              INTEGER PRIMARY KEY,
@@ -375,11 +379,14 @@ void saveModule(const Module& mod, const std::string& path) {
 
     {
         Stmt s(db, "INSERT INTO module(id,name,author,summary,"
-                     "start_map_id,start_area_id,end_area_id,cover_art,splash_music,default_music) "
-                     "VALUES(1,?,?,?,?,?,?,?,?,?);");
+                     "start_map_id,start_area_id,end_area_id,cover_art,splash_music,default_music,"
+                     "start_day,start_hour,start_minute,start_year,era_name) "
+                     "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         s.bind(mod.name).bind(mod.author).bind(mod.summary)
          .bind(mod.startMapId).bind(mod.startAreaId).bind(mod.endAreaId).bind(mod.coverArtPath)
-         .bind(mod.splashMusicPath).bind(mod.defaultMusicPath);
+         .bind(mod.splashMusicPath).bind(mod.defaultMusicPath)
+         .bind(mod.startDay).bind(mod.startHour).bind(mod.startMinute)
+         .bind(mod.startYear).bind(mod.eraName);
         s.run();
     }
 
@@ -394,7 +401,8 @@ void saveModule(const Module& mod, const std::string& path) {
 
     {
         Stmt mapStmt(db, "INSERT INTO maps(id,name,grid_w,grid_h,overlay_w,overlay_h,"
-                           "cells,cell_area) VALUES(?,?,?,?,?,?,?,?);");
+                           "cells,cell_area,minutes_per_step,fatigue_rest_hours) "
+                           "VALUES(?,?,?,?,?,?,?,?,?,?);");
         Stmt areaStmt(db,
             "INSERT INTO areas(id,map_id,label,name,color,dm_text,player_text,"
             "monster_chance,monster_type,treasure_chance,treasure_type,"
@@ -482,7 +490,8 @@ void saveModule(const Module& mod, const std::string& path) {
 
         for (const auto& m : mod.maps) {
             mapStmt.bind(m.id).bind(m.name).bind(m.gridW).bind(m.gridH)
-                   .bind(m.overlayW).bind(m.overlayH).bindBlob(m.cells).bindBlob(m.cellArea);
+                   .bind(m.overlayW).bind(m.overlayH).bindBlob(m.cells).bindBlob(m.cellArea)
+                   .bind(m.minutesPerStep).bind(m.fatigueRestHours);
             mapStmt.run();
 
             for (const auto& o : m.objects) {
@@ -726,13 +735,17 @@ Module loadModule(const std::string& path) {
 
     Module mod;
 
-    // module gained cover_art in v8 and splash_music/default_music in v12. Try the newest
-    // layout first, falling back tier by tier so older files still load.
-    //   opt 2 = v12 (cover_art + splash_music + default_music), 1 = v8 (cover_art), 0 = v7.
+    // module gained cover_art in v8, splash_music/default_music in v12, and start_day/start_hour/
+    // start_minute in v21. Try the newest layout first, falling back tier by tier so older files
+    // still load.
+    //   opt 4 = v22 (+ start_year/era_name), 3 = v21 (+ start date/time), 2 = v12 (+ splash/default
+    //   music), 1 = v8 (cover_art), 0 = v7.
     auto loadModuleRow = [&](int opt) {
         std::string sql = "SELECT name,author,summary,start_map_id,start_area_id,end_area_id";
         if (opt >= 1) sql += ",cover_art";
         if (opt >= 2) sql += ",splash_music,default_music";
+        if (opt >= 3) sql += ",start_day,start_hour,start_minute";
+        if (opt >= 4) sql += ",start_year,era_name";
         sql += " FROM module WHERE id=1;";
         Stmt s(c.db, sql.c_str());
         if (sqlite3_step(s.s) != SQLITE_ROW) fail(c.db, "module row missing");
@@ -744,8 +757,11 @@ Module loadModule(const std::string& path) {
         mod.endAreaId   = colInt(s.s, 5);
         if (opt >= 1) mod.coverArtPath = colText(s.s, 6);
         if (opt >= 2) { mod.splashMusicPath = colText(s.s, 7); mod.defaultMusicPath = colText(s.s, 8); }
+        if (opt >= 3) { mod.startDay = colInt(s.s, 9); mod.startHour = colInt(s.s, 10);
+                        mod.startMinute = colInt(s.s, 11); }
+        if (opt >= 4) { mod.startYear = colInt(s.s, 12); mod.eraName = colText(s.s, 13); }
     };
-    for (int opt = 2; ; --opt) {
+    for (int opt = 4; ; --opt) {
         try { loadModuleRow(opt); break; }
         catch (const DbError&) { if (opt == 0) throw; }
     }
@@ -764,9 +780,15 @@ Module loadModule(const std::string& path) {
         // no module_variables table — leave empty
     }
 
-    {
-        Stmt s(c.db, "SELECT id,name,grid_w,grid_h,overlay_w,overlay_h,cells,cell_area "
-                     "FROM maps ORDER BY id;");
+    // The maps table gained optional trailing columns in v21: minutes_per_step, fatigue_rest_hours.
+    // `opt` = how many of those the file has; try the newest layout first and fall back so older
+    // modules still load (older maps default minutesPerStep=10, fatigueRestHours=0).
+    static const char* kMapOptCols[] = {"minutes_per_step", "fatigue_rest_hours"};
+    auto loadMaps = [&](int opt) {
+        std::string sql = "SELECT id,name,grid_w,grid_h,overlay_w,overlay_h,cells,cell_area";
+        for (int i = 0; i < opt; ++i) { sql += ","; sql += kMapOptCols[i]; }
+        sql += " FROM maps ORDER BY id;";
+        Stmt s(c.db, sql.c_str());
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             Map m;
             m.id       = colInt(s.s, 0);
@@ -777,8 +799,14 @@ Module loadModule(const std::string& path) {
             m.overlayH = colInt(s.s, 5);
             m.cells    = colIntBlob(s.s, 6);
             m.cellArea = colIntBlob(s.s, 7);
+            m.minutesPerStep   = opt >= 1 ? colInt(s.s, 8) : 10;
+            m.fatigueRestHours = opt >= 2 ? colInt(s.s, 9) : 0;
             mod.maps.push_back(std::move(m));
         }
+    };
+    for (int opt = 2; ; --opt) {
+        try { loadMaps(opt); break; }
+        catch (const DbError&) { mod.maps.clear(); if (opt == 0) throw; }
     }
 
     // The areas table grew optional trailing columns over time: fill_enabled (v6),

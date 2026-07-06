@@ -342,6 +342,10 @@ A character who Defends gains **+2 Defense** until their next turn.
 
 A character may help an ally. If the Guide agrees the help matters, the ally gains **+2** on the roll.
 
+### Timing
+
+Combat is measured in **rounds**, and each round is about **ten seconds** of frantic action. A fight that lasts *N* rounds takes roughly **N x 10 seconds** of game time. Most skirmishes are over in a minute or two; the Guide adds that time to the game clock (see **29. Time and Travel**).
+
 ---
 
 ## 13. Rest and Healing
@@ -357,6 +361,14 @@ A character may take one short rest between dangerous scenes.
 A full rest requires sleep, food, water, and safety. After a full rest, a character recovers all lost Life.
 
 The Guide may limit rest in dangerous places.
+
+### Making Camp
+
+Making camp is a longer rest of **5 to 8 hours** (sleep, food, and water). A camped character recovers **1d6 Life** and eases their Strain, and a full night restores all lost Life. Time passes on the game clock while the party rests.
+
+### Fatigue from Harsh Terrain
+
+Some ground is punishing: steep climbs, burning lava fields, deep snow, choking marsh. On such terrain the party **must rest every so often or begin to lose Life**. If they push on past that limit without making camp, each member loses **1 Life** for every further stretch of travel until they finally rest. Gentle terrain never tires the party this way.
 
 ---
 
@@ -1169,5 +1181,39 @@ These carry the story rather than a price; their worth depends on where they lea
 | Sealed Letter | A message under seal - a quest, clue, or summons. |
 | Iron Key | Opens one specific lock. |
 | Ring of Keys | A jailer's or steward's keys. |
+
+---
+
+## 29. Time and Travel
+
+Adventures happen in time, not just in space. As the party explores a map, the game keeps a clock: a running **Day** number and a 24-hour time of day.
+
+### The Clock
+
+Every module begins at an author-set **starting date and time** (for example, *Day 1, 08:00*). From there, **time passes as the party travels**.
+
+### Travel Time
+
+Each step the party takes across a map costs a set amount of game time. Because a map can represent almost anything, **each map sets its own minutes-per-step**:
+
+| Map represents | Suggested minutes per step |
+|---|---|
+| A single room or building interior | 1 - 5 |
+| A town or village | 5 - 15 |
+| Open wilderness, road, or overland travel | 30 - 60 |
+
+Fighting also takes time (see **12. Combat**): the Guide adds a few minutes to the clock for each skirmish.
+
+### Day and Night
+
+The clock runs from **06:00 to 18:00 as day** and from **18:00 to 06:00 as night**. The play dashboard shows a **sun by day and a moon by night** so the party can see the hour at a glance. Some encounters, prices, or dangers may change after dark - that is the Guide's call.
+
+### Resting and Fatigue
+
+The party can **make camp** to recover (see **13. Rest and Healing**); a rest of 5 to 8 hours passes on the clock. On **harsh terrain**, a map may require the party to rest regularly or they begin to lose Life to exhaustion.
+
+### Pausing
+
+Play can be **paused** at any time. While paused the clock is frozen and the party does not move - a breather that costs no game time.
 
 ---

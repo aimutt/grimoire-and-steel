@@ -31,8 +31,8 @@ COUNTS = {
     "module_completion_award": 4,
     "level_improvement_option": 5,
     "character_sheet": 2,
-    "section": 29,
-    "rules_search": 110,
+    "section": 30,
+    "rules_search": 111,
 }
 
 

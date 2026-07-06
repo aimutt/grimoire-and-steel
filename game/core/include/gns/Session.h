@@ -46,6 +46,9 @@ struct PlayState {
     int areaId = 0;      // current area (0 = between / unknown areas)
     int turnCount = 0;   // exploration turns elapsed
     PlayMode mode = PlayMode::Exploration;
+    int elapsedMinutes = 0;    // in-game minutes since the module's starting date/time (v8 save)
+    bool paused = false;       // game clock stopped; party token cannot move
+    int minutesSinceRest = 0;  // minutes traveled since the last rest (drives terrain fatigue)
 };
 
 class Session {
