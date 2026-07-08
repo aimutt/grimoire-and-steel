@@ -48,7 +48,8 @@ enum class Terrain : int {
     Stairs       = 22,  // steps, paintable (straight / L-shaped runs)
     WoodenStairs = 23,  // wooden flight: side rails + treads, paintable
     Dirt         = 24,  // packed earth: speckles like Sand but darker brown
-    Count     = 25,
+    WoodenFence  = 25,  // fence line: a series of brown dots (posts)
+    Count     = 26,
 };
 
 // Furniture / props placed at sub-grid positions on a map (not snapped to cells).

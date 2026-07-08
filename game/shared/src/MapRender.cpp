@@ -46,6 +46,7 @@ std::uint32_t terrainColor(int t) {
         case gns::Terrain::Stairs:       return 0x9A958AFF;  // worn stone steps
         case gns::Terrain::WoodenStairs: return 0x8A5E32FF;  // wooden flight
         case gns::Terrain::Dirt:         return 0x6F5234FF;  // dark packed earth
+        case gns::Terrain::WoodenFence:  return 0x6F5234FF;  // brown fence-post dots on earth
         case gns::Terrain::Empty:
         default:                     return 0x2B313BFF;
     }
@@ -188,6 +189,7 @@ void drawTerrainMotif(ImDrawList* dl, ImVec2 p0, float cs, int t) {
             dl->AddCircleFilled(ImVec2(c.x + cs * 0.16f, c.y + cs * 0.14f), cs * 0.11f, hump, 10);
             break;
         }
+        // WoodenFence draws through drawStairBridgeMotif (direction-aware), not here.
         default: break;
     }
 }
@@ -237,6 +239,24 @@ void drawStairBridgeMotif(ImDrawList* dl, ImVec2 p0, float cs, int terr, RunDir 
         return;
     }
 
+    if (T == gns::Terrain::WoodenFence) {
+        // A line of brown fence-post dots. Orientation follows the run direction, so painting a
+        // vertical drag draws a vertical fence; a corner (Landing) draws a cross of posts.
+        ImU32 post = IM_COL32(74, 48, 26, 255), cap = IM_COL32(152, 114, 72, 255);
+        auto dots = [&](bool vert) {
+            for (int i = 0; i < 5; ++i) {
+                float t = 0.14f + 0.18f * i;   // 0.14 .. 0.86 across the cell
+                ImVec2 p = vert ? ImVec2(p0.x + cs * 0.5f, p0.y + cs * t)
+                                : ImVec2(p0.x + cs * t,   p0.y + cs * 0.5f);
+                dl->AddCircleFilled(p, 1.8f, (i & 1) ? cap : post);
+            }
+        };
+        if (dir == RunDir::Landing) { dots(false); dots(true); }   // corner post cross
+        else if (dir == RunDir::Vertical) dots(true);
+        else dots(false);                                          // Horizontal or lone cell
+        return;
+    }
+
     bool wooden = (T == gns::Terrain::WoodenBridge);
     ImU32 rail  = wooden ? IM_COL32(120, 86, 46, 255) : IM_COL32(160, 160, 166, 255);
     ImU32 plank = wooden ? IM_COL32(82, 54, 30, 220)  : IM_COL32(74, 74, 80, 220);
@@ -262,10 +282,13 @@ void drawStairBridgeMotif(ImDrawList* dl, ImVec2 p0, float cs, int terr, RunDir 
 }
 
 bool isStairOrBridge(int terr) {
+    // Really "is a direction-aware terrain": these infer their run from same-type 4-neighbours
+    // (so a vertical drag reads vertical). WoodenFence rides the same path for its post line.
     return terr == static_cast<int>(gns::Terrain::Stairs) ||
            terr == static_cast<int>(gns::Terrain::WoodenStairs) ||
            terr == static_cast<int>(gns::Terrain::WoodenBridge) ||
-           terr == static_cast<int>(gns::Terrain::StoneBridge);
+           terr == static_cast<int>(gns::Terrain::StoneBridge) ||
+           terr == static_cast<int>(gns::Terrain::WoodenFence);
 }
 
 void drawObjectIcon(ImDrawList* dl, ImVec2 ctr, float s, int type, float rotDeg, bool selected) {
