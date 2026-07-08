@@ -1615,27 +1615,84 @@ static bool areaDestCombo(App& app, const char* id, int* targetId, int excludeAr
 
 // ---- Global-variable helpers (used by context conditions and choice mutations) ----
 
-static const gns::ModuleVariable* findModVar(App& app, const std::string& name) {
-    for (const auto& v : app.mod.variables) if (v.name == name) return &v;
+// Resolve a variable declaration by scope: 0 = module global (Module::variables), else the named
+// area's Area::variables (v23). Returns nullptr when not found.
+static const gns::ModuleVariable* findVarScoped(App& app, int scopeAreaId, const std::string& name) {
+    if (scopeAreaId == 0) {
+        for (const auto& v : app.mod.variables) if (v.name == name) return &v;
+        return nullptr;
+    }
+    const gns::Area* a = app.mod.areaById(scopeAreaId);
+    if (!a) return nullptr;
+    for (const auto& v : a->variables) if (v.name == name) return &v;
     return nullptr;
 }
 
-// Combo listing the module's declared variable names; writes the picked name into *varName.
-static bool drawVarCombo(App& app, const char* id, std::string* varName) {
+// The combo-preview label for a currently-selected (scope, name) reference.
+static std::string varRefLabel(App& app, int scopeAreaId, const std::string& name, int ownAreaId) {
+    if (name.empty()) return "(variable)";
+    if (scopeAreaId == 0 || scopeAreaId == ownAreaId) return name;   // global or this area: plain
+    const gns::Area* a = app.mod.areaById(scopeAreaId);              // other area: qualify by name
+    std::string an = a ? (a->name.empty() ? a->label : a->name) : ("area " + std::to_string(scopeAreaId));
+    return an + ": " + name;
+}
+
+// Combo listing the variables the caller may reference: module globals, this area's variables, and
+// (only when allowCrossAreaRead) every OTHER area's variables. Writes the picked (scope, name) pair.
+// Mutations pass allowCrossAreaRead=false (write only own area / globals); conditions pass true.
+static bool drawVarCombo(App& app, const char* id, int* scopeAreaId, std::string* varName,
+                         int ownAreaId, bool allowCrossAreaRead) {
     bool changed = false;
-    std::string cur = varName->empty() ? "(variable)" : *varName;
+    std::string cur = varRefLabel(app, *scopeAreaId, *varName, ownAreaId);
     if (ImGui::BeginCombo(id, cur.c_str())) {
-        if (app.mod.variables.empty()) ImGui::TextDisabled("(none defined at module level)");
-        for (const auto& v : app.mod.variables)
-            if (ImGui::Selectable(v.name.c_str(), v.name == *varName)) { *varName = v.name; changed = true; }
+        bool any = false;
+        if (!app.mod.variables.empty()) {
+            any = true;
+            ImGui::TextDisabled("Module globals");
+            for (const auto& v : app.mod.variables) {
+                bool sel = (*scopeAreaId == 0 && v.name == *varName);
+                if (ImGui::Selectable((v.name + "##g").c_str(), sel)) {
+                    *scopeAreaId = 0; *varName = v.name; changed = true;
+                }
+            }
+        }
+        if (const gns::Area* own = app.mod.areaById(ownAreaId)) {
+            if (!own->variables.empty()) {
+                any = true;
+                ImGui::TextDisabled("This area");
+                for (const auto& v : own->variables) {
+                    bool sel = (*scopeAreaId == ownAreaId && v.name == *varName);
+                    if (ImGui::Selectable((v.name + "##own").c_str(), sel)) {
+                        *scopeAreaId = ownAreaId; *varName = v.name; changed = true;
+                    }
+                }
+            }
+        }
+        if (allowCrossAreaRead) {
+            for (auto& m : app.mod.maps) for (auto& a : m.areas) {
+                if (a.id == ownAreaId || a.variables.empty()) continue;
+                any = true;
+                std::string an = a.name.empty() ? a.label : a.name;
+                ImGui::TextDisabled("%s", an.c_str());
+                for (const auto& v : a.variables) {
+                    bool sel = (*scopeAreaId == a.id && v.name == *varName);
+                    std::string lbl = v.name + "##a" + std::to_string(a.id);
+                    if (ImGui::Selectable(lbl.c_str(), sel)) {
+                        *scopeAreaId = a.id; *varName = v.name; changed = true;
+                    }
+                }
+            }
+        }
+        if (!any) ImGui::TextDisabled("(no variables defined)");
         ImGui::EndCombo();
     }
     return changed;
 }
 
 // Value editor whose widget matches the referenced variable's type; stores a canonical string.
-static bool drawVarValueField(App& app, const char* id, const std::string& varName, std::string* value) {
-    const gns::ModuleVariable* v = findModVar(app, varName);
+static bool drawVarValueField(App& app, const char* id, int scopeAreaId,
+                              const std::string& varName, std::string* value) {
+    const gns::ModuleVariable* v = findVarScoped(app, scopeAreaId, varName);
     gns::VarType t = v ? v->type : gns::VarType::String;
     bool changed = false;
     ImGui::PushID(id);
@@ -1666,7 +1723,8 @@ static const char* kMutOpNames[] = {"set", "add", "subtract"};
 // Renders an editable list of VarMutation rows (variable + op + value + a delete button) plus an
 // "Add change" button. Returns true if the list changed. idPrefix keeps ImGui ids unique so the
 // same widget can appear several times per frame (choices, area enter/exit, item acquire/loss).
-static bool drawMutationList(App& app, const char* idPrefix, std::vector<gns::VarMutation>& list) {
+static bool drawMutationList(App& app, const char* idPrefix, std::vector<gns::VarMutation>& list,
+                             int ownAreaId) {
     bool changed = false;
     ImGui::PushID(idPrefix);
     int del = -1;
@@ -1674,12 +1732,13 @@ static bool drawMutationList(App& app, const char* idPrefix, std::vector<gns::Va
         gns::VarMutation& mu = list[k];
         ImGui::PushID((int)k);
         ImGui::SetNextItemWidth(150);
-        if (drawVarCombo(app, "##mvar", &mu.varName)) changed = true;
+        // Mutations may only target module globals or THIS area's variables (never other areas').
+        if (drawVarCombo(app, "##mvar", &mu.scopeAreaId, &mu.varName, ownAreaId, false)) changed = true;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(90);
         if (ImGui::Combo("##mop", &mu.op, kMutOpNames, IM_ARRAYSIZE(kMutOpNames))) changed = true;
         ImGui::SameLine();
-        if (drawVarValueField(app, "mval", mu.varName, &mu.value)) changed = true;
+        if (drawVarValueField(app, "mval", mu.scopeAreaId, mu.varName, &mu.value)) changed = true;
         ImGui::SameLine();
         if (ImGui::SmallButton("X")) del = (int)k;
         ImGui::PopID();
@@ -1704,12 +1763,13 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
         gns::ContextClause& cc = ctx.conditions[i];
         ImGui::PushID((int)i + 6100);
         ImGui::SetNextItemWidth(150);
-        if (drawVarCombo(app, "##cvar", &cc.varName)) app.dirty = true;
+        // Conditions may read module globals, this area's variables, and any other area's variables.
+        if (drawVarCombo(app, "##cvar", &cc.scopeAreaId, &cc.varName, a.id, true)) app.dirty = true;
         ImGui::SameLine();
         ImGui::SetNextItemWidth(55);
         if (ImGui::Combo("##cop", &cc.op, kCondOps, IM_ARRAYSIZE(kCondOps))) app.dirty = true;
         ImGui::SameLine();
-        if (drawVarValueField(app, "cval", cc.varName, &cc.value)) app.dirty = true;
+        if (drawVarValueField(app, "cval", cc.scopeAreaId, cc.varName, &cc.value)) app.dirty = true;
         ImGui::SameLine();
         if (ImGui::SmallButton("X")) delCond = (int)i;
         ImGui::PopID();
@@ -1744,7 +1804,7 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             // Variable mutations: what this choice changes about the world (drives which context
             // becomes active next time). Leaving this empty is a valid "do nothing" choice.
             ImGui::TextDisabled("Variable changes (optional) - what picking this does");
-            if (drawMutationList(app, "chmut", ch.mutations)) app.dirty = true;
+            if (drawMutationList(app, "chmut", ch.mutations, a.id)) app.dirty = true;
 
             ImGui::TextDisabled("Complete control point (optional) - unlocks areas gated on it");
             {
@@ -1806,9 +1866,9 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
             if (ImGui::Checkbox("Dropable (the player may drop this granted item)", &ch.grantItem.dropable))
                 app.dirty = true;
             ImGui::TextDisabled("On acquire - variable changes when this item is gained");
-            if (drawMutationList(app, "chgrantacq", ch.grantItem.onAcquire)) app.dirty = true;
+            if (drawMutationList(app, "chgrantacq", ch.grantItem.onAcquire, a.id)) app.dirty = true;
             ImGui::TextDisabled("On unacquire - variable changes when this item is later lost");
-            if (drawMutationList(app, "chgrantunacq", ch.grantItem.onUnacquire)) app.dirty = true;
+            if (drawMutationList(app, "chgrantunacq", ch.grantItem.onUnacquire, a.id)) app.dirty = true;
             // "Set item dropable" effects: lock/unlock whether a granted item can be dropped.
             ImGui::TextDisabled("Set item dropable - change a granted item's dropable status when chosen");
             {
@@ -1971,9 +2031,9 @@ static void drawContextEditor(App& app, gns::Area& a, gns::AreaContext& ctx) {
                 ImGui::TextDisabled("Item art (baked-in catalog or a browsed file)");
                 drawItemArtPicker(app, "shopart", &it.imageId, &it.imagePath);
                 ImGui::TextDisabled("On acquire - variable changes when a party member buys this");
-                if (drawMutationList(app, "shopacq", it.onAcquire)) app.dirty = true;
+                if (drawMutationList(app, "shopacq", it.onAcquire, a.id)) app.dirty = true;
                 ImGui::TextDisabled("On unacquire - variable changes when this item is later sold/lost");
-                if (drawMutationList(app, "shopunacq", it.onUnacquire)) app.dirty = true;
+                if (drawMutationList(app, "shopunacq", it.onUnacquire, a.id)) app.dirty = true;
                 if (ImGui::SmallButton("Delete item")) delItem = (int)i;
             }
             ImGui::PopID();
@@ -2134,13 +2194,70 @@ static void drawAreaInspector(App& app, gns::Area& a) {
         ImGui::SetTooltip("The party triggers this area's context by touching its border,\n"
                           "but cannot move the party token into the area's cells.");
 
+    ImGui::SeparatorText("Area Variables");
+    ImGui::TextDisabled("Typed values owned by THIS area. Its own contexts may read AND change them;\n"
+                        "other areas may read them in their conditions but never change them.\n"
+                        "Names are unique within this area only (may repeat in another area).");
+    {
+        static const char* kVarTypes[] = {"bool", "int", "string", "float"};
+        int delVar = -1;
+        for (size_t i = 0; i < a.variables.size(); ++i) {
+            gns::ModuleVariable& v = a.variables[i];
+            ImGui::PushID((int)i + 9500);
+            bool dup = false;
+            if (!v.name.empty())
+                for (size_t j = 0; j < a.variables.size(); ++j)
+                    if (j != i && a.variables[j].name == v.name) { dup = true; break; }
+            ImGui::SetNextItemWidth(90);
+            int ty = (int)v.type;
+            if (ImGui::Combo("##avtype", &ty, kVarTypes, IM_ARRAYSIZE(kVarTypes))) {
+                v.type = (gns::VarType)ty; app.dirty = true;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(150);
+            if (InputStr("##avname", &v.name)) app.dirty = true;
+            ImGui::SameLine();
+            ImGui::TextDisabled("=");
+            ImGui::SameLine();
+            if (v.type == gns::VarType::Bool) {
+                int idx = (v.defaultValue == "true" || v.defaultValue == "1") ? 1 : 0;
+                const char* bs[] = {"false", "true"};
+                ImGui::SetNextItemWidth(90);
+                if (ImGui::Combo("##avdef", &idx, bs, 2)) { v.defaultValue = idx ? "true" : "false"; app.dirty = true; }
+            } else if (v.type == gns::VarType::Int) {
+                int n = std::atoi(v.defaultValue.c_str());
+                ImGui::SetNextItemWidth(100);
+                if (ImGui::InputInt("##avdef", &n)) { v.defaultValue = std::to_string(n); app.dirty = true; }
+            } else if (v.type == gns::VarType::Float) {
+                float f = (float)std::atof(v.defaultValue.c_str());
+                ImGui::SetNextItemWidth(100);
+                if (ImGui::InputFloat("##avdef", &f)) { char b[32]; std::snprintf(b, sizeof(b), "%g", f); v.defaultValue = b; app.dirty = true; }
+            } else {
+                ImGui::SetNextItemWidth(140);
+                if (InputStr("##avdef", &v.defaultValue)) app.dirty = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X")) delVar = (int)i;
+            if (dup) ImGui::TextColored(ImVec4(1, 0.5f, 0.5f, 1),
+                "Area variable names must be unique within this area.");
+            ImGui::PopID();
+        }
+        if (delVar >= 0) { a.variables.erase(a.variables.begin() + delVar); app.dirty = true; }
+        if (ImGui::SmallButton("Add area variable")) {
+            gns::ModuleVariable v; v.name = "areaVar" + std::to_string(a.variables.size() + 1);
+            v.type = gns::VarType::Bool; v.defaultValue = "false";
+            a.variables.push_back(std::move(v)); app.dirty = true;
+        }
+    }
+
     ImGui::SeparatorText("On enter / On exit");
-    ImGui::TextDisabled("Global-variable changes fired automatically when the party enters or leaves\n"
-                        "this area (regardless of which context is active).");
+    ImGui::TextDisabled("Variable changes fired automatically when the party enters or leaves this\n"
+                        "area (regardless of which context is active). May target module globals or\n"
+                        "this area's variables.");
     ImGui::TextDisabled("On enter");
-    if (drawMutationList(app, "areaenter", a.onEnter)) app.dirty = true;
+    if (drawMutationList(app, "areaenter", a.onEnter, a.id)) app.dirty = true;
     ImGui::TextDisabled("On exit");
-    if (drawMutationList(app, "areaexit", a.onExit)) app.dirty = true;
+    if (drawMutationList(app, "areaexit", a.onExit, a.id)) app.dirty = true;
 
     ImGui::SeparatorText("Contexts");
     ImGui::TextDisabled("Each context holds this area's content for one situation. Exactly one may be\n"

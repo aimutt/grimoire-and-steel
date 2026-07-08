@@ -593,23 +593,24 @@ int main(int, char**) {
     //   op 0 = set, 1 = add, 2 = subtract (add/subtract are Int/Float only; Bool/String set).
     auto applyMutation = [&](const gns::VarMutation& mu) {
         if (!session || mu.varName.empty()) return;
-        const gns::ModuleVariable* v = nullptr;
-        for (const auto& mv : mod.variables) if (mv.name == mu.varName) { v = &mv; break; }
+        // Resolve the target by scope: 0 = module global, else the owning area's variable (v23).
+        const gns::ModuleVariable* v = gns::resolveVar(mod, mu.scopeAreaId, mu.varName);
         if (!v) return;
+        std::string key = gns::varKey(mu.scopeAreaId, mu.varName);
         gns::PlotTracker& plot = session->plot();
         if (v->type == gns::VarType::Int || v->type == gns::VarType::Float) {
-            std::string cur = plot.hasGlobal(mu.varName) ? plot.getGlobal(mu.varName) : v->defaultValue;
+            std::string cur = plot.hasGlobal(key) ? plot.getGlobal(key) : v->defaultValue;
             double a = std::atof(cur.c_str());
             double b = std::atof(mu.value.c_str());
             double r = (mu.op == 1) ? a + b : (mu.op == 2) ? a - b : b;   // add / subtract / set
             if (v->type == gns::VarType::Int)
-                plot.setGlobal(mu.varName, std::to_string((long long)r));
+                plot.setGlobal(key, std::to_string((long long)r));
             else {
                 char buf[32]; std::snprintf(buf, sizeof(buf), "%g", r);
-                plot.setGlobal(mu.varName, buf);
+                plot.setGlobal(key, buf);
             }
         } else {
-            plot.setGlobal(mu.varName, mu.value);   // Bool/String: set only
+            plot.setGlobal(key, mu.value);   // Bool/String: set only
         }
     };
 
@@ -2076,7 +2077,7 @@ int main(int, char**) {
         std::string hereConflict;
         if (session && hereArea) {
             const gns::AreaContext* c =
-                gns::activeContext(*hereArea, session->plot(), mod.variables, &hereConflict);
+                gns::activeContext(*hereArea, session->plot(), mod, &hereConflict);
             hereCtx = const_cast<gns::AreaContext*>(c);   // points into the mutable engine module
             if (!hereConflict.empty()) contextError = hereConflict;
         }

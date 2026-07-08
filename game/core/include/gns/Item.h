@@ -16,6 +16,10 @@ struct VarMutation {
     std::string varName;
     int op = 0;
     std::string value;   // canonical literal operand
+    // Scope of varName: 0 = module global (Module::variables); >0 = the owning area's id, whose
+    // Area::variables this mutation targets. A mutation may only ever write a module global or its
+    // OWN area's variable (other areas' variables are read-only), enforced by the Module Creator UI.
+    int scopeAreaId = 0;
 };
 
 // An item a character carries. Same art model as ShopItem (baked-in imageId, else free-file

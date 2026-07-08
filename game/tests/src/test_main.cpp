@@ -379,6 +379,10 @@ int main() {
             a1.prerequisiteControlPointIds = {1};
             a1.onEnter = {{"teleportsLeft", 2, "1"}};               // OnEnter: subtract 1 (v18)
             a1.onExit  = {{"factionName", 0, "wary"}, {"threatLevel", 1, "0.5"}};  // OnExit: set + add
+            a1.variables = {                                        // area-scoped variables (v23)
+                {"leverPulled", VarType::Bool, "false"},
+                {"visits", VarType::Int, "0"},
+            };
 
             // Rich default context, active while the quest is not yet accepted (v15).
             AreaContext c0;
@@ -412,7 +416,9 @@ int main() {
             ch0.grantItem.slot = 1; ch0.grantItem.damageDie = "1d8";    // equip profile + dropable (v19)
             ch0.grantItem.weaponBonus = 1; ch0.grantItem.dropable = false;
             ch0.deactivateArea = true;
-            ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"}};  // set, subtract
+            // Two module-global mutations + one that writes THIS area's own variable (scope 10, v23).
+            ch0.mutations = {{"questAccepted", 0, "true"}, {"teleportsLeft", 2, "1"},
+                             {"leverPulled", 0, "true", 10}};
             AreaChoice ch1;
             ch1.label = "Not our problem."; ch1.journalEntry = "Declined the plea.";
             ch1.setFlag = "refused_mayor"; ch1.takeItemName = "Old Map";   // no mutations = "does nothing"
@@ -436,12 +442,14 @@ int main() {
             // Second context, active once the quest is accepted -- proves multiple contexts persist.
             AreaContext c1;
             c1.name = "afterQuest";
-            c1.conditions = {{"questAccepted", 0, "true"}};
+            // A module-global clause AND a CROSS-AREA read of area 11's variable (scope 11, v23).
+            c1.conditions = {{"questAccepted", 0, "true"}, {"cryptsLooted", 4, "0", 11}};
             c1.playerText = "The hall feels lighter now.";
             a1.contexts = {c0, c1};
 
             Area a2; a2.id = 11; a2.label = "B1"; a2.name = "Crypt";
             a2.monsterType = "Ogre";   // legacy fields + no contexts -> migrated to a default context
+            a2.variables = {{"cryptsLooted", VarType::Int, "0"}};   // area-scoped variable (v23)
             map.areas.push_back(a1);
             map.areas.push_back(a2);
 
@@ -574,12 +582,18 @@ int main() {
                   rc->choices[1].dropableSets.size() == 1 &&
                   rc->choices[1].dropableSets[0].first == "Signet Ring" &&
                   rc->choices[1].dropableSets[0].second == true);
-            check("context choice mutations preserved", rc && rc->choices[0].mutations.size() == 2 &&
+            check("context choice mutations preserved", rc && rc->choices[0].mutations.size() == 3 &&
                   rc->choices[0].mutations[0].varName == "questAccepted" &&
                   rc->choices[0].mutations[0].op == 0 && rc->choices[0].mutations[0].value == "true" &&
+                  rc->choices[0].mutations[0].scopeAreaId == 0 &&
                   rc->choices[0].mutations[1].varName == "teleportsLeft" &&
                   rc->choices[0].mutations[1].op == 2 && rc->choices[0].mutations[1].value == "1" &&
                   rc->choices[1].mutations.empty());
+            check("context choice area-scoped mutation preserved (v23)", rc &&
+                  rc->choices[0].mutations.size() == 3 &&
+                  rc->choices[0].mutations[2].varName == "leverPulled" &&
+                  rc->choices[0].mutations[2].op == 0 && rc->choices[0].mutations[2].value == "true" &&
+                  rc->choices[0].mutations[2].scopeAreaId == 10);
             check("context granted-item mutations preserved (v18)", rc && rc->choices.size() == 2 &&
                   rc->choices[0].grantItem.onAcquire.size() == 1 &&
                   rc->choices[0].grantItem.onAcquire[0].varName == "questAccepted" &&
@@ -603,9 +617,22 @@ int main() {
                   rc->characters[1].character.defense == 13);
             const AreaContext* rc1 = (ra && ra->contexts.size() == 2) ? &ra->contexts[1] : nullptr;
             check("second context preserved", rc1 && rc1->name == "afterQuest" &&
-                  rc1->conditions.size() == 1 && rc1->conditions[0].value == "true" &&
+                  rc1->conditions.size() == 2 && rc1->conditions[0].value == "true" &&
+                  rc1->conditions[0].scopeAreaId == 0 &&
                   rc1->playerText == "The hall feels lighter now.");
+            check("second context cross-area condition preserved (v23)", rc1 &&
+                  rc1->conditions.size() == 2 && rc1->conditions[1].varName == "cryptsLooted" &&
+                  rc1->conditions[1].op == 4 && rc1->conditions[1].value == "0" &&
+                  rc1->conditions[1].scopeAreaId == 11);
+            check("area variables preserved (v23)", ra && ra->variables.size() == 2 &&
+                  ra->variables[0].name == "leverPulled" && ra->variables[0].type == VarType::Bool &&
+                  ra->variables[0].defaultValue == "false" &&
+                  ra->variables[1].name == "visits" && ra->variables[1].type == VarType::Int &&
+                  ra->variables[1].defaultValue == "0");
             const Area* rb = r.areaById(11);
+            check("second area variable preserved (v23)", rb && rb->variables.size() == 1 &&
+                  rb->variables[0].name == "cryptsLooted" && rb->variables[0].type == VarType::Int &&
+                  rb->variables[0].defaultValue == "0");
             check("area default fillEnabled=true", rb && rb->fillEnabled == true);
             check("area default labelAuto=true preserved", rb && rb->labelAuto == true);
             check("legacy area migrated to one default context", rb && rb->contexts.size() == 1 &&
@@ -812,10 +839,25 @@ int main() {
                 {"faction", VarType::String, "neutral"},
                 {"threat", VarType::Float, "1.5"},
             };
+            // The PlotTracker free functions resolve variable types via a Module (globals + area
+            // variables), so wrap the declared globals in one. An area with its own variable also
+            // exercises the v23 area-scoped runtime path below.
+            Module mv;
+            mv.variables = vars;
+            {
+                Map mvMap; mvMap.id = 1;
+                Area mvArea; mvArea.id = 40; mvArea.name = "Gate";
+                mvArea.variables = {{"leverPulled", VarType::Bool, "false"}};
+                mvMap.areas.push_back(mvArea);
+                mv.maps.push_back(mvMap);
+            }
             PlotTracker pt3;
-            initGlobals(pt3, vars);
+            initGlobals(pt3, mv);
             check("globals seeded from defaults",
                   pt3.getGlobal("questAccepted") == "false" && pt3.getGlobal("gold") == "10");
+            check("area variable seeded under its scoped key (v23)",
+                  pt3.getGlobal(varKey(40, "leverPulled")) == "false" &&
+                  !pt3.hasGlobal("leverPulled"));
 
             // areaContextText: default player text, then legacy alt-text within a context.
             AreaContext ctxT;
@@ -828,11 +870,20 @@ int main() {
                   areaContextText(ctxT, pt3) == "You've agreed to help.");
 
             // Clause evaluation, one per type + ordering.
-            check("bool clause == default", evalClause({"questAccepted", 0, "false"}, pt3, vars));
-            check("int clause > holds", evalClause({"gold", 4, "5"}, pt3, vars));      // 10 > 5
-            check("int clause <= fails", !evalClause({"gold", 3, "5"}, pt3, vars));    // !(10 <= 5)
-            check("string clause != holds", evalClause({"faction", 1, "evil"}, pt3, vars));
-            check("float clause >= holds", evalClause({"threat", 5, "1.5"}, pt3, vars));
+            check("bool clause == default", evalClause({"questAccepted", 0, "false"}, pt3, mv));
+            check("int clause > holds", evalClause({"gold", 4, "5"}, pt3, mv));      // 10 > 5
+            check("int clause <= fails", !evalClause({"gold", 3, "5"}, pt3, mv));    // !(10 <= 5)
+            check("string clause != holds", evalClause({"faction", 1, "evil"}, pt3, mv));
+            check("float clause >= holds", evalClause({"threat", 5, "1.5"}, pt3, mv));
+
+            // v23: an area-scoped clause resolves against the area's variable (scope 40), not a global.
+            check("area-scoped clause == default (v23)",
+                  evalClause({"leverPulled", 0, "false", 40}, pt3, mv));
+            pt3.setGlobal(varKey(40, "leverPulled"), "true");
+            check("area-scoped clause tracks a scoped mutation (v23)",
+                  evalClause({"leverPulled", 0, "true", 40}, pt3, mv));
+            check("same name at module scope is independent (v23)",
+                  !evalClause({"leverPulled", 0, "true", 0}, pt3, mv));   // no such global -> false
 
             // activeContext: exactly one, flips with a variable, none = inert, two = conflict.
             Area asel; asel.id = 40; asel.name = "Gate";
@@ -840,10 +891,10 @@ int main() {
             AreaContext after;  after.name = "after";   after.conditions = {{"questAccepted", 0, "true"}};
             asel.contexts = {before, after};
             std::string conflict;
-            const AreaContext* act = activeContext(asel, pt3, vars, &conflict);
+            const AreaContext* act = activeContext(asel, pt3, mv, &conflict);
             check("exactly one context active", act && act->name == "before" && conflict.empty());
             pt3.setGlobal("questAccepted", "true");
-            act = activeContext(asel, pt3, vars, &conflict);
+            act = activeContext(asel, pt3, mv, &conflict);
             check("active context flips with the variable", act && act->name == "after");
 
             Area none; none.id = 41;
@@ -851,7 +902,7 @@ int main() {
             none.contexts = {only};
             conflict.clear();
             check("no active context is inert (nullptr, no error)",
-                  activeContext(none, pt3, vars, &conflict) == nullptr && conflict.empty());
+                  activeContext(none, pt3, mv, &conflict) == nullptr && conflict.empty());
 
             Area two; two.id = 42;
             AreaContext ca; ca.name = "ca"; ca.conditions = {{"questAccepted", 0, "true"}};
@@ -859,13 +910,13 @@ int main() {
             two.contexts = {ca, cb};
             conflict.clear();
             check("two active contexts report a conflict",
-                  activeContext(two, pt3, vars, &conflict) == nullptr && !conflict.empty());
+                  activeContext(two, pt3, mv, &conflict) == nullptr && !conflict.empty());
 
             // A choice-deleted context is skipped, so the remaining one becomes the sole active
             // context (a conflict becomes a clean single-active resolution).
             pt3.deleteContext(42, "ca");
             conflict.clear();
-            const AreaContext* actDel = activeContext(two, pt3, vars, &conflict);
+            const AreaContext* actDel = activeContext(two, pt3, mv, &conflict);
             check("deleted context is skipped by activeContext",
                   actDel && actDel->name == "cb" && conflict.empty());
         }

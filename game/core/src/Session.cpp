@@ -82,8 +82,8 @@ Session::Session(Module module, Party party, std::uint64_t seed)
     state_.turnCount = 0;
     state_.mode = PlayMode::Exploration;
 
-    // Seed the play-session's global variables from the module's declared defaults.
-    initGlobals(plot_, module_.variables);
+    // Seed the play-session's global + area variables from the module's declared defaults.
+    initGlobals(plot_, module_);
     // Seed runtime dropable status for every granted item from its authored default, so a context
     // can lock/unlock an item's dropability even before it is granted.
     for (const auto& g : collectGrantedItems(module_)) plot_.seedItemDropable(g.first, g.second);
