@@ -241,6 +241,7 @@ int main(int, char**) {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // arrow/Enter menu nav
     ImGui::StyleColorsDark();
 
     // Roomier, modern style -more breathing room and left padding than the ImGui defaults.
@@ -1102,6 +1103,10 @@ int main(int, char**) {
 
         // --- Menu bar: open a module (shows its cover), re-show the cover, or exit ---
         if (ImGui::BeginMainMenuBar()) {
+            // Alt+F opens the File menu; keyboard nav then drives arrows + Enter to choose.
+            if (ImGui::GetIO().KeyAlt && !ImGui::GetIO().WantTextInput &&
+                ImGui::IsKeyPressed(ImGuiKey_F, false))
+                ImGui::OpenPopup("File");
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("Open Module...")) {
                     std::string p = openModuleDialog();
@@ -1298,8 +1303,12 @@ int main(int, char**) {
         if (playRightW <= 0.0f) playRightW = 600.0f;
         bool splitterHot = verticalSplitter(playRightW, /*minRight=*/360.0f, /*minLeft=*/400.0f);
         const float rightW = playRightW;
+        // NoNavInputs: keyboard nav is enabled app-wide for Alt+F menu access, but Play mode owns
+        // the arrow keys / Enter for token movement and acting on cells, so keep ImGui nav out of
+        // the Map and Adventure windows (choices/shop stay mouse-driven, as before).
         const ImGuiWindowFlags pf = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                    ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
+                                    ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                    ImGuiWindowFlags_NoNavInputs;
 
         // ---- Shared Play HUD lambdas (used by both the left region and the right panel) ----
         // Placeholder avatar colour derived from the character's name.

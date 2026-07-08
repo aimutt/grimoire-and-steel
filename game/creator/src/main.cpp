@@ -156,7 +156,7 @@ static const char* kTerrainNames[] = {
     "Empty", "Floor", "Wall", "Door", "Water",
     "Grass", "Trees", "Rocky", "Mountain", "Sand", "Swamp", "Road",
     "Path", "Ruins", "Graveyard", "Lava", "Acid Pool", "Ditch", "Crevice", "Hills",
-    "Wooden Bridge", "Stone Bridge", "Stairs", "Wooden Stairs", "Dirt"};
+    "Wooden Bridge", "Stone Bridge", "Stairs", "Wooden Stairs", "Dirt", "Wooden Fence"};
 
 // Display names, indexed by ObjectType value (must match the enum order).
 static const char* kObjectNames[] = {
@@ -748,6 +748,10 @@ static void doOpen(App& app) {
 // ---------------------------------------------------------------------------
 static void drawMenuBar(App& app) {
     if (ImGui::BeginMainMenuBar()) {
+        // Alt+F opens the File menu; keyboard nav then drives arrows + Enter to choose.
+        if (ImGui::GetIO().KeyAlt && !ImGui::GetIO().WantTextInput &&
+            ImGui::IsKeyPressed(ImGuiKey_F, false))
+            ImGui::OpenPopup("File");
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New")) newModule(app);
             if (ImGui::MenuItem("Open...", "Ctrl+O")) doOpen(app);
@@ -834,17 +838,18 @@ static void drawToolsWindow(App& app) {
         ImGui::TextDisabled("Click to place. Drag to move.\nR rotates 90\xc2\xb0. Del deletes.");
 
         // Placed-objects list -click to (re)select one, on the map or after a tool switch.
-        ImGui::SeparatorText("Placed objects");
-        if (gns::Map* m = currentMap(app)) {
-            if (m->objects.empty()) {
-                ImGui::TextDisabled("None yet - click the map to place.");
-            } else {
-                for (auto& o : m->objects) {
-                    ImGui::PushID(o.id);
-                    std::string lbl = "#" + std::to_string(o.id) + "  " + kObjectNames[o.type];
-                    if (ImGui::Selectable(lbl.c_str(), o.id == app.selectedObjectId))
-                        app.selectedObjectId = o.id;
-                    ImGui::PopID();
+        if (ImGui::CollapsingHeader("Placed objects", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (gns::Map* m = currentMap(app)) {
+                if (m->objects.empty()) {
+                    ImGui::TextDisabled("None yet - click the map to place.");
+                } else {
+                    for (auto& o : m->objects) {
+                        ImGui::PushID(o.id);
+                        std::string lbl = "#" + std::to_string(o.id) + "  " + kObjectNames[o.type];
+                        if (ImGui::Selectable(lbl.c_str(), o.id == app.selectedObjectId))
+                            app.selectedObjectId = o.id;
+                        ImGui::PopID();
+                    }
                 }
             }
         }
@@ -1041,38 +1046,39 @@ static void drawToolsWindow(App& app) {
         ImGui::EndPopup();
     }
 
-    ImGui::SeparatorText("Areas");
-    if (gns::Map* m = currentMap(app)) {
-        ImGui::TextDisabled("Click an area to make it active.");
-        for (auto& a : m->areas) {
-            ImGui::PushID(a.id);
-            float col[4]; rgbaToFloat4(a.color, col);
-            ImGui::ColorButton("##sw", ImVec4(col[0], col[1], col[2], 1.0f),
-                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
-                               ImVec2(14, 14));
-            ImGui::SameLine();
-            std::string lbl = (a.label.empty() ? "(area)" : a.label) +
-                              (a.name.empty() ? "" : " - " + a.name);
-            if (ImGui::Selectable(lbl.c_str(), a.id == app.selectedAreaId)) {
-                app.selectedAreaId = a.id;
-                if (app.tool == Tool::PaintTerrain) app.tool = Tool::AssignArea;
+    if (ImGui::CollapsingHeader("Areas", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (gns::Map* m = currentMap(app)) {
+            ImGui::TextDisabled("Click an area to make it active.");
+            for (auto& a : m->areas) {
+                ImGui::PushID(a.id);
+                float col[4]; rgbaToFloat4(a.color, col);
+                ImGui::ColorButton("##sw", ImVec4(col[0], col[1], col[2], 1.0f),
+                                   ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
+                                   ImVec2(14, 14));
+                ImGui::SameLine();
+                std::string lbl = (a.label.empty() ? "(area)" : a.label) +
+                                  (a.name.empty() ? "" : " - " + a.name);
+                if (ImGui::Selectable(lbl.c_str(), a.id == app.selectedAreaId)) {
+                    app.selectedAreaId = a.id;
+                    if (app.tool == Tool::PaintTerrain) app.tool = Tool::AssignArea;
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
-        }
-        if (ImGui::Button("Add Area")) {
-            pushUndo(app);
-            gns::Area a;
-            a.id = app.mod.nextAreaId();
-            a.color = kAreaPalette[(a.id - 1) % IM_ARRAYSIZE(kAreaPalette)];
-            a.label = "A" + std::to_string(a.id);
-            // Seed one empty-condition default context so a fresh area is immediately playable.
-            gns::AreaContext ctx; ctx.name = "default";
-            a.contexts.push_back(std::move(ctx));
-            m->areas.push_back(a);
-            app.selectedAreaId = a.id;
-            app.tool = Tool::AssignArea;
-            app.focusAreaName = true;   // caret jumps to the Name box next frame (#16)
-            app.dirty = true;
+            if (ImGui::Button("Add Area")) {
+                pushUndo(app);
+                gns::Area a;
+                a.id = app.mod.nextAreaId();
+                a.color = kAreaPalette[(a.id - 1) % IM_ARRAYSIZE(kAreaPalette)];
+                a.label = "A" + std::to_string(a.id);
+                // Seed one empty-condition default context so a fresh area is immediately playable.
+                gns::AreaContext ctx; ctx.name = "default";
+                a.contexts.push_back(std::move(ctx));
+                m->areas.push_back(a);
+                app.selectedAreaId = a.id;
+                app.tool = Tool::AssignArea;
+                app.focusAreaName = true;   // caret jumps to the Name box next frame (#16)
+                app.dirty = true;
+            }
         }
     }
 
@@ -1407,7 +1413,7 @@ static void drawCanvasWindow(App& app) {
                 for (const auto& a : m.areas) if (a.id == areaId) { ac = a.color; fill = a.fillEnabled; break; }
             dl->AddRectFilled(p0, p1, rgbaToImU32(terrainColor(terr)));   // real terrain (#18)
             if (areaId != 0 && fill)
-                dl->AddRectFilled(p0, p1, rgbaToImU32(ac, 110));   // area colour tint (skipped when no-fill)
+                dl->AddRectFilled(p0, p1, rgbaToImU32(ac, 255));   // area colour, fully opaque = true chosen colour (skipped when no-fill)
             if (isStairOrBridge(terr))
                 drawStairBridgeMotif(dl, p0, cs, terr, runDirection(m, x, y, terr));
             else
@@ -2581,6 +2587,7 @@ int main(int, char**) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;   // fixed layout; don't persist/restore window state
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // arrow/Enter menu nav
     ImGui::StyleColorsDark();
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
