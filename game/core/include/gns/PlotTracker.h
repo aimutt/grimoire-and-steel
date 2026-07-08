@@ -22,6 +22,7 @@ namespace gns {
 
 struct Area;            // defined in Module.h; only a reference is needed here
 struct AreaContext;     // defined in Module.h
+struct Module;          // defined in Module.h
 struct ModuleVariable;  // defined in Module.h
 struct ContextClause;   // defined in Module.h
 
@@ -124,25 +125,31 @@ private:
     std::set<std::pair<int, std::string>> deletedContexts_;
 };
 
-// Initialise a tracker's globals from a module's variable declarations (each variable's
-// default value). Call when a session starts.
-void initGlobals(PlotTracker& plot, const std::vector<ModuleVariable>& vars);
+// The runtime storage key for a variable reference. Module globals (scopeAreaId == 0) key by their
+// plain name (so legacy globals/saves are unchanged); area-scoped variables key by a synthetic
+// "@<areaId>:<name>" that cannot collide with an identifier-named global or another area's variable.
+std::string varKey(int scopeAreaId, const std::string& name);
+
+// Resolve a variable declaration (name/type/default) by scope: scopeAreaId == 0 searches the
+// module globals; else the named area's Area::variables. Returns nullptr if not found.
+const ModuleVariable* resolveVar(const Module& mod, int scopeAreaId, const std::string& name);
+
+// Initialise a tracker's globals from a module: every module global (by name) and every area
+// variable (by varKey(area.id, name)) is seeded to its declared default. Call when a session starts.
+void initGlobals(PlotTracker& plot, const Module& mod);
 
 // True when a single clause (<var> <op> <literal>) holds against the current globals, comparing
 // by the variable's declared VarType (Bool/String support == and !=; Int/Float support all six).
-bool evalClause(const ContextClause& clause, const PlotTracker& plot,
-                const std::vector<ModuleVariable>& vars);
+bool evalClause(const ContextClause& clause, const PlotTracker& plot, const Module& mod);
 
 // True when *every* clause of a context's condition holds (AND). An empty condition is always
 // true (so a no-condition context is always active -- valid only as an area's sole context).
-bool contextConditionHolds(const AreaContext& ctx, const PlotTracker& plot,
-                           const std::vector<ModuleVariable>& vars);
+bool contextConditionHolds(const AreaContext& ctx, const PlotTracker& plot, const Module& mod);
 
 // The single active context of an area, or nullptr when none is active. When two or more are
 // simultaneously active this is a LOGIC ERROR: returns nullptr and, if `conflict` is non-null,
 // sets *conflict to a message naming the two offending contexts (the engine halts play on it).
-const AreaContext* activeContext(const Area& area, const PlotTracker& plot,
-                                 const std::vector<ModuleVariable>& vars,
+const AreaContext* activeContext(const Area& area, const PlotTracker& plot, const Module& mod,
                                  std::string* conflict = nullptr);
 
 // The player-facing text a context should display: the first of its legacy `altTexts` whose flag

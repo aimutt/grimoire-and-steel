@@ -97,7 +97,7 @@ public:
     // active. On a 2+-active logic error returns nullptr and (when `conflict` is non-null) fills
     // *conflict with a message naming the offending contexts.
     const AreaContext* activeContext(const Area& area, std::string* conflict = nullptr) const {
-        return gns::activeContext(area, plot_, module_.variables, conflict);
+        return gns::activeContext(area, plot_, module_, conflict);
     }
 
 private:

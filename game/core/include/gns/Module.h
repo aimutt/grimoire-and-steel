@@ -165,6 +165,10 @@ struct ContextClause {
     std::string varName;
     int op = 0;
     std::string value;   // canonical literal, compared per the variable's VarType
+    // Scope of varName: 0 = module global (Module::variables); >0 = the id of the area whose
+    // Area::variables this clause reads. A context may read ANY area's variables (cross-area reads
+    // are allowed for conditions), so scopeAreaId need not be the context's own area.
+    int scopeAreaId = 0;
 };
 
 // VarMutation (a global-variable mutation used by choices, area enter/exit, and item acquire/loss)
@@ -261,6 +265,13 @@ struct Area {
     // All branchable content lives in contexts now. Exactly one is active at play time (see
     // AreaContext). A fresh area gets one empty-condition default context so it plays at once.
     std::vector<AreaContext> contexts;
+
+    // Area-scoped typed variables (v23). Every Context inside THIS area may read and write them
+    // (via conditions / mutations carrying scopeAreaId == this area's id); other areas may READ
+    // them in their context conditions but never mutate them. Names are unique within the area
+    // only (a name may repeat in another area or as a module global). Runtime values live in the
+    // PlotTracker under a synthetic key (see gns::varKey); the type/default live here.
+    std::vector<ModuleVariable> variables;
 
     // Control points that must be completed before a party may enter this area.
     std::vector<int> prerequisiteControlPointIds;
@@ -390,8 +401,12 @@ struct Module {
 // triggers the area from its border but cannot move the token into its cells). v21 added per-map
 // time columns (maps.minutes_per_step / maps.fatigue_rest_hours) and module starting date/time
 // (module.start_day / start_hour / start_minute). v22 added the in-game calendar year + era name
-// (module.start_year / era_name).
-constexpr int kModuleFormatVersion = 22;
+// (module.start_year / era_name). v23 added area-scoped variables: the area_variables table
+// (area_id,ord,name,type,default_value) plus a scope_area_id column (0 = module global, else the
+// owning area id) on the reference-bearing tables -- context_conditions, context_choice_mutations,
+// area_enter_mutations, area_exit_mutations, context_shop_item_mutations, and
+// context_choice_grant_mutations -- all tolerant-loaded (pre-v23 rows default scope_area_id 0).
+constexpr int kModuleFormatVersion = 23;
 
 // Persist a module to a .gnsmod SQLite file (overwrites). Throws gns::DbError.
 void saveModule(const Module& mod, const std::string& path);

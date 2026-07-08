@@ -144,6 +144,21 @@ std::vector<int> colIntBlob(sqlite3_stmt* s, int i) {
     return out;
 }
 
+// True if `table` has a column named `col`. Used to tolerantly read append-only columns added
+// in a later format version without failing the whole table load on an older file.
+bool hasColumn(sqlite3* db, const char* table, const char* col) {
+    std::string sql = std::string("PRAGMA table_info(") + table + ");";
+    sqlite3_stmt* s = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &s, nullptr) != SQLITE_OK) return false;
+    bool found = false;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        const unsigned char* n = sqlite3_column_text(s, 1);  // table_info column 1 = name
+        if (n && std::string(reinterpret_cast<const char*>(n)) == col) { found = true; break; }
+    }
+    sqlite3_finalize(s);
+    return found;
+}
+
 const char* kSchema = R"sql(
 CREATE TABLE module (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
@@ -255,7 +270,8 @@ CREATE TABLE area_contexts (
 );
 CREATE TABLE context_conditions (
     area_id  INTEGER, ctx_ord INTEGER, ord INTEGER,
-    var_name TEXT, op INTEGER, value TEXT
+    var_name TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23: 0 = module global, else the area id the var belongs to */
 );
 CREATE TABLE context_monsters (
     area_id INTEGER, ctx_ord INTEGER,
@@ -293,19 +309,22 @@ CREATE TABLE context_choice_dropable_sets (
 );
 CREATE TABLE context_choice_mutations (
     area_id    INTEGER, ctx_ord INTEGER, choice_ord INTEGER, ord INTEGER,
-    var_name   TEXT, op INTEGER, value TEXT
+    var_name   TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23 */
 );
 CREATE TABLE context_shop_item_mutations (
     area_id  INTEGER, ctx_ord INTEGER, item_ord INTEGER,
     kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
     ord      INTEGER,
-    var_name TEXT, op INTEGER, value TEXT
+    var_name TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23 */
 );
 CREATE TABLE context_choice_grant_mutations (
     area_id  INTEGER, ctx_ord INTEGER, choice_ord INTEGER,
     kind     INTEGER,           /* 0 = onAcquire, 1 = onUnacquire */
     ord      INTEGER,
-    var_name TEXT, op INTEGER, value TEXT
+    var_name TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23 */
 );
 CREATE TABLE context_alt_texts (
     area_id INTEGER, ctx_ord INTEGER, ord INTEGER,
@@ -340,11 +359,20 @@ CREATE TABLE area_prerequisites (
 );
 CREATE TABLE area_enter_mutations (
     area_id  INTEGER, ord INTEGER,
-    var_name TEXT, op INTEGER, value TEXT
+    var_name TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23 */
 );
 CREATE TABLE area_exit_mutations (
     area_id  INTEGER, ord INTEGER,
-    var_name TEXT, op INTEGER, value TEXT
+    var_name TEXT, op INTEGER, value TEXT,
+    scope_area_id INTEGER            /* v23 */
+);
+CREATE TABLE area_variables (
+    area_id       INTEGER,
+    ord           INTEGER,
+    name          TEXT,
+    type          INTEGER,
+    default_value TEXT
 );
 CREATE TABLE map_objects (
     id     INTEGER PRIMARY KEY,
@@ -434,8 +462,8 @@ void saveModule(const Module& mod, const std::string& path) {
             "artwork_path,default_image,music,is_shop,choice_prompt) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt ctxCondStmt(db,
-            "INSERT INTO context_conditions(area_id,ctx_ord,ord,var_name,op,value) "
-            "VALUES(?,?,?,?,?,?);");
+            "INSERT INTO context_conditions(area_id,ctx_ord,ord,var_name,op,value,scope_area_id) "
+            "VALUES(?,?,?,?,?,?,?);");
         Stmt ctxMonsterStmt(db,
             "INSERT INTO context_monsters(area_id,ctx_ord,type,count) VALUES(?,?,?,?);");
         Stmt ctxTreasureStmt(db,
@@ -454,21 +482,23 @@ void saveModule(const Module& mod, const std::string& path) {
             "grant_slot,grant_damage_die,grant_defense_bonus,grant_weapon_bonus,grant_dropable) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
         Stmt ctxChoiceMutStmt(db,
-            "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value) "
-            "VALUES(?,?,?,?,?,?,?);");
+            "INSERT INTO context_choice_mutations(area_id,ctx_ord,choice_ord,ord,var_name,op,value,scope_area_id) "
+            "VALUES(?,?,?,?,?,?,?,?);");
         Stmt ctxDropSetStmt(db,
             "INSERT INTO context_choice_dropable_sets(area_id,ctx_ord,choice_ord,ord,item_name,dropable) "
             "VALUES(?,?,?,?,?,?);");
+        Stmt areaVarStmt(db,
+            "INSERT INTO area_variables(area_id,ord,name,type,default_value) VALUES(?,?,?,?,?);");
         Stmt areaEnterMutStmt(db,
-            "INSERT INTO area_enter_mutations(area_id,ord,var_name,op,value) VALUES(?,?,?,?,?);");
+            "INSERT INTO area_enter_mutations(area_id,ord,var_name,op,value,scope_area_id) VALUES(?,?,?,?,?,?);");
         Stmt areaExitMutStmt(db,
-            "INSERT INTO area_exit_mutations(area_id,ord,var_name,op,value) VALUES(?,?,?,?,?);");
+            "INSERT INTO area_exit_mutations(area_id,ord,var_name,op,value,scope_area_id) VALUES(?,?,?,?,?,?);");
         Stmt ctxShopMutStmt(db,
-            "INSERT INTO context_shop_item_mutations(area_id,ctx_ord,item_ord,kind,ord,var_name,op,value) "
-            "VALUES(?,?,?,?,?,?,?,?);");
+            "INSERT INTO context_shop_item_mutations(area_id,ctx_ord,item_ord,kind,ord,var_name,op,value,scope_area_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?);");
         Stmt ctxGrantMutStmt(db,
-            "INSERT INTO context_choice_grant_mutations(area_id,ctx_ord,choice_ord,kind,ord,var_name,op,value) "
-            "VALUES(?,?,?,?,?,?,?,?);");
+            "INSERT INTO context_choice_grant_mutations(area_id,ctx_ord,choice_ord,kind,ord,var_name,op,value,scope_area_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?);");
         Stmt ctxAltStmt(db,
             "INSERT INTO context_alt_texts(area_id,ctx_ord,ord,flag,text) VALUES(?,?,?,?,?);");
         Stmt ctxCharStmt(db,
@@ -532,14 +562,23 @@ void saveModule(const Module& mod, const std::string& path) {
                     prereqStmt.run();
                 }
 
+                for (size_t i = 0; i < a.variables.size(); ++i) {
+                    const auto& v = a.variables[i];
+                    areaVarStmt.bind(a.id).bind((int)i).bind(v.name)
+                               .bind(static_cast<int>(v.type)).bind(v.defaultValue);
+                    areaVarStmt.run();
+                }
+
                 for (size_t i = 0; i < a.onEnter.size(); ++i) {
                     const auto& mu = a.onEnter[i];
-                    areaEnterMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value);
+                    areaEnterMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value)
+                                    .bind(mu.scopeAreaId);
                     areaEnterMutStmt.run();
                 }
                 for (size_t i = 0; i < a.onExit.size(); ++i) {
                     const auto& mu = a.onExit[i];
-                    areaExitMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value);
+                    areaExitMutStmt.bind(a.id).bind((int)i).bind(mu.varName).bind(mu.op).bind(mu.value)
+                                   .bind(mu.scopeAreaId);
                     areaExitMutStmt.run();
                 }
 
@@ -596,7 +635,7 @@ void saveModule(const Module& mod, const std::string& path) {
                     for (size_t k = 0; k < ctx.conditions.size(); ++k) {
                         const auto& cc = ctx.conditions[k];
                         ctxCondStmt.bind(a.id).bind(co).bind((int)k)
-                                   .bind(cc.varName).bind(cc.op).bind(cc.value);
+                                   .bind(cc.varName).bind(cc.op).bind(cc.value).bind(cc.scopeAreaId);
                         ctxCondStmt.run();
                     }
                     for (const auto& am : ctx.monsters) {
@@ -621,13 +660,13 @@ void saveModule(const Module& mod, const std::string& path) {
                         for (size_t mi = 0; mi < si.onAcquire.size(); ++mi) {
                             const auto& mu = si.onAcquire[mi];
                             ctxShopMutStmt.bind(a.id).bind(co).bind((int)si_i).bind(0).bind((int)mi)
-                                          .bind(mu.varName).bind(mu.op).bind(mu.value);
+                                          .bind(mu.varName).bind(mu.op).bind(mu.value).bind(mu.scopeAreaId);
                             ctxShopMutStmt.run();
                         }
                         for (size_t mi = 0; mi < si.onUnacquire.size(); ++mi) {
                             const auto& mu = si.onUnacquire[mi];
                             ctxShopMutStmt.bind(a.id).bind(co).bind((int)si_i).bind(1).bind((int)mi)
-                                          .bind(mu.varName).bind(mu.op).bind(mu.value);
+                                          .bind(mu.varName).bind(mu.op).bind(mu.value).bind(mu.scopeAreaId);
                             ctxShopMutStmt.run();
                         }
                     }
@@ -651,7 +690,7 @@ void saveModule(const Module& mod, const std::string& path) {
                         for (size_t mi = 0; mi < ch.mutations.size(); ++mi) {
                             const auto& mu = ch.mutations[mi];
                             ctxChoiceMutStmt.bind(a.id).bind(co).bind((int)k).bind((int)mi)
-                                            .bind(mu.varName).bind(mu.op).bind(mu.value);
+                                            .bind(mu.varName).bind(mu.op).bind(mu.value).bind(mu.scopeAreaId);
                             ctxChoiceMutStmt.run();
                         }
                         for (size_t di = 0; di < ch.dropableSets.size(); ++di) {
@@ -664,13 +703,13 @@ void saveModule(const Module& mod, const std::string& path) {
                         for (size_t mi = 0; mi < ch.grantItem.onAcquire.size(); ++mi) {
                             const auto& mu = ch.grantItem.onAcquire[mi];
                             ctxGrantMutStmt.bind(a.id).bind(co).bind((int)k).bind(0).bind((int)mi)
-                                           .bind(mu.varName).bind(mu.op).bind(mu.value);
+                                           .bind(mu.varName).bind(mu.op).bind(mu.value).bind(mu.scopeAreaId);
                             ctxGrantMutStmt.run();
                         }
                         for (size_t mi = 0; mi < ch.grantItem.onUnacquire.size(); ++mi) {
                             const auto& mu = ch.grantItem.onUnacquire[mi];
                             ctxGrantMutStmt.bind(a.id).bind(co).bind((int)k).bind(1).bind((int)mi)
-                                           .bind(mu.varName).bind(mu.op).bind(mu.value);
+                                           .bind(mu.varName).bind(mu.op).bind(mu.value).bind(mu.scopeAreaId);
                             ctxGrantMutStmt.run();
                         }
                     }
@@ -1030,11 +1069,16 @@ Module loadModule(const std::string& path) {
     } catch (const DbError&) { /* no area_contexts — pre-v15; migration synthesizes below */ }
 
     try {
-        Stmt s(c.db, "SELECT area_id,ctx_ord,ord,var_name,op,value FROM context_conditions "
-                     "ORDER BY area_id,ctx_ord,ord;");
+        bool sc = hasColumn(c.db, "context_conditions", "scope_area_id");   // v23
+        Stmt s(c.db, sc
+            ? "SELECT area_id,ctx_ord,ord,var_name,op,value,scope_area_id FROM context_conditions "
+              "ORDER BY area_id,ctx_ord,ord;"
+            : "SELECT area_id,ctx_ord,ord,var_name,op,value FROM context_conditions "
+              "ORDER BY area_id,ctx_ord,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW)
             if (AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1)))
-                ctx->conditions.push_back(ContextClause{colText(s.s, 3), colInt(s.s, 4), colText(s.s, 5)});
+                ctx->conditions.push_back(ContextClause{colText(s.s, 3), colInt(s.s, 4), colText(s.s, 5),
+                                                        sc ? colInt(s.s, 6) : 0});
     } catch (const DbError&) {}
 
     try {
@@ -1076,13 +1120,17 @@ Module loadModule(const std::string& path) {
 
     // Shop-item acquire/loss mutations (v18): kind 0 = onAcquire, 1 = onUnacquire, keyed by item_ord.
     try {
-        Stmt s(c.db, "SELECT area_id,ctx_ord,item_ord,kind,var_name,op,value "
-                     "FROM context_shop_item_mutations ORDER BY area_id,ctx_ord,item_ord,kind,ord;");
+        bool sc = hasColumn(c.db, "context_shop_item_mutations", "scope_area_id");   // v23
+        Stmt s(c.db, sc
+            ? "SELECT area_id,ctx_ord,item_ord,kind,var_name,op,value,scope_area_id "
+              "FROM context_shop_item_mutations ORDER BY area_id,ctx_ord,item_ord,kind,ord;"
+            : "SELECT area_id,ctx_ord,item_ord,kind,var_name,op,value "
+              "FROM context_shop_item_mutations ORDER BY area_id,ctx_ord,item_ord,kind,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
             int itemOrd = colInt(s.s, 2);
             if (ctx && itemOrd >= 0 && itemOrd < (int)ctx->shopItems.size()) {
-                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)};
+                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6), sc ? colInt(s.s, 7) : 0};
                 if (colInt(s.s, 3) == 0) ctx->shopItems[itemOrd].onAcquire.push_back(std::move(mu));
                 else                     ctx->shopItems[itemOrd].onUnacquire.push_back(std::move(mu));
             }
@@ -1164,26 +1212,34 @@ Module loadModule(const std::string& path) {
     } catch (const DbError&) {}
 
     try {
-        Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value "
-                     "FROM context_choice_mutations ORDER BY area_id,ctx_ord,choice_ord,ord;");
+        bool sc = hasColumn(c.db, "context_choice_mutations", "scope_area_id");   // v23
+        Stmt s(c.db, sc
+            ? "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value,scope_area_id "
+              "FROM context_choice_mutations ORDER BY area_id,ctx_ord,choice_ord,ord;"
+            : "SELECT area_id,ctx_ord,choice_ord,ord,var_name,op,value "
+              "FROM context_choice_mutations ORDER BY area_id,ctx_ord,choice_ord,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
             int choiceOrd = colInt(s.s, 2);
             if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size())
                 ctx->choices[choiceOrd].mutations.push_back(
-                    VarMutation{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)});
+                    VarMutation{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6), sc ? colInt(s.s, 7) : 0});
         }
     } catch (const DbError&) {}
 
     // Granted-item acquire/loss mutations (v18): kind 0 = onAcquire, 1 = onUnacquire.
     try {
-        Stmt s(c.db, "SELECT area_id,ctx_ord,choice_ord,kind,var_name,op,value "
-                     "FROM context_choice_grant_mutations ORDER BY area_id,ctx_ord,choice_ord,kind,ord;");
+        bool sc = hasColumn(c.db, "context_choice_grant_mutations", "scope_area_id");   // v23
+        Stmt s(c.db, sc
+            ? "SELECT area_id,ctx_ord,choice_ord,kind,var_name,op,value,scope_area_id "
+              "FROM context_choice_grant_mutations ORDER BY area_id,ctx_ord,choice_ord,kind,ord;"
+            : "SELECT area_id,ctx_ord,choice_ord,kind,var_name,op,value "
+              "FROM context_choice_grant_mutations ORDER BY area_id,ctx_ord,choice_ord,kind,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW) {
             AreaContext* ctx = ctxAt(colInt(s.s, 0), colInt(s.s, 1));
             int choiceOrd = colInt(s.s, 2);
             if (ctx && choiceOrd >= 0 && choiceOrd < (int)ctx->choices.size()) {
-                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6)};
+                VarMutation mu{colText(s.s, 4), colInt(s.s, 5), colText(s.s, 6), sc ? colInt(s.s, 7) : 0};
                 if (colInt(s.s, 3) == 0) ctx->choices[choiceOrd].grantItem.onAcquire.push_back(std::move(mu));
                 else                     ctx->choices[choiceOrd].grantItem.onUnacquire.push_back(std::move(mu));
             }
@@ -1310,18 +1366,39 @@ Module loadModule(const std::string& path) {
         }
     }
 
-    // Area OnEnter/OnExit mutations (v18). Tolerated as absent on older modules.
+    // Area-scoped variables (v23). Tolerated as absent on older modules.
     try {
-        Stmt s(c.db, "SELECT area_id,var_name,op,value FROM area_enter_mutations ORDER BY area_id,ord;");
+        Stmt s(c.db, "SELECT area_id,name,type,default_value FROM area_variables ORDER BY area_id,ord;");
+        while (sqlite3_step(s.s) == SQLITE_ROW)
+            if (Area* a = mod.areaById(colInt(s.s, 0))) {
+                ModuleVariable v;
+                v.name         = colText(s.s, 1);
+                v.type         = static_cast<VarType>(colInt(s.s, 2));
+                v.defaultValue = colText(s.s, 3);
+                a->variables.push_back(std::move(v));
+            }
+    } catch (const DbError&) { /* no area_variables — pre-v23; leave empty */ }
+
+    // Area OnEnter/OnExit mutations (v18); scope_area_id added in v23. Tolerated as absent on older modules.
+    try {
+        bool sc = hasColumn(c.db, "area_enter_mutations", "scope_area_id");
+        Stmt s(c.db, sc
+            ? "SELECT area_id,var_name,op,value,scope_area_id FROM area_enter_mutations ORDER BY area_id,ord;"
+            : "SELECT area_id,var_name,op,value FROM area_enter_mutations ORDER BY area_id,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW)
             if (Area* a = mod.areaById(colInt(s.s, 0)))
-                a->onEnter.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3)});
+                a->onEnter.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3),
+                                                 sc ? colInt(s.s, 4) : 0});
     } catch (const DbError&) {}
     try {
-        Stmt s(c.db, "SELECT area_id,var_name,op,value FROM area_exit_mutations ORDER BY area_id,ord;");
+        bool sc = hasColumn(c.db, "area_exit_mutations", "scope_area_id");
+        Stmt s(c.db, sc
+            ? "SELECT area_id,var_name,op,value,scope_area_id FROM area_exit_mutations ORDER BY area_id,ord;"
+            : "SELECT area_id,var_name,op,value FROM area_exit_mutations ORDER BY area_id,ord;");
         while (sqlite3_step(s.s) == SQLITE_ROW)
             if (Area* a = mod.areaById(colInt(s.s, 0)))
-                a->onExit.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3)});
+                a->onExit.push_back(VarMutation{colText(s.s, 1), colInt(s.s, 2), colText(s.s, 3),
+                                                sc ? colInt(s.s, 4) : 0});
     } catch (const DbError&) {}
 
     // control_points gained x,y in v4 and a kind column in v5. Try the newest layout
