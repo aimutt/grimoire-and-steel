@@ -305,7 +305,7 @@ int main(int, char**) {
     if (repo) gns::ui::initCharacterDraft(*repo, draft);
     std::string charStatus;
     std::vector<gns::Character> roster;
-    int defaultPartyCount = 3;   // Quick Start party size (1-5)
+    int defaultPartyCount = 3;   // Quick Start party size (1-6)
 
     // Loaded adventure module + its cover-art splash.
     gns::Module mod;
@@ -328,7 +328,15 @@ int main(int, char**) {
         return p + ".gnssav";
     };
     bool showSplash = false;
-    Uint32 splashUntil = 0;   // module cover-art splash auto-dismisses at this tick
+    // Cover splash timing is anchored to the FIRST frame it actually renders (splashStart), not to
+    // when it was requested -- the Open-file dialog blocks the loop, so anchoring on request could
+    // measure from before anything was drawn. It stays up for kSplashMs total, and NOTHING (neither
+    // the timer nor a key/click) can dismiss it until kSplashMinMs of real display has passed. That
+    // guaranteed minimum swallows the click/Enter that confirmed the file dialog (delivered on the
+    // splash's first frame), which used to kill it in a single frame.
+    Uint32 splashStart = 0;   // 0 = requested but not yet rendered; set on the first render frame
+    const Uint32 kSplashMs = 3000, kSplashMinMs = 1200;
+    auto beginSplash = [&]() { splashStart = 0; showSplash = true; };
 
     // Cache of area/other artwork textures by resolved path (nullptr = failed, don't retry).
     std::map<std::string, SDL_Texture*> imgCache;
@@ -490,8 +498,7 @@ int main(int, char**) {
                 coverTex = loadImage(renderer, full);
             }
             moduleStatus = "Loaded: " + (mod.name.empty() ? "(untitled)" : mod.name);
-            showSplash = true;   // show the cover (or a title card) whenever a game loads
-            splashUntil = SDL_GetTicks() + 3000;   // ...for ~3s, then auto-dismiss
+            beginSplash();   // show the cover (or a title card) for ~3s whenever a game loads
         } catch (const std::exception& e) {
             haveModule = false;
             moduleStatus = std::string("Open failed: ") + e.what();
@@ -509,6 +516,7 @@ int main(int, char**) {
     std::string sheetMsg;                     // transient note on the character sheet (e.g. undroppable item)
     bool areaView = false;                    // left region shows the area view, not the map
     int  viewArea = 0;                         // off-limits area held open from its border (0 = none)
+    bool restartRequested = false;            // File > Restart Adventure sets this; handled after the menu bar
     float areaFontScale = loadAreaFontScale(1.35f);  // area/story text zoom (persisted; default larger)
     std::string contextError;                 // set when an area has 2+ active contexts (logic halt)
     int pendingBuy = -1;                      // shopItems index awaiting purchase confirmation
@@ -881,7 +889,7 @@ int main(int, char**) {
             const char* armor; bool shield; const char* weapon; const char* die;
             std::vector<std::string> spells; const char* backstory;
         };
-        const Pre pres[5] = {
+        const Pre pres[6] = {
             {"Bram", "Human", "Blade",  {2,1,0,-1}, {"Blades","Shields","Survival","Lore"},
                 "Mail armor", true,  "Short sword", "1d6", {},
                 "The son of a village smith, Bram traded the forge for a sword after raiders burned "
@@ -902,6 +910,10 @@ int main(int, char**) {
                 "Mail armor", true,  "Hand axe", "1d6", {},
                 "Exiled from his mountain hold over a feud he will not discuss, Orin swings his axe "
                 "for anyone with coin and a worthy cause, hoping one day to be welcomed home."},
+            {"Thora", "Dwarf", "Mystic", {0,-1,1,2}, {"Faith","Healing","Lore"},
+                "Light armor", false, "War staff", "1d6", {"Heal","Ward","Light"},
+                "A rune-priest of the deep halls, Thora reads omens in ember and stone. She walks "
+                "the surface world to answer a vision only she believes, mending the wounded she meets."},
         };
         // Equipment/food pool for the randomized starting kit. A pregen already wields its equipped
         // weapon and wears its equipped armor (its "1 weapon / 1 armor"), so the inventory roll adds
@@ -918,7 +930,7 @@ int main(int, char**) {
 
         roster.clear();
         for (int i = 0; i < n; ++i) {
-            const Pre& p = pres[i % 5];
+            const Pre& p = pres[i % 6];
             gns::Character c = gns::makeCharacter(*repo, p.name, p.kin, p.calling, p.traits,
                                                   p.trainings, p.armor, p.shield);
             c.weaponName = p.weapon;
@@ -1057,6 +1069,7 @@ int main(int, char**) {
 
         // --- Cover-art splash: shown full-window when a module loads, until dismissed ---
         if (showSplash) {
+            if (splashStart == 0) splashStart = SDL_GetTicks();   // anchor to the first render frame
             const ImGuiViewport* vp = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(vp->WorkPos);
             ImGui::SetNextWindowSize(vp->WorkSize);
@@ -1086,11 +1099,15 @@ int main(int, char**) {
             ImGui::PopStyleVar();
             ImGui::PopStyleColor();
 
-            // Auto-dismiss after ~2s (like the startup splash); a key/click skips it early.
-            if (SDL_GetTicks() >= splashUntil ||
-                ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) ||
-                ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-                ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            // Nothing may dismiss the splash until it has been visible for kSplashMinMs; after that a
+            // key/click skips it early, and it auto-dismisses at kSplashMs.
+            Uint32 shown = SDL_GetTicks() - splashStart;
+            bool canDismiss = shown >= kSplashMinMs;
+            bool inputSkip = canDismiss &&
+                (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) ||
+                 ImGui::IsKeyPressed(ImGuiKey_Space) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                 ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+            if (shown >= kSplashMs || inputSkip)
                 showSplash = false;
 
             ImGui::Render();
@@ -1113,8 +1130,13 @@ int main(int, char**) {
                     if (!p.empty()) openModule(p);
                 }
                 if (ImGui::MenuItem("Show Cover", nullptr, false, haveModule)) {
-                    showSplash = true; splashUntil = SDL_GetTicks() + 3000;
+                    beginSplash();
                 }
+                ImGui::Separator();
+                // Restart the current adventure (moved here from the Adventure panel). Only
+                // meaningful once a session is running; the confirm modal is handled below.
+                if (ImGui::MenuItem("Restart Adventure", nullptr, false, session != nullptr))
+                    restartRequested = true;
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit")) running = false;
                 ImGui::EndMenu();
@@ -1154,6 +1176,23 @@ int main(int, char**) {
                 ImGui::PopStyleColor();
             }
             ImGui::EndMainMenuBar();
+        }
+
+        // Restart confirm modal, driven by File > Restart Adventure. Handled here (outside any
+        // window) so it works regardless of the active mode/window.
+        if (restartRequested) { ImGui::OpenPopup("Confirm Restart"); restartRequested = false; }
+        if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Restart the game? All current progress will be lost.");
+            ImGui::Spacing();
+            if (ImGui::Button("Yes, restart", ImVec2(130, 0))) {
+                session.reset(); journal.clear(); playStatus.clear(); areaView = false; viewArea = 0;
+                std::error_code ec; std::filesystem::remove(sidecarPath(), ec);
+                haveSaveFile = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(110, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
         }
 
       if (mode == Mode::Browser) {
@@ -1481,60 +1520,94 @@ int main(int, char**) {
                     ImGui::BeginChild("decision", ImVec2(boxW, 0.0f),
                                       ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
                     if (!ctx->choicePrompt.empty()) { drawProse(ctx->choicePrompt, 4.0f); ImGui::Spacing(); }
+                    // Apply choice i's effects (identical whether picked by mouse or number key).
+                    auto applyChoice = [&](size_t i) {
+                        const gns::AreaChoice& ch = ctx->choices[i];
+                        gns::Character& who = party[shopBuyer];
+                        // Mutate global variables (drives which context is active next). The
+                        // legacy setFlag is still honoured for migrated modules.
+                        for (const auto& mu : ch.mutations) applyMutation(mu);
+                        if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
+                        if (ch.completeControlPointId != 0)
+                            session->completeControlPoint(ch.completeControlPointId);
+                        // Gold reward applies to EVERY party member (each gets the full amount);
+                        // items still go to the active character.
+                        if (ch.goldDelta != 0)
+                            for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
+                        // Grant a rich item to the active character; identical names stack.
+                        if (!ch.grantItem.name.empty()) {
+                            int qty = ch.grantItem.quantity < 1 ? 1 : ch.grantItem.quantity;
+                            auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
+                                [&](const gns::InventoryItem& x){ return x.name == ch.grantItem.name; });
+                            if (it != who.inventory.end()) it->quantity += qty;
+                            else { gns::InventoryItem gi = ch.grantItem; gi.quantity = qty; who.inventory.push_back(gi); }
+                            // Register the granted item's dropable status (seed if not already set).
+                            session->plot().seedItemDropable(ch.grantItem.name, ch.grantItem.dropable);
+                            fireAcquire(ch.grantItem);   // item enters inventory
+                        }
+                        // "Set item dropable" effects: lock/unlock whether a granted item can be dropped.
+                        for (const auto& ds : ch.dropableSets)
+                            session->plot().setItemDropable(ds.first, ds.second);
+                        if (!ch.takeItemName.empty()) {
+                            auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
+                                [&](const gns::InventoryItem& x){ return x.name == ch.takeItemName; });
+                            if (it != who.inventory.end()) {
+                                fireUnacquire(*it);      // item leaves inventory
+                                if (--it->quantity <= 0) who.inventory.erase(it);
+                            }
+                        }
+                        if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
+                        // A choice may remove its context (never activates again) and/or deactivate
+                        // its area (vanishes from the map + stops triggering). Never deactivate the
+                        // module's start or end area, so the adventure stays completable.
+                        if (ch.deleteContext) session->plot().deleteContext(a->id, ctx->name);
+                        if (ch.deactivateArea) {
+                            if (a->id == mod.startAreaId || a->id == mod.endAreaId)
+                                journal.push_back("(The way here cannot be sealed off.)");
+                            else
+                                session->plot().deactivateArea(a->id);
+                        }
+                        session->plot().resolveChoiceContext(a->id, ctx->name);
+                        autoSave();
+                    };
+                    // Enumerated choices: each is a full-width clickable row "N. label" that glows
+                    // blue on hover. The player picks by clicking or by pressing the matching number
+                    // key (1-9). Apply the pick once, after the whole list is laid out, so we never
+                    // mutate plot state mid-iteration.
+                    int chosen = -1;
+                    const float rowW = ImGui::GetContentRegionAvail().x;
+                    const float padX = 8.0f, padY = 6.0f;
+                    const float fsz = ImGui::GetFontSize();
+                    ImFont* font = ImGui::GetFont();
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    size_t nKeyed = std::min<size_t>(9, ctx->choices.size());
                     for (size_t i = 0; i < ctx->choices.size(); ++i) {
                         const gns::AreaChoice& ch = ctx->choices[i];
-                        std::string label = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
+                        std::string base = ch.label.empty() ? ("Choice " + std::to_string(i + 1)) : ch.label;
+                        std::string text = std::to_string(i + 1) + ". " + base;
+                        float wrapW = rowW - 2.0f * padX;
+                        ImVec2 ts = font->CalcTextSizeA(fsz, FLT_MAX, wrapW, text.c_str());
+                        float rowH = ts.y + 2.0f * padY;
                         ImGui::PushID((int)i + 7000);
-                        if (ImGui::Button(label.c_str(), ImVec2(-1.0f, 0.0f))) {
-                            gns::Character& who = party[shopBuyer];
-                            // Mutate global variables (drives which context is active next). The
-                            // legacy setFlag is still honoured for migrated modules.
-                            for (const auto& mu : ch.mutations) applyMutation(mu);
-                            if (!ch.setFlag.empty()) session->plot().setFlag(ch.setFlag);
-                            if (ch.completeControlPointId != 0)
-                                session->completeControlPoint(ch.completeControlPointId);
-                            // Gold reward applies to EVERY party member (each gets the full amount);
-                            // items still go to the active character.
-                            if (ch.goldDelta != 0)
-                                for (auto& pm : party) { pm.gold += ch.goldDelta; if (pm.gold < 0) pm.gold = 0; }
-                            // Grant a rich item to the active character; identical names stack.
-                            if (!ch.grantItem.name.empty()) {
-                                int qty = ch.grantItem.quantity < 1 ? 1 : ch.grantItem.quantity;
-                                auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
-                                    [&](const gns::InventoryItem& x){ return x.name == ch.grantItem.name; });
-                                if (it != who.inventory.end()) it->quantity += qty;
-                                else { gns::InventoryItem gi = ch.grantItem; gi.quantity = qty; who.inventory.push_back(gi); }
-                                // Register the granted item's dropable status (seed if not already set).
-                                session->plot().seedItemDropable(ch.grantItem.name, ch.grantItem.dropable);
-                                fireAcquire(ch.grantItem);   // item enters inventory
-                            }
-                            // "Set item dropable" effects: lock/unlock whether a granted item can be dropped.
-                            for (const auto& ds : ch.dropableSets)
-                                session->plot().setItemDropable(ds.first, ds.second);
-                            if (!ch.takeItemName.empty()) {
-                                auto it = std::find_if(who.inventory.begin(), who.inventory.end(),
-                                    [&](const gns::InventoryItem& x){ return x.name == ch.takeItemName; });
-                                if (it != who.inventory.end()) {
-                                    fireUnacquire(*it);      // item leaves inventory
-                                    if (--it->quantity <= 0) who.inventory.erase(it);
-                                }
-                            }
-                            if (!ch.journalEntry.empty()) journal.push_back(ch.journalEntry);
-                            // A choice may remove its context (never activates again) and/or deactivate
-                            // its area (vanishes from the map + stops triggering). Never deactivate the
-                            // module's start or end area, so the adventure stays completable.
-                            if (ch.deleteContext) session->plot().deleteContext(a->id, ctx->name);
-                            if (ch.deactivateArea) {
-                                if (a->id == mod.startAreaId || a->id == mod.endAreaId)
-                                    journal.push_back("(The way here cannot be sealed off.)");
-                                else
-                                    session->plot().deactivateArea(a->id);
-                            }
-                            session->plot().resolveChoiceContext(a->id, ctx->name);
-                            autoSave();
-                        }
+                        ImVec2 p0 = ImGui::GetCursorScreenPos();
+                        bool pressed = ImGui::InvisibleButton("choice", ImVec2(rowW, rowH));
+                        bool hov = ImGui::IsItemHovered();
+                        // Plain enumerated list, not a button: no box/border. The text simply glows
+                        // blue while hovered to show which choice is under the cursor.
+                        ImU32 txtCol = hov ? IM_COL32(120, 200, 255, 255) : IM_COL32(220, 225, 235, 255);
+                        dl->AddText(font, fsz, ImVec2(p0.x + padX, p0.y + padY),
+                                    txtCol, text.c_str(), nullptr, wrapW);
+                        if (pressed) chosen = (int)i;
                         ImGui::PopID();
+                        ImGui::Spacing();
                     }
+                    // Number-key shortcuts (1-9), unless a text field or popup owns the keyboard.
+                    if (!io.WantTextInput && !popupOpen)
+                        for (size_t i = 0; i < nKeyed; ++i)
+                            if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + (int)i)) ||
+                                ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_Keypad1 + (int)i)))
+                                chosen = (int)i;
+                    if (chosen >= 0) applyChoice((size_t)chosen);
                     ImGui::EndChild();
                     ImGui::PopStyleVar();
                     ImGui::PopStyleColor(2);
@@ -1813,21 +1886,55 @@ int main(int, char**) {
         // marks the current one, and the active index drives the shop's buyer/seller.
         auto drawPartyPanel = [&](std::vector<gns::Character>& members) {
             ImGuiStyle& st = ImGui::GetStyle();
+            // 1-3 members: one full-width card per row (roomy, two stat columns). 4-6 members:
+            // a 2-wide grid of condensed cards at full font size, so up to 6 fit in about the
+            // vertical space 3 full cards use and the Return to Map button stays visible.
+            const bool twoCol = members.size() > 3;
+            // Full-card metrics (single column).
             const float av = 92.0f;                       // avatar width (3:4 -> avH tall)
             const float avH = av * 4.0f / 3.0f;
-            // Card is exactly as tall as the avatar (plus the child's padding); the stats are
-            // spread across two columns to its right so they fit without a scrollbar.
             const float cardH = avH + st.WindowPadding.y * 2.0f + st.CellPadding.y * 2.0f + 4.0f;
-            for (size_t i = 0; i < members.size(); ++i) {
+            // Condensed-card metrics (two columns). Height budgets 7 text lines so a wrapped
+            // weapon/armor line never clips under NoScrollbar.
+            const float avc = 64.0f;
+            const float avcH = avc * 4.0f / 3.0f;
+            const float cardH2 = std::max(avcH, 7.0f * ImGui::GetTextLineHeightWithSpacing())
+                                 + st.WindowPadding.y * 2.0f + 4.0f;
+
+            // Render one member's card (width 0 = fill the row or table cell it sits in).
+            auto drawCard = [&](size_t i, float h, bool condensed) {
                 gns::Character& pc = members[i];
                 bool active = ((int)i == shopBuyer);
                 ImGui::PushID((int)i);
                 ImGui::PushStyleColor(ImGuiCol_Border, active ? IM_COL32(120, 200, 255, 255)
                                                               : IM_COL32(70, 70, 84, 255));
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, active ? 2.5f : 1.0f);
-                ImGui::BeginChild("card", ImVec2(0, cardH), ImGuiChildFlags_Borders,
+                ImGui::BeginChild("card", ImVec2(0, h), ImGuiChildFlags_Borders,
                                   ImGuiWindowFlags_NoScrollbar);
-                if (ImGui::BeginTable("cardgrid", 3)) {
+                if (condensed) {
+                    // Compact single info column beside a smaller portrait.
+                    if (ImGui::BeginTable("cardgrid", 2)) {
+                        ImGui::TableSetupColumn("av", ImGuiTableColumnFlags_WidthFixed, avc + 4.0f);
+                        ImGui::TableSetupColumn("a",  ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        drawAvatar(pc, avc);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::TextUnformatted(pc.name.empty() ? "(unnamed)" : pc.name.c_str());
+                        ImGui::TextDisabled("%s %s  \xC2\xB7  Lv %d", pc.kin.c_str(), pc.calling.c_str(), pc.level);
+                        ImGui::Text("Life %d/%d  Def %d  AP %d", pc.life, pc.maxLife, pc.defense, pc.ap);
+                        ImGui::Text("M %+d  G %+d  W %+d  S %+d",
+                                    pc.traits.might, pc.traits.grace, pc.traits.wits, pc.traits.spirit);
+                        std::string weap = pc.weaponName.empty() ? "Unarmed" : pc.weaponName;
+                        weap += " (" + (pc.weaponDamageDie.empty() ? std::string("1d6") : pc.weaponDamageDie) + ")";
+                        if (pc.weaponBonus) weap += " +" + std::to_string(pc.weaponBonus);
+                        ImGui::TextWrapped("%s", weap.c_str());
+                        ImGui::TextWrapped("%s%s  \xC2\xB7  %d gp",
+                                    pc.armorName.empty() ? "No armor" : pc.armorName.c_str(),
+                                    pc.shield ? " + shield" : "", pc.gold);
+                        ImGui::EndTable();
+                    }
+                } else if (ImGui::BeginTable("cardgrid", 3)) {
                     ImGui::TableSetupColumn("av", ImGuiTableColumnFlags_WidthFixed, av + 4.0f);
                     ImGui::TableSetupColumn("a",  ImGuiTableColumnFlags_WidthStretch);
                     ImGui::TableSetupColumn("b",  ImGuiTableColumnFlags_WidthStretch);
@@ -1866,7 +1973,22 @@ int main(int, char**) {
                     shopBuyer = (int)i; sheetChar = (int)i; sheetMsg.clear();
                 }
                 ImGui::PopID();
-                ImGui::Spacing();
+            };
+
+            if (twoCol) {
+                // 2-wide table: even columns + automatic row advancement; each card fills its cell.
+                if (ImGui::BeginTable("party2", 2, ImGuiTableFlags_SizingStretchSame)) {
+                    for (size_t i = 0; i < members.size(); ++i) {
+                        ImGui::TableNextColumn();
+                        drawCard(i, cardH2, true);
+                    }
+                    ImGui::EndTable();
+                }
+            } else {
+                for (size_t i = 0; i < members.size(); ++i) {
+                    drawCard(i, cardH, false);
+                    ImGui::Spacing();
+                }
             }
         };
 
@@ -2079,7 +2201,7 @@ int main(int, char**) {
         // --- Map canvas (left) ---
         ImGui::SetNextWindowPos(wp);
         ImGui::SetNextWindowSize(ImVec2(ws.x - rightW, ws.y));
-        ImGui::Begin("Map", nullptr, pf);
+        ImGui::Begin("Map", nullptr, pf | ImGuiWindowFlags_NoTitleBar);
         // Resolve the active context of the area the party stands on. A 2+-active conflict is a
         // logic error: show a halt panel instead of the area view. Zero active = inert (map shown).
         gns::AreaContext* hereCtx = nullptr;
@@ -2107,9 +2229,46 @@ int main(int, char**) {
             drawAreaView(hereArea, hereCtx);
             ImGui::SetWindowFontScale(1.0f);
         } else if (!session) {
-            ImGui::TextWrapped("%s", haveModule
-                ? "Press \"Start Adventure\" in the Adventure panel."
-                : "Open a module first (File > Open Module).");
+            if (haveModule) {
+                // Pre-game (choosing Continue vs New Game): a title page filling the empty left
+                // region -- large cover art on the left, module name + summary on the right. The
+                // name is scaled up more than the summary so it reads clearly as the title.
+                ImVec2 avail = ImGui::GetContentRegionAvail();
+                if (ImGui::BeginTable("titlepage", 2)) {
+                    ImGui::TableSetupColumn("art", ImGuiTableColumnFlags_WidthFixed, avail.x * 0.52f);
+                    ImGui::TableSetupColumn("txt", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    if (coverTex) {
+                        int tw = 0, th = 0;
+                        SDL_QueryTexture(coverTex, nullptr, nullptr, &tw, &th);
+                        if (tw > 0 && th > 0) {
+                            float w = ImGui::GetContentRegionAvail().x;   // fill the art column
+                            float scale = w / (float)tw;
+                            float maxH = avail.y * 0.9f;
+                            if (th * scale > maxH) { scale = maxH / (float)th; w = tw * scale; }
+                            ImGui::Image((ImTextureID)coverTex, ImVec2(w, th * scale));
+                        }
+                    }
+
+                    ImGui::TableSetColumnIndex(1);
+                    // Module name -- large heading (clearly bigger than the summary).
+                    ImGui::SetWindowFontScale(2.2f);
+                    drawProse(mod.name.empty() ? std::string("(untitled module)") : mod.name, 6.0f);
+                    ImGui::SetWindowFontScale(1.0f);
+                    if (!mod.summary.empty()) {
+                        ImGui::Spacing(); ImGui::Spacing();
+                        ImGui::SetWindowFontScale(1.5f);   // summary -- larger than default
+                        drawProse(mod.summary, 5.0f);
+                        ImGui::SetWindowFontScale(1.0f);
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::SetWindowFontScale(1.0f);   // never let the scaled font leak to later frames
+            } else {
+                ImGui::TextWrapped("Open a module first (File > Open Module).");
+            }
         } else if (const gns::Map* cm = session->currentMap()) {
             const gns::Map& m = *cm;
             ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -2279,15 +2438,18 @@ int main(int, char**) {
         ImGui::End();
 
         // --- Adventure panel (right) ---
+        // The title bar shows the loaded module's name (falls back to "Adventure"); the stable
+        // ###id keeps the window identity fixed regardless of the visible name. The module name +
+        // summary that used to head the body are gone (they will move to a pre-game title splash),
+        // freeing vertical space so the Return to Map button stays in view with a full party.
         ImGui::SetNextWindowPos(ImVec2(wp.x + ws.x - rightW, wp.y));
         ImGui::SetNextWindowSize(ImVec2(rightW, ws.y));
-        ImGui::Begin("Adventure", nullptr, pf);
+        std::string advTitle = (haveModule && !mod.name.empty() ? mod.name : std::string("Adventure"))
+                               + "###Adventure";
+        ImGui::Begin(advTitle.c_str(), nullptr, pf);
         if (!haveModule) {
             ImGui::TextWrapped("Open a module to begin (File > Open Module).");
         } else {
-            ImGui::TextWrapped("%s", mod.name.empty() ? "(untitled module)" : mod.name.c_str());
-            if (!mod.summary.empty()) { ImGui::Spacing(); ImGui::TextWrapped("%s", mod.summary.c_str()); }
-            ImGui::Separator();
             if (!session) {
                 // A save sits next to this module: offer to resume it. Starting a New Game
                 // (below) overwrites the sidecar on the first autosave.
@@ -2333,7 +2495,7 @@ int main(int, char**) {
                     ImGui::Separator();
                 }
                 ImGui::SetNextItemWidth(160);
-                ImGui::SliderInt("Characters", &defaultPartyCount, 1, 5);
+                ImGui::SliderInt("Characters", &defaultPartyCount, 1, 6);
                 if (ImGui::Button("Quick Start (generate party)")) {
                     quickStartParty(defaultPartyCount);
                     startAdventure();
@@ -2358,12 +2520,9 @@ int main(int, char**) {
                 ImGui::Spacing();
                 if (!playStatus.empty())
                     ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s", playStatus.c_str());
-                // Restart (confirmed) and Leave grouped together.
-                bool openRestart = false;
-                if (ImGui::Button("Restart")) openRestart = true;
+                // Leave the area / shop (Restart lives in the File menu now).
                 if (areaView && hereArea) {
-                    ImGui::SameLine();
-                    const char* exitLbl = (hereCtx && hereCtx->isShop) ? "Leave Shop" : "Exit";
+                    const char* exitLbl = (hereCtx && hereCtx->isShop) ? "Leave Shop" : "Return to Map";
                     // Render Exit in the same "keyboard-default" highlight used by shop confirm
                     // buttons so it reads as the default action (Enter leaves the area).
                     ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -2382,20 +2541,6 @@ int main(int, char**) {
                     bool enter = !io.WantTextInput && !popupOpen && !pendingDecision &&
                                  (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter));
                     if (exitClicked || enter) { areaView = false; viewArea = 0; }
-                }
-                if (openRestart) ImGui::OpenPopup("Confirm Restart");
-                if (ImGui::BeginPopupModal("Confirm Restart", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                    ImGui::TextUnformatted("Restart the game? All current progress will be lost.");
-                    ImGui::Spacing();
-                    if (ImGui::Button("Yes, restart", ImVec2(130, 0))) {
-                        session.reset(); journal.clear(); playStatus.clear(); areaView = false; viewArea = 0;
-                        std::error_code ec; std::filesystem::remove(sidecarPath(), ec);
-                        haveSaveFile = false;
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Cancel", ImVec2(110, 0))) ImGui::CloseCurrentPopup();
-                    ImGui::EndPopup();
                 }
                 ImGui::TextDisabled("Arrows move the party \xC2\xB7 Enter to act \xC2\xB7 R rest \xC2\xB7 P pause \xC2\xB7 in a shop Up/Down pick character");
                 ImGui::Separator();
